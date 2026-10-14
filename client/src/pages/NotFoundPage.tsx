@@ -12,8 +12,8 @@ import { Link } from "react-router";
 export default function NotFoundPage() {
   return (
     <Box sx={{ py: 8, textAlign: "center" }}>
-      <Stack spacing={2} alignItems="center">
-        <Typography variant="h2" fontWeight={700}>
+      <Stack spacing={2} sx={{ alignItems: "center" }}>
+        <Typography variant="h2" sx={{ fontWeight: 700 }}>
           404
         </Typography>
 

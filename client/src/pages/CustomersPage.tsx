@@ -28,9 +28,9 @@ export default function CustomersPage() {
     <Stack spacing={3}>
       <Stack
         direction={{ xs: "column", sm: "row" }}
-        justifyContent="space-between"
+       
         gap={2}
-      >
+       sx={{ justifyContent: "space-between" }}>
         <Box>
           <Typography variant="h5">Customers</Typography>
           <Typography color="text.secondary">

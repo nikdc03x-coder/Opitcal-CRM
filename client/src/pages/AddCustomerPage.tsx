@@ -357,7 +357,7 @@ export default function AddCustomerPage() {
             ← Back to Customers
           </Button>
 
-          <Typography variant="h4" fontWeight={700}>
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>
             Add New Customer
           </Typography>
 
@@ -436,7 +436,7 @@ export default function AddCustomerPage() {
                       borderRadius: 2,
                     }}
                   >
-                    <Typography fontWeight={600} sx={{ mb: 2 }}>
+                    <Typography sx={{ fontWeight: 600,  mb: 2 }}>
                       {group.title}
                     </Typography>
 
@@ -546,7 +546,7 @@ export default function AddCustomerPage() {
                   : "Entered MRP"}
               </Typography>
 
-              <Typography variant="h4" fontWeight={700}>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>
                 {total === null
                   ? "₹ —"
                   : `₹${total.toLocaleString("en-IN", {
@@ -582,9 +582,9 @@ export default function AddCustomerPage() {
         {/* Save action */}
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          justifyContent="flex-end"
+         
           spacing={2}
-          sx={{ pb: 4 }}
+          sx={{ justifyContent: "flex-end",  pb: 4 }}
         >
           <Button
             variant="outlined"

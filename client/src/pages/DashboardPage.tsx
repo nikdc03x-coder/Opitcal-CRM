@@ -10,11 +10,13 @@ import {
   Typography,
 } from "@mui/material";
 
-import {
-  PersonAddAltOutlined,
-  PeopleOutline,
-  ArrowForwardOutlined,
-} from "@mui/icons-material";
+
+import PersonAddAltOutlined from "@mui/icons-material/PersonAddAltOutlined";
+
+import PeopleOutlined from "@mui/icons-material/PeopleOutlined";
+
+import ArrowForwardOutlined from "@mui/icons-material/ArrowForwardOutlined";
+
 
 import { Link } from "react-router";
 
@@ -32,7 +34,9 @@ const actions = [
     title: "Find Customer",
     description: "Search customer records by name or mobile number.",
     path: "/customers",
-    icon: <PeopleOutline fontSize="large" color="primary" />,
+    
+icon: <PeopleOutlined fontSize="large" color="primary" />,
+
   },
 ];
 
@@ -40,7 +44,7 @@ export default function DashboardPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Typography variant="h4" fontWeight={700}>
+        <Typography variant="h4" sx={{ fontWeight: 700 }}>
           Welcome to Optical CRM
         </Typography>
         <Typography color="text.secondary" sx={{ mt: 1 }}>
