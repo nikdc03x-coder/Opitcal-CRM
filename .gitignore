@@ -6,3 +6,18 @@ dist/
 *.log
 coverage/
 .DS_Store
+
+# Local AI/tool configuration
+server/.agents/
+server/.claude/
+server/.windsurf/
+server/skills-lock.json
+
+# Prisma generated client and compiled output
+server/src/generated/
+server/dist/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example

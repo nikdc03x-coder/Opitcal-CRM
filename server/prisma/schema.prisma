@@ -1,0 +1,122 @@
+
+// Optical CRM database structure.
+// These models replace the old MongoDB customer document
+// with related PostgreSQL tables.
+
+generator client {
+  provider                = "prisma-client"
+  output                  = "../src/generated/prisma"
+  moduleFormat            = "cjs"
+  importFileExtension     = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Staff can enter separate rates or only the total MRP.
+enum PricingMode {
+  SPLIT
+  MRP_ONLY
+}
+
+// Each shop has its own customers and records.
+// Shop selection will be implemented in a later phase.
+model Shop {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customers Customer[]
+}
+
+// Personal information belonging to a customer.
+model Customer {
+  id            String   @id @default(uuid())
+  shopId        String
+  name          String
+  mobNumber     String?
+  gender        String?
+  reference     String?
+  notes         String?  @db.Text
+  isActive      Boolean  @default(true)
+
+  // Keep the original MongoDB ID for future migration.
+  legacyMongoId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop          Shop             @relation(fields: [shopId], references: [id])
+  prescriptions Prescription[]
+  records       CustomerRecord[]
+
+  // Customers can share phone numbers.
+  @@index([shopId, mobNumber])
+  @@index([shopId, name])
+  @@unique([shopId, legacyMongoId])
+}
+
+// Prescriptions are stored separately so we can
+// preserve a customer's prescription history.
+model Prescription {
+  id         String   @id @default(uuid())
+  customerId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Right eye - distance
+  reDistSph  Decimal? @db.Decimal(5, 2)
+  reDistCyl  Decimal? @db.Decimal(5, 2)
+  reDistAxis Int?
+
+  // Right eye - near
+  reNearSph  Decimal? @db.Decimal(5, 2)
+  reNearCyl  Decimal? @db.Decimal(5, 2)
+  reNearAxis Int?
+
+  // Left eye - distance
+  leDistSph  Decimal? @db.Decimal(5, 2)
+  leDistCyl  Decimal? @db.Decimal(5, 2)
+  leDistAxis Int?
+
+  // Left eye - near
+  leNearSph  Decimal? @db.Decimal(5, 2)
+  leNearCyl  Decimal? @db.Decimal(5, 2)
+  leNearAxis Int?
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  records  CustomerRecord[]
+
+  @@index([customerId, createdAt])
+}
+
+// Each customer can have multiple purchase-related records.
+model CustomerRecord {
+  id             String      @id @default(uuid())
+  customerId     String
+  prescriptionId String?
+
+  specsType      String?
+  lensType       String?
+
+  // Two supported pricing methods.
+  pricingMode    PricingMode @default(MRP_ONLY)
+  frameRate      Decimal?    @db.Decimal(12, 2)
+  lensRate       Decimal?    @db.Decimal(12, 2)
+  mrp            Decimal     @db.Decimal(12, 2)
+
+  // Original MongoDB ID if this record was migrated.
+  legacyMongoId  String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@unique([customerId, legacyMongoId])
+}
