@@ -40,4 +40,10 @@ app.use((req, res) => {
 // Handle unexpected application errors.
 app.use(errorHandler);
 
+// Enable customer APIs for local development only.
+// They must be protected by authentication before deployment.
+if (process.env.NODE_ENV === "development") {
+  app.use("/api/customers", customerRoutes);
+}
+
 export default app;
