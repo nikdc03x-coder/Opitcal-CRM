@@ -9,16 +9,14 @@ import type {
 import { calculatePricing } from "../utils/pricing";
 import { mapPrescription } from "../utils/prescription";
 
-// -----------------------------------------------------
-// 1. DEFAULT SHOP
-// -----------------------------------------------------
-
-// We will use this shop while developing with dummy data.
-// Later, the selected shop will come from the logged-in
-// administrator's authorized shop selection.
+// nik - All customer operations are scoped to the demo shop.
+// Later, authentication will determine the authorized shop.
 const DEMO_SHOP_CODE = "DEMO_SHOP";
 
-// Find the demo shop in PostgreSQL.
+// -----------------------------------------------------
+// 1. FIND THE CURRENT SHOP
+// -----------------------------------------------------
+
 async function getDemoShopId(): Promise<string> {
   const shop = await prisma.shop.findUnique({
     where: {
@@ -42,21 +40,19 @@ async function getDemoShopId(): Promise<string> {
 // 2. SEARCH CUSTOMERS
 // -----------------------------------------------------
 
-// Search by mobile number or name.
-// One mobile number can belong to multiple customers,
-// so we always return a list instead of one record.
+// Return a list because multiple customers can share
+// the same mobile number.
 export async function searchCustomers(
   phone?: string,
   name?: string
 ) {
   const shopId = await getDemoShopId();
 
-  const customers = await prisma.customer.findMany({
+  return prisma.customer.findMany({
     where: {
       shopId,
       isActive: true,
 
-      // Partial phone search is supported.
       ...(phone
         ? {
             mobNumber: {
@@ -65,7 +61,6 @@ export async function searchCustomers(
           }
         : {}),
 
-      // Name search is case-insensitive.
       ...(name
         ? {
             name: {
@@ -76,8 +71,8 @@ export async function searchCustomers(
         : {}),
     },
 
-    // Return only information needed in search results.
-    // Internal notes should not appear in search listings.
+    // Keep search results small.
+    // Private notes are not needed in the search list.
     select: {
       id: true,
       name: true,
@@ -90,24 +85,19 @@ export async function searchCustomers(
       createdAt: "desc",
     },
 
-    // Limit initial results for better performance.
-    // Proper pagination will be added later.
     take: 50,
   });
-
-  return customers;
 }
 
 // -----------------------------------------------------
 // 3. GET CUSTOMER DETAILS
 // -----------------------------------------------------
 
-// Find a customer by their unique ID.
-// Include all related prescriptions and purchase records.
+// Retrieve exactly one active customer in this shop.
 export async function getCustomerById(id: string) {
   const shopId = await getDemoShopId();
 
-  const customer = await prisma.customer.findFirst({
+  return prisma.customer.findFirst({
     where: {
       id,
       shopId,
@@ -128,30 +118,30 @@ export async function getCustomerById(id: string) {
       },
     },
   });
-
-  return customer;
 }
 
 // -----------------------------------------------------
 // 4. CREATE CUSTOMER
 // -----------------------------------------------------
 
-// Register a customer with an optional prescription
-// and one initial purchase record.
-//
-// We use a database transaction so either every
-// related record is saved or nothing is saved.
+// A transaction ensures that the personal information,
+// prescription and initial purchase are saved together.
 export async function createCustomer(
   data: CreateCustomerInput
 ) {
   const shopId = await getDemoShopId();
 
-  // Calculate the total price on the backend.
-  // This prevents incorrect totals from the frontend.
+  // Always calculate pricing on the backend.
   const pricing = calculatePricing(data.record);
 
+  // Convert a calendar date into a PostgreSQL DATE value.
+  // Do not default to today when no purchase date was given.
+  const purchaseDate = data.purchaseDate
+    ? new Date(`${data.purchaseDate}T00:00:00.000Z`)
+    : null;
+
   return prisma.$transaction(async (tx) => {
-    // Step A: Save the customer's personal information.
+    // Step A: Create the customer.
     const customer = await tx.customer.create({
       data: {
         shopId,
@@ -159,14 +149,11 @@ export async function createCustomer(
         mobNumber: data.mobNumber,
         gender: data.gender,
         reference: data.reference,
-
-        // Notes are for internal staff use only.
         notes: data.notes,
       },
     });
 
-    // Step B: Save the prescription if supplied.
-    // Some customers may not need prescription details.
+    // Step B: Save the prescription if provided.
     const prescription = data.prescription
       ? await tx.prescription.create({
           data: {
@@ -176,8 +163,7 @@ export async function createCustomer(
         })
       : null;
 
-    // Step C: Save the frame, lens and pricing details.
-    // Link the purchase to the prescription if it exists.
+    // Step C: Save the purchase with its actual date.
     await tx.customerRecord.create({
       data: {
         customerId: customer.id,
@@ -187,10 +173,13 @@ export async function createCustomer(
         lensType: data.record.lensType,
 
         ...pricing,
+
+        // This is independent of the database createdAt field.
+        purchaseDate,
       },
     });
 
-    // Step D: Return the complete saved customer.
+    // Step D: Return the saved customer and related records.
     return tx.customer.findUniqueOrThrow({
       where: {
         id: customer.id,
@@ -208,10 +197,9 @@ export async function createCustomer(
 // 5. UPDATE CUSTOMER
 // -----------------------------------------------------
 
-// Update personal details and optionally edit the
-// latest prescription or purchase record.
-//
-// All changes occur inside one database transaction.
+// Keep existing Update Customer behavior.
+// The historical editing endpoints handle exact
+// record IDs for purchase and prescription updates.
 export async function updateCustomer(
   id: string,
   data: UpdateCustomerInput
@@ -219,8 +207,8 @@ export async function updateCustomer(
   const shopId = await getDemoShopId();
 
   return prisma.$transaction(async (tx) => {
-    // Step A: Check whether the customer exists
-    // and belongs to the selected demo shop.
+    // Step A: Confirm that this active customer
+    // belongs to the demo shop.
     const existing = await tx.customer.findFirst({
       where: {
         id,
@@ -245,12 +233,11 @@ export async function updateCustomer(
       },
     });
 
-    // Return null if the customer does not exist.
     if (!existing) {
       return null;
     }
 
-    // Step B: Update only the provided personal fields.
+    // Step B: Update only the personal fields provided.
     await tx.customer.update({
       where: {
         id,
@@ -271,10 +258,10 @@ export async function updateCustomer(
         data.prescription
       );
 
-      const latestPrescription = existing.prescriptions[0];
+      const latestPrescription =
+        existing.prescriptions[0];
 
       if (latestPrescription) {
-        // Edit the existing latest prescription.
         await tx.prescription.update({
           where: {
             id: latestPrescription.id,
@@ -283,7 +270,7 @@ export async function updateCustomer(
           data: measurements,
         });
       } else {
-        // Create a prescription if none exists.
+        // Create a new prescription if none exists.
         const newPrescription =
           await tx.prescription.create({
             data: {
@@ -292,15 +279,18 @@ export async function updateCustomer(
             },
           });
 
-        // If the existing purchase has no prescription,
-        // connect it to the newly created prescription.
+        // Connect the latest purchase if needed.
         const latestRecord = existing.records[0];
 
-        if (latestRecord && !latestRecord.prescriptionId) {
+        if (
+          latestRecord &&
+          !latestRecord.prescriptionId
+        ) {
           await tx.customerRecord.update({
             where: {
               id: latestRecord.id,
             },
+
             data: {
               prescriptionId: newPrescription.id,
             },
@@ -309,14 +299,25 @@ export async function updateCustomer(
       }
     }
 
-    // Step D: Update frame, lens and price information.
+    // Step D: Update the latest purchase if supplied.
     if (data.record) {
       const pricing = calculatePricing(data.record);
-
       const latestRecord = existing.records[0];
 
+      // Explicitly handle split prices.
+      // MRP-only records do not keep separate rates.
+      const rates =
+        data.record.pricingMode === "SPLIT"
+          ? {
+              frameRate: data.record.frameRate,
+              lensRate: data.record.lensRate,
+            }
+          : {
+              frameRate: null,
+              lensRate: null,
+            };
+
       if (latestRecord) {
-        // Update the latest purchase-related record.
         await tx.customerRecord.update({
           where: {
             id: latestRecord.id,
@@ -327,16 +328,17 @@ export async function updateCustomer(
             lensType: data.record.lensType,
 
             ...pricing,
+            ...rates,
           },
         });
       } else {
-        // Create a purchase record if none exists.
-        // Link it to the latest available prescription.
+        // Create a purchase when none exists.
         const latestPrescription =
           await tx.prescription.findFirst({
             where: {
               customerId: id,
             },
+
             orderBy: {
               createdAt: "desc",
             },
@@ -352,13 +354,15 @@ export async function updateCustomer(
             lensType: data.record.lensType,
 
             ...pricing,
+            ...rates,
+
+            purchaseDate: null,
           },
         });
       }
     }
 
-    // Step E: Return the updated customer,
-    // including their prescriptions and records.
+    // Step E: Return the updated customer.
     return tx.customer.findUniqueOrThrow({
       where: {
         id,

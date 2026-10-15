@@ -31,6 +31,7 @@ export type CustomerPayload = {
         lensType: string | null;
         mrp: number;
       };
+      purchaseDate?: string | null;
 };
 
 type CreatedCustomer = {
@@ -85,6 +86,7 @@ export type Prescription = {
   leNearAxis: number | null;
 };
 
+
 export type CustomerRecord = {
   id: string;
   prescriptionId: string | null;
@@ -94,6 +96,7 @@ export type CustomerRecord = {
   frameRate: string | null;
   lensRate: string | null;
   mrp: string;
+  purchaseDate: string | null;
   createdAt: string;
 };
 
@@ -168,3 +171,94 @@ export async function getCustomer(
 
   return readResponse<CustomerDetails>(response);
 }
+
+// Fields that shop staff can update in this first edit screen.
+export type CustomerPersonalUpdate = {
+  name: string;
+  mobNumber: string | null;
+  gender: "Male" | "Female" | "Other" | null;
+  reference: string | null;
+  notes: string | null;
+};
+
+// Update the selected customer through the existing Express API.
+// The backend must validate the customer ID and permitted fields.
+export async function updateCustomer(
+  id: string,
+  changes: CustomerPersonalUpdate
+): Promise<CustomerDetails> {
+  const response = await fetch(
+    `/api/customers/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(changes),
+    }
+  );
+
+  return readResponse<CustomerDetails>(response);
+}
+
+// -----------------------------------------------------
+// HISTORICAL RECORD EDITING
+// -----------------------------------------------------
+
+export type EditableEye = {
+  sph?: number | null;
+  cyl?: number | null;
+  axis?: number | null;
+};
+
+export type EditablePrescription = {
+  re_dist?: EditableEye;
+  re_near?: EditableEye;
+  le_dist?: EditableEye;
+  le_near?: EditableEye;
+};
+
+export type EditablePurchase = {
+  purchaseDate: string | null;
+  record: CustomerPayload["record"];
+};
+
+// Update one purchase by its own ID.
+// This does not change any other purchase.
+export async function updatePurchase(
+  customerId: string,
+  recordId: string,
+  changes: EditablePurchase
+): Promise<CustomerRecord> {
+  const response = await fetch(
+    `/api/customers/${encodeURIComponent(customerId)}/records/${encodeURIComponent(recordId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    }
+  );
+
+  return readResponse<CustomerRecord>(response);
+}
+
+// Update one selected prescription by ID.
+export async function updatePrescription(
+  customerId: string,
+  prescriptionId: string,
+  changes: EditablePrescription
+): Promise<Prescription> {
+  const response = await fetch(
+    `/api/customers/${encodeURIComponent(customerId)}/prescriptions/${encodeURIComponent(prescriptionId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    }
+  );
+
+  return readResponse<Prescription>(response);
+}
+
+
+CustomerPayload

@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Alert,
@@ -34,6 +34,8 @@ import {
   Controller,
   useForm,
   useWatch,
+  type Control,
+  type FieldErrors,
 } from "react-hook-form";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -47,12 +49,11 @@ import {
 } from "../services/customerApi";
 
 // -----------------------------------------------------
-// 1. PRESCRIPTION SETTINGS
+// 1. OPTICAL PRESCRIPTION CONFIGURATION
 // -----------------------------------------------------
 
-// nik - Use one consistent prescription order across
-// Add Customer, Edit Customer and Customer Details.
-
+// nik - Keep eye measurements in the same order
+// throughout Add, Edit and Customer Details pages.
 const eyePrefixes = [
   "re_dist",
   "re_near",
@@ -91,16 +92,19 @@ const prescriptionGroups: {
   },
 ];
 
-// Generate standard eye powers in 0.25 steps.
-// The searchable dropdown also supports typed values.
-function powerOptions(min: number, max: number) {
+// Generate searchable eye powers in 0.25 steps.
+function powerOptions(min: number, max: number): string[] {
   const options: string[] = [];
 
-  for (let quarter = min * 4; quarter <= max * 4; quarter++) {
-    const value = quarter / 4;
+  for (
+    let quarter = min * 4;
+    quarter <= max * 4;
+    quarter++
+  ) {
+    const power = quarter / 4;
 
     options.push(
-      `${value > 0 ? "+" : ""}${value.toFixed(2)}`
+      `${power > 0 ? "+" : ""}${power.toFixed(2)}`
     );
   }
 
@@ -111,20 +115,39 @@ const sphOptions = powerOptions(-30, 30);
 const cylOptions = powerOptions(-15, 15);
 
 // -----------------------------------------------------
-// 2. VALIDATION
+// 2. VALIDATION HELPERS
 // -----------------------------------------------------
 
-// Inputs are strings in the form.
-// Convert them to numbers only when building the API payload.
+// Validate an actual calendar date, not only its format.
+function validPurchaseDate(value: string): boolean {
+  if (value === "") return true;
 
-const optionalNumber = z.string();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
 
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
+// Prices must be nonnegative with at most two decimals.
 const moneyField = z.string().refine(
   (value) =>
     /^\d+(\.\d{1,2})?$/.test(value) &&
     Number(value) <= 9999999999.99,
   "Enter a valid amount with at most 2 decimal places."
 );
+
+// Keep eye measurements as strings while editing.
+const optionalPower = z.string();
+
+// -----------------------------------------------------
+// 3. CUSTOMER FORM SCHEMA
+// -----------------------------------------------------
 
 const formSchema = z
   .object({
@@ -142,25 +165,30 @@ const formSchema = z
 
     gender: z.enum(["", "Male", "Female", "Other"]),
 
-    reference: z.string().max(
-      255,
-      "Maximum 255 characters."
-    ),
+    reference: z
+      .string()
+      .max(255, "Maximum 255 characters."),
 
-    notes: z.string().max(
-      5000,
-      "Maximum 5000 characters."
-    ),
+    notes: z
+      .string()
+      .max(5000, "Maximum 5000 characters."),
 
-    specsType: z.string().max(
-      100,
-      "Maximum 100 characters."
-    ),
+    // Actual date of purchase.
+    // A blank value means the date is not recorded.
+    purchaseDate: z
+      .string()
+      .refine(
+        validPurchaseDate,
+        "Enter a valid purchase date."
+      ),
 
-    lensType: z.string().max(
-      100,
-      "Maximum 100 characters."
-    ),
+    specsType: z
+      .string()
+      .max(100, "Maximum 100 characters."),
+
+    lensType: z
+      .string()
+      .max(100, "Maximum 100 characters."),
 
     pricingMode: z.enum(["SPLIT", "MRP_ONLY"]),
 
@@ -168,53 +196,55 @@ const formSchema = z
     lensRate: z.string(),
     mrp: z.string(),
 
-    re_dist_sph: optionalNumber,
-    re_dist_cyl: optionalNumber,
-    re_dist_axis: optionalNumber,
+    re_dist_sph: optionalPower,
+    re_dist_cyl: optionalPower,
+    re_dist_axis: optionalPower,
 
-    re_near_sph: optionalNumber,
-    re_near_cyl: optionalNumber,
-    re_near_axis: optionalNumber,
+    re_near_sph: optionalPower,
+    re_near_cyl: optionalPower,
+    re_near_axis: optionalPower,
 
-    le_dist_sph: optionalNumber,
-    le_dist_cyl: optionalNumber,
-    le_dist_axis: optionalNumber,
+    le_dist_sph: optionalPower,
+    le_dist_cyl: optionalPower,
+    le_dist_axis: optionalPower,
 
-    le_near_sph: optionalNumber,
-    le_near_cyl: optionalNumber,
-    le_near_axis: optionalNumber,
+    le_near_sph: optionalPower,
+    le_near_cyl: optionalPower,
+    le_near_axis: optionalPower,
   })
   .superRefine((data, context) => {
-    // Validate only the fields relevant to pricing mode.
+    // Validate prices based on the selected mode.
     const priceFields =
       data.pricingMode === "SPLIT"
         ? (["frameRate", "lensRate"] as const)
         : (["mrp"] as const);
 
-    for (const name of priceFields) {
-      if (!moneyField.safeParse(data[name]).success) {
+    for (const field of priceFields) {
+      if (!moneyField.safeParse(data[field]).success) {
         context.addIssue({
           code: "custom",
-          path: [name],
+          path: [field],
           message: "Enter a valid price (max 2 decimals).",
         });
       }
     }
 
-    // Validate each of the four eye groups.
+    // Validate each of the 12 eye measurements.
     for (const prefix of eyePrefixes) {
       for (const measure of [
         "sph",
         "cyl",
         "axis",
       ] as const) {
-        const key: EyeFieldName = `${prefix}_${measure}`;
+        const key: EyeFieldName =
+          `${prefix}_${measure}`;
+
         const value = data[key].trim();
 
-        // A blank prescription field is allowed.
         if (value === "") continue;
 
         if (measure === "axis") {
+          // AXIS is a whole number from 0 to 180.
           if (
             !/^\d+$/.test(value) ||
             Number(value) > 180
@@ -222,7 +252,8 @@ const formSchema = z
             context.addIssue({
               code: "custom",
               path: [key],
-              message: "AXIS must be a whole number from 0 to 180.",
+              message:
+                "AXIS must be a whole number from 0 to 180.",
             });
           }
         } else {
@@ -249,7 +280,7 @@ const formSchema = z
 type FormValues = z.infer<typeof formSchema>;
 
 // -----------------------------------------------------
-// 3. INITIAL VALUES
+// 4. DEFAULT FORM VALUES
 // -----------------------------------------------------
 
 const initialValues: FormValues = {
@@ -258,6 +289,9 @@ const initialValues: FormValues = {
   gender: "",
   reference: "",
   notes: "",
+
+  // Do not assume the purchase was made today.
+  purchaseDate: "",
 
   specsType: "",
   lensType: "",
@@ -285,43 +319,209 @@ const initialValues: FormValues = {
 };
 
 // -----------------------------------------------------
-// 4. PAYLOAD HELPERS
+// 5. PRESCRIPTION PAYLOAD HELPER
 // -----------------------------------------------------
 
-// Read one eye group.
-// Blank values are omitted instead of stored as zero.
+// Convert nonempty measurements to numbers.
+// Missing measurements remain undefined.
 function readEye(
   values: FormValues,
   prefix: EyePrefix
 ): EyeValues | undefined {
-  const result: EyeValues = {};
+  const eye: EyeValues = {};
 
   for (const measure of [
     "sph",
     "cyl",
     "axis",
   ] as const) {
-    const key: EyeFieldName = `${prefix}_${measure}`;
-    const raw = values[key].trim();
+    const field: EyeFieldName =
+      `${prefix}_${measure}`;
 
-    if (raw !== "") {
-      result[measure] = Number(raw);
+    const value = values[field].trim();
+
+    if (value !== "") {
+      eye[measure] = Number(value);
     }
   }
 
-  return Object.keys(result).length > 0
-    ? result
+  return Object.keys(eye).length > 0
+    ? eye
     : undefined;
 }
 
 // -----------------------------------------------------
-// 5. ADD CUSTOMER PAGE
+// 6. REUSABLE FORM INPUT COMPONENTS
 // -----------------------------------------------------
 
+type SharedFormProps = {
+  control: Control<FormValues>;
+  errors: FieldErrors<FormValues>;
+  disabled: boolean;
+};
+
+type TextInputProps = SharedFormProps & {
+  name: keyof FormValues;
+  label: string;
+  required?: boolean;
+  multiline?: boolean;
+  rows?: number;
+  inputMode?: "decimal" | "numeric";
+  maxLength?: number;
+};
+
+// A normal text field connected to React Hook Form.
+function FormTextInput({
+  control,
+  errors,
+  disabled,
+  name,
+  label,
+  required,
+  multiline,
+  rows,
+  inputMode,
+  maxLength,
+}: TextInputProps) {
+  return (
+    <Controller
+      name={name}
+      control={control}
+      render={({ field }) => (
+        <TextField
+          {...field}
+          fullWidth
+          label={label}
+          required={required}
+          multiline={multiline}
+          rows={rows}
+          disabled={disabled}
+          error={Boolean(errors[name])}
+          helperText={errors[name]?.message}
+          slotProps={{
+            htmlInput: {
+              ...(inputMode ? { inputMode } : {}),
+              ...(maxLength ? { maxLength } : {}),
+            },
+          }}
+        />
+      )}
+    />
+  );
+}
+
+type PowerInputProps = SharedFormProps & {
+  name: EyeFieldName;
+  label: string;
+  options: string[];
+};
+
+// SPH and CYL use searchable MUI dropdowns.
+function PrescriptionPowerInput({
+  control,
+  errors,
+  disabled,
+  name,
+  label,
+  options,
+}: PowerInputProps) {
+  return (
+    <Controller
+      name={name}
+      control={control}
+      render={({ field }) => (
+        <Autocomplete
+          freeSolo
+          fullWidth
+          size="small"
+          options={options}
+          value={field.value}
+          inputValue={field.value}
+          disabled={disabled}
+          onInputChange={(_, value, reason) => {
+            if (
+              reason === "input" ||
+              reason === "clear"
+            ) {
+              field.onChange(value);
+            }
+          }}
+          onChange={(_, value) => {
+            field.onChange(value ?? "");
+          }}
+          onBlur={field.onBlur}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              inputRef={field.ref}
+              label={label}
+              placeholder="Power"
+              error={Boolean(errors[name])}
+              helperText={errors[name]?.message}
+            />
+          )}
+        />
+      )}
+    />
+  );
+}
+
+type AxisInputProps = SharedFormProps & {
+  name: EyeFieldName;
+  label: string;
+};
+
+// AXIS is typed manually, without a dropdown.
+function AxisInput({
+  control,
+  errors,
+  disabled,
+  name,
+  label,
+}: AxisInputProps) {
+  return (
+    <Controller
+      name={name}
+      control={control}
+      render={({ field }) => (
+        <TextField
+          {...field}
+          fullWidth
+          size="small"
+          label={label}
+          placeholder="0–180"
+          disabled={disabled}
+          onChange={(event) => {
+            const value = event.target.value
+              .replace(/\D/g, "")
+              .slice(0, 3);
+
+            field.onChange(value);
+          }}
+          error={Boolean(errors[name])}
+          helperText={errors[name]?.message}
+          slotProps={{
+            htmlInput: {
+              inputMode: "numeric",
+            },
+          }}
+        />
+      )}
+    />
+  );
+}
+
+// -----------------------------------------------------
+// 7. ADD CUSTOMER PAGE
+// -----------------------------------------------------
+
+// nik - Register customers with optional optical
+// prescriptions and a purchase with an optional date.
 export default function AddCustomerPage() {
   const navigate = useNavigate();
 
   const [saveError, setSaveError] = useState("");
+  const submissionLock = useRef(false);
 
   const {
     control,
@@ -331,14 +531,16 @@ export default function AddCustomerPage() {
       errors,
       isSubmitting,
       isDirty,
+      submitCount,
     },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: initialValues,
     mode: "onBlur",
+    shouldFocusError: true,
   });
 
-  // Watch prices and update the displayed MRP automatically.
+  // Watch pricing fields for live total calculation.
   const [
     pricingMode,
     frameRate,
@@ -375,14 +577,42 @@ export default function AddCustomerPage() {
         ? Number(mrp)
         : null;
 
+  // Warn about an unfinished new customer on reload.
+  useEffect(() => {
+    if (!isDirty || isSubmitting) return;
+
+    const warnBeforeUnload = (
+      event: BeforeUnloadEvent
+    ) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener(
+      "beforeunload",
+      warnBeforeUnload
+    );
+
+    return () => {
+      window.removeEventListener(
+        "beforeunload",
+        warnBeforeUnload
+      );
+    };
+  }, [isDirty, isSubmitting]);
+
   // -----------------------------------------------------
-  // 6. SAVE NEW CUSTOMER
+  // 8. SAVE CUSTOMER
   // -----------------------------------------------------
 
   async function onSubmit(values: FormValues) {
+    // Prevent accidental double-click submissions.
+    if (submissionLock.current) return;
+
+    submissionLock.current = true;
     setSaveError("");
 
-    // Build all four prescription groups.
+    // Build the optional prescription.
     const prescription = {
       re_dist: readEye(values, "re_dist"),
       re_near: readEye(values, "re_near"),
@@ -399,7 +629,7 @@ export default function AddCustomerPage() {
       lensType: values.lensType.trim() || null,
     };
 
-    // Pricing is calculated again by the backend.
+    // The server calculates total MRP again.
     const record: CustomerPayload["record"] =
       values.pricingMode === "SPLIT"
         ? {
@@ -417,13 +647,13 @@ export default function AddCustomerPage() {
     const payload: CustomerPayload = {
       name: values.name.trim(),
 
-      mobNumber: values.mobNumber || null,
+      mobNumber: values.mobNumber.trim() || null,
 
       gender: values.gender || null,
 
       reference: values.reference.trim() || null,
 
-      // Internal notes stay in the CRM only.
+      // Never send private notes to customer PDFs.
       notes: values.notes.trim() || null,
 
       prescription: hasPrescription
@@ -431,14 +661,16 @@ export default function AddCustomerPage() {
         : undefined,
 
       record,
+
+      // Date is separate from the record creation time.
+      // Blank dates are explicitly stored as null.
+      purchaseDate: values.purchaseDate || null,
     };
 
     try {
-      // React Hook Form automatically prevents
-      // a second submit while this request is pending.
       const customer = await createCustomer(payload);
 
-      // Navigate only after the database confirms creation.
+      // Only redirect when the API confirms creation.
       navigate(`/customers/${customer.id}`, {
         replace: true,
         state: {
@@ -449,147 +681,35 @@ export default function AddCustomerPage() {
       setSaveError(
         error instanceof Error
           ? error.message
-          : "Unable to save customer."
+          : "Unable to save the customer."
       );
+    } finally {
+      submissionLock.current = false;
     }
   }
 
   // -----------------------------------------------------
-  // 7. REUSABLE TEXT INPUT
+  // 9. CANCEL WITH UNSAVED CHANGE WARNING
   // -----------------------------------------------------
 
-  function formInput(
-    name: keyof FormValues,
-    label: string,
-    options: {
-      required?: boolean;
-      multiline?: boolean;
-      rows?: number;
-      inputMode?: "decimal" | "numeric";
-      maxLength?: number;
-    } = {}
-  ) {
-    return (
-      <Controller
-        name={name}
-        control={control}
-        render={({ field }) => (
-          <TextField
-            {...field}
-            fullWidth
-            label={label}
-            required={options.required}
-            multiline={options.multiline}
-            rows={options.rows}
-            disabled={isSubmitting}
-            error={Boolean(errors[name])}
-            helperText={errors[name]?.message}
-            slotProps={{
-              htmlInput: {
-                ...(options.inputMode
-                  ? { inputMode: options.inputMode }
-                  : {}),
-                ...(options.maxLength
-                  ? { maxLength: options.maxLength }
-                  : {}),
-              },
-            }}
-          />
-        )}
-      />
-    );
+  function cancelCreation() {
+    if (isSubmitting) return;
+
+    if (
+      !isDirty ||
+      window.confirm(
+        "Discard unsaved customer details?"
+      )
+    ) {
+      navigate("/customers");
+    }
   }
 
-  // -----------------------------------------------------
-  // 8. PRESCRIPTION POWER DROPDOWN
-  // -----------------------------------------------------
-
-  function prescriptionPowerInput(
-    name: EyeFieldName,
-    label: string,
-    options: string[]
-  ) {
-    return (
-      <Controller
-        name={name}
-        control={control}
-        render={({ field }) => (
-          <Autocomplete
-            freeSolo
-            fullWidth
-            size="small"
-            options={options}
-            value={field.value}
-            inputValue={field.value}
-            disabled={isSubmitting}
-            onInputChange={(_, nextValue, reason) => {
-              if (
-                reason === "input" ||
-                reason === "clear"
-              ) {
-                field.onChange(nextValue);
-              }
-            }}
-            onChange={(_, nextValue) => {
-              field.onChange(nextValue ?? "");
-            }}
-            onBlur={field.onBlur}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                inputRef={field.ref}
-                placeholder="Power"
-                aria-label={label}
-                error={Boolean(errors[name])}
-                helperText={errors[name]?.message}
-              />
-            )}
-          />
-        )}
-      />
-    );
-  }
-
-  // -----------------------------------------------------
-  // 9. AXIS MANUAL INPUT
-  // -----------------------------------------------------
-
-  function axisInput(
-    name: EyeFieldName,
-    label: string
-  ) {
-    return (
-      <Controller
-        name={name}
-        control={control}
-        render={({ field }) => (
-          <TextField
-            {...field}
-            fullWidth
-            size="small"
-            placeholder="0–180"
-            disabled={isSubmitting}
-            onChange={(event) => {
-              // Only digits are allowed for AXIS.
-              const value = event.target.value
-                .replace(/\D/g, "")
-                .slice(0, 3);
-
-              field.onChange(value);
-            }}
-            error={Boolean(errors[name])}
-            helperText={errors[name]?.message}
-            slotProps={{
-              htmlInput: {
-                inputMode: "numeric",
-                "aria-label": label,
-              },
-            }}
-          />
-        )}
-      />
-    );
-  }
+  const sharedProps = {
+    control,
+    errors,
+    disabled: isSubmitting,
+  };
 
   // -----------------------------------------------------
   // 10. MAIN PAGE
@@ -607,17 +727,8 @@ export default function AddCustomerPage() {
         <Box>
           <Button
             startIcon={<ArrowBackOutlined />}
+            onClick={cancelCreation}
             disabled={isSubmitting}
-            onClick={() => {
-              if (
-                !isDirty ||
-                window.confirm(
-                  "Discard the unsaved customer information?"
-                )
-              ) {
-                navigate("/customers");
-              }
-            }}
             sx={{ mb: 2 }}
           >
             Back to Customers
@@ -634,12 +745,12 @@ export default function AddCustomerPage() {
             color="text.secondary"
             sx={{ mt: 1 }}
           >
-            Register personal information, eye
-            prescription and purchase details.
+            Register personal details, optical
+            prescription and purchase information.
           </Typography>
         </Box>
 
-        {/* API ERRORS */}
+        {/* API ERROR */}
         {saveError && (
           <Alert
             severity="error"
@@ -649,48 +760,63 @@ export default function AddCustomerPage() {
           </Alert>
         )}
 
+        {/* INVALID FORM ALERT */}
+        {submitCount > 0 &&
+          Object.keys(errors).length > 0 && (
+            <Alert severity="warning">
+              Please correct the highlighted fields
+              before saving the customer.
+            </Alert>
+          )}
+
         {/* SAVE PROGRESS */}
         {isSubmitting && (
           <Alert severity="info">
             <Stack
               direction="row"
               spacing={1.5}
-              sx={{ alignItems: "center" }}
+              alignItems="center"
             >
               <CircularProgress size={18} />
 
               <Typography variant="body2">
-                Saving the customer and related records...
+                Saving customer, prescription and
+                purchase information...
               </Typography>
             </Stack>
           </Alert>
         )}
 
-        {/* PERSONAL INFORMATION */}
+        {/* ------------------------------------------
+            PERSONAL INFORMATION
+        ------------------------------------------ */}
         <Card>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" sx={{ mb: 3 }}>
+            <Typography
+              variant="h6"
+              sx={{ mb: 3 }}
+            >
               Personal Information
             </Typography>
 
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput(
-                  "name",
-                  "Customer Name",
-                  { required: true }
-                )}
+                <FormTextInput
+                  {...sharedProps}
+                  name="name"
+                  label="Customer Name"
+                  required
+                />
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput(
-                  "mobNumber",
-                  "Mobile Number",
-                  {
-                    inputMode: "numeric",
-                    maxLength: 10,
-                  }
-                )}
+                <FormTextInput
+                  {...sharedProps}
+                  name="mobNumber"
+                  label="Mobile Number"
+                  inputMode="numeric"
+                  maxLength={10}
+                />
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
@@ -708,15 +834,12 @@ export default function AddCustomerPage() {
                       <MenuItem value="">
                         Not specified
                       </MenuItem>
-
                       <MenuItem value="Male">
                         Male
                       </MenuItem>
-
                       <MenuItem value="Female">
                         Female
                       </MenuItem>
-
                       <MenuItem value="Other">
                         Other
                       </MenuItem>
@@ -726,16 +849,19 @@ export default function AddCustomerPage() {
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput(
-                  "reference",
-                  "Reference / Referred By"
-                )}
+                <FormTextInput
+                  {...sharedProps}
+                  name="reference"
+                  label="Reference / Referred By"
+                />
               </Grid>
             </Grid>
           </CardContent>
         </Card>
 
-        {/* OPTICAL PRESCRIPTION */}
+        {/* ------------------------------------------
+            OPTICAL PRESCRIPTION
+        ------------------------------------------ */}
         <Card>
           <CardContent sx={{ p: 3 }}>
             <Typography
@@ -749,9 +875,9 @@ export default function AddCustomerPage() {
               color="text.secondary"
               sx={{ mb: 2 }}
             >
-              Enter eye powers using the searchable
-              SPH/CYL dropdowns. Type AXIS manually.
-              Blank measurements are allowed.
+              Select or search SPH and CYL powers.
+              Type AXIS manually. Blank measurements
+              are allowed.
             </Typography>
 
             <TableContainer
@@ -765,7 +891,7 @@ export default function AddCustomerPage() {
               <Table
                 size="small"
                 sx={{
-                  minWidth: 580,
+                  minWidth: 620,
                   "& .MuiTableCell-root": {
                     px: 1.5,
                     py: 1.5,
@@ -775,9 +901,7 @@ export default function AddCustomerPage() {
               >
                 <TableHead>
                   <TableRow
-                    sx={{
-                      bgcolor: "background.default",
-                    }}
+                    sx={{ bgcolor: "background.default" }}
                   >
                     <TableCell sx={{ fontWeight: 700 }}>
                       Eye / Vision
@@ -809,9 +933,12 @@ export default function AddCustomerPage() {
                       `${group.prefix}_axis`;
 
                     return (
-                      <TableRow key={group.prefix} hover>
+                      <TableRow
+                        key={group.prefix}
+                        hover
+                      >
                         <TableCell
-                          sx={{ minWidth: 150 }}
+                          sx={{ minWidth: 145 }}
                         >
                           <Typography
                             sx={{ fontWeight: 700 }}
@@ -829,34 +956,37 @@ export default function AddCustomerPage() {
 
                         {/* SPH DROPDOWN */}
                         <TableCell
-                          sx={{ minWidth: 145 }}
+                          sx={{ minWidth: 150 }}
                         >
-                          {prescriptionPowerInput(
-                            sphKey,
-                            `${group.label} SPH`,
-                            sphOptions
-                          )}
+                          <PrescriptionPowerInput
+                            {...sharedProps}
+                            name={sphKey}
+                            label={`${group.label} SPH`}
+                            options={sphOptions}
+                          />
                         </TableCell>
 
                         {/* CYL DROPDOWN */}
                         <TableCell
-                          sx={{ minWidth: 145 }}
+                          sx={{ minWidth: 150 }}
                         >
-                          {prescriptionPowerInput(
-                            cylKey,
-                            `${group.label} CYL`,
-                            cylOptions
-                          )}
+                          <PrescriptionPowerInput
+                            {...sharedProps}
+                            name={cylKey}
+                            label={`${group.label} CYL`}
+                            options={cylOptions}
+                          />
                         </TableCell>
 
-                        {/* MANUAL AXIS */}
+                        {/* AXIS: MANUAL INPUT */}
                         <TableCell
-                          sx={{ minWidth: 115 }}
+                          sx={{ minWidth: 130 }}
                         >
-                          {axisInput(
-                            axisKey,
-                            `${group.label} AXIS`
-                          )}
+                          <AxisInput
+                            {...sharedProps}
+                            name={axisKey}
+                            label={`${group.label} AXIS`}
+                          />
                         </TableCell>
                       </TableRow>
                     );
@@ -870,41 +1000,78 @@ export default function AddCustomerPage() {
               icon={<InfoOutlined />}
               sx={{ mt: 2 }}
             >
-              SPH range: -30 to +30. CYL range:
-              -15 to +15. AXIS range: 0 to 180.
+              SPH: -30 to +30. CYL: -15 to +15.
+              AXIS: whole numbers from 0 to 180.
             </Alert>
           </CardContent>
         </Card>
 
-        {/* FRAME AND LENS DETAILS */}
+        {/* ------------------------------------------
+            PURCHASE INFORMATION
+        ------------------------------------------ */}
         <Card>
           <CardContent sx={{ p: 3 }}>
             <Typography
               variant="h6"
               sx={{ mb: 3 }}
             >
-              Frame & Lens Details
+              Purchase Information
             </Typography>
 
             <Grid container spacing={2}>
+              {/* DATE OF PURCHASE */}
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput(
-                  "specsType",
-                  "Spectacle / Frame Type"
-                )}
+                <Controller
+                  name="purchaseDate"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      type="date"
+                      label="Date of Purchase"
+                      disabled={isSubmitting}
+                      error={Boolean(
+                        errors.purchaseDate
+                      )}
+                      helperText={
+                        errors.purchaseDate?.message ??
+                        "Optional — leave blank if the date is unknown."
+                      }
+                      slotProps={{
+                        inputLabel: {
+                          shrink: true,
+                        },
+                      }}
+                    />
+                  )}
+                />
               </Grid>
 
+              {/* FRAME TYPE */}
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput(
-                  "lensType",
-                  "Lens Type"
-                )}
+                <FormTextInput
+                  {...sharedProps}
+                  name="specsType"
+                  label="Spectacle / Frame Type"
+                />
+              </Grid>
+
+              {/* LENS TYPE */}
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormTextInput
+                  {...sharedProps}
+                  name="lensType"
+                  label="Lens Type"
+                />
               </Grid>
             </Grid>
           </CardContent>
         </Card>
 
-        {/* PRICING DETAILS */}
+        {/* ------------------------------------------
+            PRICING DETAILS
+        ------------------------------------------ */}
         <Card>
           <CardContent sx={{ p: 3 }}>
             <Typography variant="h6">
@@ -933,10 +1100,7 @@ export default function AddCustomerPage() {
                       );
                     }
                   }}
-                  sx={{
-                    my: 2,
-                    flexWrap: "wrap",
-                  }}
+                  sx={{ my: 2, flexWrap: "wrap" }}
                 >
                   <ToggleButton value="SPLIT">
                     Frame + Lens
@@ -952,39 +1116,36 @@ export default function AddCustomerPage() {
             {pricingMode === "SPLIT" ? (
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  {formInput(
-                    "frameRate",
-                    "Frame Rate (₹)",
-                    {
-                      required: true,
-                      inputMode: "decimal",
-                    }
-                  )}
+                  <FormTextInput
+                    {...sharedProps}
+                    name="frameRate"
+                    label="Frame Rate (₹)"
+                    required
+                    inputMode="decimal"
+                  />
                 </Grid>
 
                 <Grid size={{ xs: 12, md: 6 }}>
-                  {formInput(
-                    "lensRate",
-                    "Lens Rate (₹)",
-                    {
-                      required: true,
-                      inputMode: "decimal",
-                    }
-                  )}
+                  <FormTextInput
+                    {...sharedProps}
+                    name="lensRate"
+                    label="Lens Rate (₹)"
+                    required
+                    inputMode="decimal"
+                  />
                 </Grid>
               </Grid>
             ) : (
-              formInput(
-                "mrp",
-                "Total MRP (₹)",
-                {
-                  required: true,
-                  inputMode: "decimal",
-                }
-              )
+              <FormTextInput
+                {...sharedProps}
+                name="mrp"
+                label="Total MRP (₹)"
+                required
+                inputMode="decimal"
+              />
             )}
 
-            {/* LIVE TOTAL */}
+            {/* LIVE PRICE CALCULATION */}
             <Box
               sx={{
                 mt: 3,
@@ -1018,7 +1179,9 @@ export default function AddCustomerPage() {
           </CardContent>
         </Card>
 
-        {/* STAFF-ONLY NOTES */}
+        {/* ------------------------------------------
+            PRIVATE CUSTOMER NOTES
+        ------------------------------------------ */}
         <Card>
           <CardContent sx={{ p: 3 }}>
             <Typography
@@ -1029,25 +1192,26 @@ export default function AddCustomerPage() {
             </Typography>
 
             <Alert severity="info" sx={{ mb: 2 }}>
-              Notes are for internal CRM use only.
+              Internal notes are for shop staff only.
               Never include them in customer PDFs
               or WhatsApp messages.
             </Alert>
 
-            {formInput(
-              "notes",
-              "Internal Notes",
-              {
-                multiline: true,
-                rows: 3,
-              }
-            )}
+            <FormTextInput
+              {...sharedProps}
+              name="notes"
+              label="Internal Notes"
+              multiline
+              rows={3}
+            />
           </CardContent>
         </Card>
 
         <Divider />
 
-        {/* SAVE ACTIONS */}
+        {/* ------------------------------------------
+            FORM ACTIONS
+        ------------------------------------------ */}
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={2}
@@ -1059,16 +1223,7 @@ export default function AddCustomerPage() {
           <Button
             variant="outlined"
             disabled={isSubmitting}
-            onClick={() => {
-              if (
-                !isDirty ||
-                window.confirm(
-                  "Discard unsaved customer details?"
-                )
-              ) {
-                navigate("/customers");
-              }
-            }}
+            onClick={cancelCreation}
           >
             Cancel
           </Button>
