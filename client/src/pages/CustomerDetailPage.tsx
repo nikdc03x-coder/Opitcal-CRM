@@ -1,8 +1,16 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Alert,
+  Avatar,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Tabs,
+  Tab,
+  Tooltip,
+  IconButton,
   Box,
   Button,
   Card,
@@ -30,6 +38,9 @@ import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
+import ExpandMoreOutlined from "@mui/icons-material/ExpandMoreOutlined";
+import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
+import ContentCopyOutlined from "@mui/icons-material/ContentCopyOutlined";
 
 import {
   Link,
@@ -40,6 +51,7 @@ import {
 import {
   getCustomer,
   type CustomerDetails,
+  type CustomerRecord,
   type Prescription,
 } from "../services/customerApi";
 
@@ -204,7 +216,50 @@ function formatPower(
 }
 
 // -----------------------------------------------------
-// 3. REUSABLE DETAIL COMPONENTS
+// 3. AUTOMATIC PURCHASE FLAGS
+// -----------------------------------------------------
+
+// nik - Determine what was actually purchased from the
+// saved product names. Pricing mode is NOT purchase type.
+// Works for both catalog selections and custom typed names.
+type PurchaseFlag =
+  | "FRAME_ONLY"
+  | "LENS_ONLY"
+  | "FRAME_AND_LENS"
+  | "NOT_SPECIFIED";
+
+function getPurchaseFlag(record: CustomerRecord): PurchaseFlag {
+  const hasFrame = Boolean(record.specsType?.trim());
+  const hasLens = Boolean(record.lensType?.trim());
+
+  if (hasFrame && hasLens) return "FRAME_AND_LENS";
+  if (hasFrame) return "FRAME_ONLY";
+  if (hasLens) return "LENS_ONLY";
+  return "NOT_SPECIFIED";
+}
+
+// Use one consistent label and color across the page.
+const purchaseFlagInfo: Record<
+  PurchaseFlag,
+  {
+    label: string;
+    color: "primary" | "success" | "info" | "default";
+  }
+> = {
+  FRAME_ONLY: { label: "Frame Only", color: "info" },
+  LENS_ONLY: { label: "Lens Only", color: "success" },
+  FRAME_AND_LENS: { label: "Frame + Lens", color: "primary" },
+  NOT_SPECIFIED: { label: "Not Specified", color: "default" },
+};
+
+// Display the product flag independently from the payment mode.
+function PurchaseFlagChip({ record }: { record: CustomerRecord }) {
+  const flag = purchaseFlagInfo[getPurchaseFlag(record)];
+  return <Chip label={flag.label} color={flag.color} size="small" />;
+}
+
+// -----------------------------------------------------
+// 4. REUSABLE DETAIL COMPONENTS
 // -----------------------------------------------------
 
 function DetailItem({
@@ -375,7 +430,7 @@ function PrescriptionTable({
 }
 
 // -----------------------------------------------------
-// 4. LOADING SKELETON
+// 5. LOADING SKELETON
 // -----------------------------------------------------
 
 // Display a lightweight layout immediately,
@@ -404,7 +459,7 @@ function CustomerDetailsSkeleton() {
 }
 
 // -----------------------------------------------------
-// 5. CUSTOMER DETAIL PAGE
+// 6. CUSTOMER DETAIL PAGE
 // -----------------------------------------------------
 
 // nik - Each customer is identified by its unique ID.
@@ -419,6 +474,11 @@ export default function CustomerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState(0);
+  const [copyMessage, setCopyMessage] = useState("");
+
+  // nik - Abort outdated customer requests when refreshing or switching customers.
+  const requestRef = useRef<AbortController | null>(null);
 
   const previousSearch = params.get("search") ?? "";
 
@@ -437,7 +497,9 @@ export default function CustomerDetailPage() {
       return;
     }
 
+    requestRef.current?.abort();
     const controller = new AbortController();
+    requestRef.current = controller;
     const cached = readCachedCustomer(id);
 
     setCustomer(cached);
@@ -447,14 +509,14 @@ export default function CustomerDetailPage() {
 
     getCustomer(id, controller.signal)
       .then((result) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestRef.current !== controller || result.id !== id) return;
 
         saveCachedCustomer(id, result);
         setCustomer(result);
         setError("");
       })
       .catch((err) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestRef.current !== controller) return;
 
         setError(
           err instanceof Error
@@ -463,35 +525,43 @@ export default function CustomerDetailPage() {
         );
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && requestRef.current === controller) {
           setLoading(false);
           setRefreshing(false);
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (requestRef.current === controller) requestRef.current = null;
+    };
   }, [id]);
 
-  // Allow staff to refresh when a record changes.
+  // nik - A new refresh cancels older requests, preventing stale UI updates.
   async function handleRefresh() {
     if (!id || refreshing) return;
 
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     setRefreshing(true);
+    setLoading(false);
     setError("");
 
     try {
-      const result = await getCustomer(id);
+      const result = await getCustomer(id, controller.signal);
+      if (controller.signal.aborted || requestRef.current !== controller || result.id !== id) return;
 
       saveCachedCustomer(id, result);
       setCustomer(result);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to refresh customer details."
-      );
+      if (controller.signal.aborted || requestRef.current !== controller) return;
+      setError(err instanceof Error ? err.message : "Unable to refresh customer details.");
     } finally {
-      setRefreshing(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setRefreshing(false);
+      }
     }
   }
 
@@ -521,426 +591,214 @@ export default function CustomerDetailPage() {
   }
 
   const editUrl = `/customers/${customer.id}/edit${searchQuery}`;
-
-  // The backend currently returns newest records first.
+  // nik - Product names determine purchase type, not the pricing method.
   const latestRecord = customer.records[0];
+  const initials = customer.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+  const totalSpent = customer.records.reduce((sum, item) => sum + (Number(item.mrp) || 0), 0);
+
+  async function copyCustomerId() {
+    try {
+     if (!customer) return;
+await navigator.clipboard.writeText(customer.id);
+      setCopyMessage("Customer ID copied");
+    } catch {
+      setCopyMessage("Could not copy Customer ID");
+    }
+  }
 
   return (
-    <Stack spacing={3} sx={{ pb: 4 }}>
-      {/* CUSTOMER HEADER */}
-      <Box>
-        <Button
-          component={Link}
-          to={backUrl}
-          startIcon={<ArrowBackOutlined />}
-          sx={{ mb: 2 }}
-        >
-          Back to Customers
-        </Button>
+    <Box sx={{ maxWidth: 1250, mx: "auto", pb: 6 }}>
+      <Stack spacing={2.5}>
+        {/* nik - Return to the previous customer search without losing the query. */}
+        <Box>
+          <Button component={Link} to={backUrl} startIcon={<ArrowBackOutlined />} size="small">
+            Back to Customers
+          </Button>
+        </Box>
 
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={2}
-          sx={{
-            justifyContent: "space-between",
-            alignItems: { sm: "center" },
-          }}
-        >
-          <Box>
-            <Typography variant="h4" sx={{ fontWeight: 700 }}>
-              {customer.name}
-            </Typography>
-
-            <Typography
-              color="text.secondary"
-              sx={{
-                mt: 1,
-                overflowWrap: "anywhere",
-              }}
-            >
-              Customer ID: {customer.id}
-            </Typography>
-          </Box>
-
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <Button
-              variant="outlined"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              startIcon={
-                refreshing
-                  ? <CircularProgress size={16} />
-                  : <RefreshOutlined />
-              }
-            >
-              {refreshing ? "Refreshing..." : "Refresh"}
-            </Button>
-
-            <Button
-              component={Link}
-              to={editUrl}
-              variant="contained"
-              startIcon={<EditOutlined />}
-            >
-              Edit Customer
-            </Button>
-          </Stack>
-        </Stack>
-      </Box>
-
-      {/* If refresh fails, keep previously loaded data visible. */}
-      {error && (
-        <Alert
-          severity="warning"
-          onClose={() => setError("")}
-        >
-          Unable to refresh: {error}
-          The information below may be out of date.
-        </Alert>
-      )}
-
-      {/* PERSONAL INFORMATION */}
-      <Card>
-        <CardContent sx={{ p: 3 }}>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: "center" }}
-          >
-            <PersonOutlined color="primary" />
-            <Typography variant="h6">
-              Personal Information
-            </Typography>
-          </Stack>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Grid container spacing={3}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <DetailItem
-                label="Customer Name"
-                value={customer.name}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <DetailItem
-                label="Mobile Number"
-                value={customer.mobNumber}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <DetailItem
-                label="Gender"
-                value={customer.gender}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <DetailItem
-                label="Reference"
-                value={customer.reference}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <DetailItem
-                label="Registration Date"
-                value={formatDate(customer.createdAt)}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <DetailItem
-                label="Last Updated"
-                value={formatDate(customer.updatedAt)}
-              />
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
-      {/* OPTICAL PRESCRIPTION HISTORY */}
-      <Card>
-        <CardContent sx={{ p: 3 }}>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: "center" }}
-          >
-            <VisibilityOutlined color="primary" />
-
-            <Typography variant="h6">
-              Optical Prescriptions
-            </Typography>
-          </Stack>
-
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mt: 1 }}
-          >
-            RE DIST, RE NEAR, LE DIST and LE NEAR
-          </Typography>
-
-          <Divider sx={{ my: 2 }} />
-
-          {customer.prescriptions.length === 0 ? (
-            <Alert severity="info">
-              No prescription has been recorded.
-            </Alert>
-          ) : (
-            <Stack spacing={3}>
-              {customer.prescriptions.map(
-                (prescription, index) => (
-                  <Box key={prescription.id}>
-                    <Stack
-                      direction={{ xs: "column", sm: "row" }}
-                      spacing={1}
-                      sx={{
-                        justifyContent: "space-between",
-                        alignItems: { sm: "center" },
-                        mb: 1.5,
-                      }}
-                    >
-                      <Typography
-                        variant="subtitle2"
-                        color="text.secondary"
-                      >
-                        Prescription {index + 1} —{" "}
-                        {formatDate(prescription.createdAt)}
-                      </Typography>
-
-                      {index === 0 && (
-                        <Chip
-                          label="Latest"
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
-                      )}
-                    </Stack>
-
-                    <PrescriptionTable
-                      prescription={prescription}
-                    />
-                  </Box>
-                )
-              )}
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* PURCHASE HISTORY */}
-      <Card>
-        <CardContent sx={{ p: 3 }}>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: "center" }}
-          >
-            <ReceiptLongOutlined color="primary" />
-
-            <Typography variant="h6">
-              Purchase Records
-            </Typography>
-          </Stack>
-
-          <Divider sx={{ my: 2 }} />
-
-          {customer.records.length === 0 ? (
-            <Alert severity="info">
-              No purchase records are available.
-            </Alert>
-          ) : (
-            <Stack spacing={2}>
-              {customer.records.map((record, index) => (
-                <Paper
-                  key={record.id}
-                  variant="outlined"
-                  sx={{
-                    p: 2.5,
-                    borderRadius: 2,
-                  }}
-                >
-                  <Stack
-                    direction={{ xs: "column", sm: "row" }}
-                    spacing={1}
-                    sx={{
-                      justifyContent: "space-between",
-                      alignItems: { sm: "center" },
-                      mb: 2,
-                    }}
-                  >
-                    <Box>
-                      <Typography
-                        variant="subtitle1"
-                        sx={{ fontWeight: 600 }}
-                      >
-                        Purchase {customer.records.length - index}
-                      </Typography>
-
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                      >
-                        Date of Purchase:{" "}
-                        {formatDate(record.purchaseDate)}
-                      </Typography>
-
-                      {index === 0 && (
-                        <Chip
-                          label="Latest Record"
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-                    </Box>
-
-                    <Chip
-                      label={
-                        record.pricingMode === "SPLIT"
-                          ? "Frame + Lens"
-                          : "MRP Only"
-                      }
-                      size="small"
-                    />
+        {/* Customer identity and frequently used actions. */}
+        <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 }, "&:last-child": { pb: { xs: 2, md: 3 } } }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2.5} sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}>
+              <Stack direction="row" spacing={2} sx={{ alignItems: "center", minWidth: 0 }}>
+                <Avatar sx={{ width: 62, height: 62, bgcolor: "primary.main", fontSize: 23, fontWeight: 700 }}>
+                  {initials || <PersonOutlined />}
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h4" sx={{ fontWeight: 800, overflowWrap: "anywhere", fontSize: { xs: "1.55rem", md: "2rem" } }}>
+                    {customer.name}
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ mt: 0.6, flexWrap: "wrap", alignItems: "center", gap: 0.5 }}>
+                    <Typography color="text.secondary" variant="body2">{customer.mobNumber || "No mobile number"}</Typography>
+                    <Chip size="small" variant="outlined" label={`${customer.records.length} purchases`} />
+                    <Chip size="small" variant="outlined" label={`${customer.prescriptions.length} prescriptions`} />
                   </Stack>
-
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailItem
-                        label="Purchase Date"
-                        value={formatDate(record.purchaseDate)}
-                      />
-                    </Grid>
-
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailItem
-                        label="Record Created"
-                        value={formatDate(record.createdAt)}
-                      />
-                    </Grid>
-
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailItem
-                        label="Frame / Spectacle Type"
-                        value={record.specsType}
-                      />
-                    </Grid>
-
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailItem
-                        label="Lens Type"
-                        value={record.lensType}
-                      />
-                    </Grid>
-
-                    {record.pricingMode === "SPLIT" && (
-                      <>
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                          <DetailItem
-                            label="Frame Rate"
-                            value={formatMoney(record.frameRate)}
-                          />
-                        </Grid>
-
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                          <DetailItem
-                            label="Lens Rate"
-                            value={formatMoney(record.lensRate)}
-                          />
-                        </Grid>
-                      </>
-                    )}
-                  </Grid>
-
-                  <Box
-                    sx={{
-                      mt: 2,
-                      p: 2,
-                      borderRadius: 2,
-                      bgcolor: "background.default",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: 1,
-                    }}
-                  >
-                    <Typography sx={{ fontWeight: 600 }}>
-                      Total MRP
-                    </Typography>
-
-                    <Typography
-                      variant="h6"
-                      color="primary"
-                      sx={{ fontWeight: 700 }}
-                    >
-                      {formatMoney(record.mrp)}
-                    </Typography>
-                  </Box>
-                </Paper>
-              ))}
+                </Box>
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                {customer.mobNumber && (
+                  <Button component="a" href={`tel:${customer.mobNumber}`} variant="outlined" startIcon={<PhoneOutlined />}>
+                    Call
+                  </Button>
+                )}
+                <Button variant="outlined" onClick={handleRefresh} disabled={refreshing} startIcon={refreshing ? <CircularProgress size={17} /> : <RefreshOutlined />}>
+                  {refreshing ? "Refreshing" : "Refresh"}
+                </Button>
+                <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>
+                  Edit Customer
+                </Button>
+              </Stack>
             </Stack>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* INTERNAL INFORMATION — NEVER EXPORTED */}
-      <Card>
-        <CardContent sx={{ p: 3 }}>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: "center" }}
-          >
-            <LockOutlined color="primary" />
+        {error && <Alert severity="warning" onClose={() => setError("")}>Unable to refresh: {error}. Showing the last available information.</Alert>}
+        {copyMessage && <Alert severity="info" onClose={() => setCopyMessage("")}>{copyMessage}</Alert>}
 
-            <Typography variant="h6">
-              Internal Customer Notes
-            </Typography>
-          </Stack>
+        {/* Small, useful facts are easier to scan than repeated full-size cards. */}
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Purchase Records</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>{customer.records.length}</Typography>
+                <Typography variant="caption" color="text.secondary">{latestRecord ? `Latest: ${formatDate(latestRecord.purchaseDate)}` : "No purchases recorded"}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Total Purchase Value</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 800, mt: 1 }}>{formatMoney(totalSpent)}</Typography>
+                <Typography variant="caption" color="text.secondary">Sum of saved purchase MRP amounts</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Prescription Records</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>{customer.prescriptions.length}</Typography>
+                <Typography variant="caption" color="text.secondary">Saved optical prescriptions</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
 
-          <Alert severity="info" sx={{ my: 2 }}>
-            Internal notes are only for shop staff.
-            Do not include them in customer PDFs or
-            WhatsApp messages.
-          </Alert>
+        {/* Personal information remains immediately visible. */}
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 2 }}>
+              <PersonOutlined color="primary" />
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>Personal Information</Typography>
+            </Stack>
+            <Grid container spacing={2.5}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Customer Name" value={customer.name} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Mobile Number" value={customer.mobNumber} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Gender" value={customer.gender} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Reference" value={customer.reference} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Registered" value={formatDate(customer.createdAt)} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Updated" value={formatDate(customer.updatedAt)} /></Grid>
+            </Grid>
+            <Divider sx={{ my: 2 }} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>ID: {customer.id}</Typography>
+              <Tooltip title="Copy customer ID">
+                <IconButton size="small" onClick={() => { void copyCustomerId(); }} aria-label="Copy customer ID"><ContentCopyOutlined fontSize="inherit" /></IconButton>
+              </Tooltip>
+            </Stack>
+          </CardContent>
+        </Card>
 
-          <Typography
-            sx={{
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {customer.notes || "No internal notes added."}
-          </Typography>
-        </CardContent>
-      </Card>
-
-      {latestRecord && (
-        <Typography
-          variant="caption"
-          color="text.secondary"
-        >
-          Latest purchase date:{" "}
-          {formatDate(latestRecord.purchaseDate)}.
-          {" "}Record created:{" "}
-          {formatDate(latestRecord.createdAt)}.
-        </Typography>
-      )}
-    </Stack>
+        {/* nik - Tabs keep long purchase and prescription histories manageable. */}
+        <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+            <Tabs value={activeTab} onChange={(_, next: number) => setActiveTab(next)} variant="scrollable" scrollButtons="auto" aria-label="Customer details sections">
+              <Tab icon={<ReceiptLongOutlined />} iconPosition="start" label={`Purchases (${customer.records.length})`} />
+              <Tab icon={<VisibilityOutlined />} iconPosition="start" label={`Prescriptions (${customer.prescriptions.length})`} />
+              <Tab icon={<LockOutlined />} iconPosition="start" label="Staff Notes" />
+            </Tabs>
+          </Box>
+          <CardContent sx={{ p: { xs: 1.5, md: 3 }, minHeight: 240 }}>
+            {activeTab === 0 && (
+              <Stack spacing={1.5}>
+                <Typography color="text.secondary" variant="body2" sx={{ mb: 0.5 }}>
+                  Open a purchase to see its products, prices and purchase date.
+                </Typography>
+                {customer.records.length === 0 ? <Alert severity="info">No purchase records available.</Alert> : customer.records.map((record, index) => (
+                  <Accordion key={record.id} disableGutters defaultExpanded={index === 0} variant="outlined" sx={{ borderRadius: "12px !important", overflow: "hidden", "&:before": { display: "none" } }}>
+                    <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2, py: 0.5 }}>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ width: "100%", alignItems: { sm: "center" }, pr: 1, justifyContent: "space-between" }}>
+                        <Box>
+                          <Typography sx={{ fontWeight: 700 }}>Purchase {customer.records.length - index} {index === 0 ? "· Latest" : ""}</Typography>
+                          <Typography variant="body2" color="text.secondary">{formatDate(record.purchaseDate)}</Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
+                          <PurchaseFlagChip record={record} />
+                          <Typography sx={{ fontWeight: 800, ml: 1 }}>{formatMoney(record.mrp)}</Typography>
+                        </Stack>
+                      </Stack>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ borderTop: 1, borderColor: "divider", px: 2.5, py: 2.5 }}>
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", mb: 2 }}>
+                        <Chip size="small" variant="outlined" label={record.pricingMode === "SPLIT" ? "Separate Frame / Lens Rates" : "MRP Only"} />
+                      </Stack>
+                      <Grid container spacing={2.5}>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Frame / Spectacle" value={record.specsType} /></Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Lens" value={record.lensType} /></Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Date of Purchase" value={formatDate(record.purchaseDate)} /></Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Record Created" value={formatDate(record.createdAt)} /></Grid>
+                        {record.pricingMode === "SPLIT" && <>
+                          <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Frame Rate" value={formatMoney(record.frameRate)} /></Grid>
+                          <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Lens Rate" value={formatMoney(record.lensRate)} /></Grid>
+                        </>}
+                      </Grid>
+                      <Paper variant="outlined" sx={{ mt: 2.5, p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
+                        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
+                          <Typography sx={{ fontWeight: 700 }}>Total MRP</Typography>
+                          <Typography variant="h6" sx={{ fontWeight: 800, color: "primary.main" }}>{formatMoney(record.mrp)}</Typography>
+                        </Stack>
+                      </Paper>
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Stack>
+            )}
+            {activeTab === 1 && (
+              <Stack spacing={2}>
+                <Typography color="text.secondary" variant="body2">Saved prescriptions, most recent first. Values are read-only on this page.</Typography>
+                {customer.prescriptions.length === 0 ? <Alert severity="info">No optical prescription recorded.</Alert> : customer.prescriptions.map((prescription, index) => (
+                  <Accordion key={prescription.id} disableGutters defaultExpanded={index === 0} variant="outlined" sx={{ borderRadius: "12px !important", overflow: "hidden", "&:before": { display: "none" } }}>
+                    <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+                      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                        <Typography sx={{ fontWeight: 700 }}>Prescription {index + 1}</Typography>
+                        <Chip size="small" label={formatDate(prescription.createdAt)} variant="outlined" />
+                        {index === 0 && <Chip size="small" label="Latest" color="primary" />}
+                      </Stack>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ borderTop: 1, borderColor: "divider", p: { xs: 1, md: 2 } }}>
+                      <PrescriptionTable prescription={prescription} />
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Stack>
+            )}
+            {activeTab === 2 && (
+              <Stack spacing={2}>
+                <Alert severity="info" icon={<LockOutlined />}>Staff-only information. Never include these notes in customer PDFs or WhatsApp messages.</Alert>
+                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, minHeight: 100 }}>
+                  <Typography sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{customer.notes || "No internal notes added."}</Typography>
+                </Paper>
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
+          <Button component={Link} to={backUrl} variant="outlined" startIcon={<ArrowBackOutlined />}>All Customers</Button>
+          <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>Edit Customer</Button>
+        </Stack>
+      </Stack>
+    </Box>
   );
 }
