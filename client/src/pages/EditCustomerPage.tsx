@@ -8,6 +8,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   CircularProgress,
   Grid,
   MenuItem,
@@ -25,6 +26,10 @@ import {
 
 import SaveOutlined from "@mui/icons-material/SaveOutlined";
 import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
+import CheckCircleOutlined from "@mui/icons-material/CheckCircleOutlined";
+import EditOutlined from "@mui/icons-material/EditOutlined";
+import InfoOutlined from "@mui/icons-material/InfoOutlined";
+import WarningAmberOutlined from "@mui/icons-material/WarningAmberOutlined";
 
 import {
   Link,
@@ -45,9 +50,9 @@ import {
   type EditablePrescription,
 } from "../services/customerApi";
 
-// -----------------------------------------------------
-// 1. TYPES AND CONSTANTS
-// -----------------------------------------------------
+// --------------------------------------------------
+// FORM TYPES
+// --------------------------------------------------
 
 type PersonalForm = {
   name: string;
@@ -79,6 +84,9 @@ type EyeMeasure = "sph" | "cyl" | "axis";
 type EyeKey = `${EyePrefix}_${EyeMeasure}`;
 type PrescriptionForm = Record<EyeKey, string>;
 
+type Section = "personal" | "prescription" | "purchase";
+type SaveStatus = Record<Section, boolean>;
+
 const eyeGroups: {
   key: EyePrefix;
   label: string;
@@ -106,14 +114,16 @@ const eyeGroups: {
   },
 ];
 
-// nik - Generate standard eye powers in 0.25 steps.
-// SPH and CYL support both typing and dropdown selection.
+// nik - Generate powers in steps of 0.25.
 function makePowerOptions(min: number, max: number) {
   const options: string[] = [];
 
-  for (let quarter = min * 4; quarter <= max * 4; quarter++) {
-    const number = quarter / 4;
-    options.push(`${number > 0 ? "+" : ""}${number.toFixed(2)}`);
+  for (let q = min * 4; q <= max * 4; q++) {
+    const value = q / 4;
+
+    options.push(
+      `${value > 0 ? "+" : ""}${value.toFixed(2)}`
+    );
   }
 
   return options;
@@ -122,12 +132,14 @@ function makePowerOptions(min: number, max: number) {
 const sphOptions = makePowerOptions(-30, 30);
 const cylOptions = makePowerOptions(-15, 15);
 
-// -----------------------------------------------------
-// 2. DATA HELPERS
-// -----------------------------------------------------
+// --------------------------------------------------
+// DATA HELPERS
+// --------------------------------------------------
 
 function toText(value: unknown): string {
-  return value === null || value === undefined ? "" : String(value);
+  return value === null || value === undefined
+    ? ""
+    : String(value);
 }
 
 function dateValue(value: string | null): string {
@@ -151,18 +163,6 @@ function personalFrom(customer: CustomerDetails): PersonalForm {
   };
 }
 
-function purchaseFrom(record: CustomerRecord): PurchaseForm {
-  return {
-    specsType: record.specsType ?? "",
-    lensType: record.lensType ?? "",
-    pricingMode: record.pricingMode,
-    frameRate: toText(record.frameRate),
-    lensRate: toText(record.lensRate),
-    mrp: toText(record.mrp),
-    purchaseDate: dateValue(record.purchaseDate),
-  };
-}
-
 function prescriptionFrom(p: Prescription): PrescriptionForm {
   return {
     re_dist_sph: toText(p.reDistSph),
@@ -180,6 +180,18 @@ function prescriptionFrom(p: Prescription): PrescriptionForm {
     le_near_sph: toText(p.leNearSph),
     le_near_cyl: toText(p.leNearCyl),
     le_near_axis: toText(p.leNearAxis),
+  };
+}
+
+function purchaseFrom(record: CustomerRecord): PurchaseForm {
+  return {
+    specsType: record.specsType ?? "",
+    lensType: record.lensType ?? "",
+    pricingMode: record.pricingMode,
+    frameRate: toText(record.frameRate),
+    lensRate: toText(record.lensRate),
+    mrp: toText(record.mrp),
+    purchaseDate: dateValue(record.purchaseDate),
   };
 }
 
@@ -203,8 +215,89 @@ function validDate(value: string): boolean {
   );
 }
 
-// Convert prescription inputs to backend fields.
-// Blank values become null, allowing staff to clear a field.
+// Make it easier to compare saved values with edited values.
+// Ignore harmless formatting differences such as +1.00 vs 1.
+function normalizedPower(value: string): string {
+  if (!value.trim()) return "";
+
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? String(number)
+    : value.trim();
+}
+
+function samePersonal(
+  current: PersonalForm | null,
+  original: PersonalForm | null
+): boolean {
+  if (!current || !original) return true;
+
+  return (
+    current.name.trim() === original.name.trim() &&
+    current.mobNumber === original.mobNumber &&
+    current.gender === original.gender &&
+    current.reference.trim() === original.reference.trim() &&
+    current.notes.trim() === original.notes.trim()
+  );
+}
+
+function samePrescription(
+  current: PrescriptionForm | null,
+  original: PrescriptionForm | null
+): boolean {
+  if (!current || !original) return true;
+
+  for (const prefix of eyePrefixes) {
+    for (const measure of [
+      "sph",
+      "cyl",
+      "axis",
+    ] as const) {
+      const key: EyeKey = `${prefix}_${measure}`;
+
+      if (
+        normalizedPower(current[key]) !==
+        normalizedPower(original[key])
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function samePurchase(
+  current: PurchaseForm | null,
+  original: PurchaseForm | null
+): boolean {
+  if (!current || !original) return true;
+
+  const commonEqual =
+    current.specsType.trim() === original.specsType.trim() &&
+    current.lensType.trim() === original.lensType.trim() &&
+    current.pricingMode === original.pricingMode &&
+    current.purchaseDate === original.purchaseDate;
+
+  if (!commonEqual) return false;
+
+  if (current.pricingMode === "SPLIT") {
+    return (
+      normalizedPower(current.frameRate) ===
+        normalizedPower(original.frameRate) &&
+      normalizedPower(current.lensRate) ===
+        normalizedPower(original.lensRate)
+    );
+  }
+
+  return (
+    normalizedPower(current.mrp) ===
+    normalizedPower(original.mrp)
+  );
+}
+
+// Convert editable prescription fields to the API shape.
 function buildPrescription(
   form: PrescriptionForm
 ): EditablePrescription {
@@ -221,11 +314,15 @@ function buildPrescription(
       axis: null,
     };
 
-    for (const measure of ["sph", "cyl", "axis"] as const) {
+    for (const measure of [
+      "sph",
+      "cyl",
+      "axis",
+    ] as const) {
       const key: EyeKey = `${prefix}_${measure}`;
       const value = form[key].trim();
 
-      if (value === "") {
+      if (!value) {
         eye[measure] = null;
         continue;
       }
@@ -239,7 +336,7 @@ function buildPrescription(
       const number = Number(value);
 
       if (!Number.isFinite(number)) {
-        throw new Error("Enter valid prescription measurements.");
+        throw new Error("Enter valid eye measurements.");
       }
 
       if (measure === "axis") {
@@ -271,25 +368,115 @@ function buildPrescription(
   return result;
 }
 
-// -----------------------------------------------------
-// 3. REUSABLE PRESCRIPTION POWER INPUT
-// -----------------------------------------------------
+// --------------------------------------------------
+// STATUS COMPONENTS
+// --------------------------------------------------
 
-type PowerFieldProps = {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-};
+function SectionStatus({
+  dirty,
+  saved,
+  saving,
+}: {
+  dirty: boolean;
+  saved: boolean;
+  saving: boolean;
+}) {
+  if (saving) {
+    return (
+      <Chip
+        size="small"
+        color="info"
+        icon={<CircularProgress size={13} />}
+        label="Saving..."
+        variant="outlined"
+      />
+    );
+  }
 
-// Reuse one searchable field for SPH and CYL.
-// Do not override MUI's internal inputProps.
+  if (dirty) {
+    return (
+      <Chip
+        size="small"
+        color="warning"
+        icon={<EditOutlined />}
+        label="Unsaved changes"
+      />
+    );
+  }
+
+  if (saved) {
+    return (
+      <Chip
+        size="small"
+        color="success"
+        icon={<CheckCircleOutlined />}
+        label="Saved successfully"
+      />
+    );
+  }
+
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      icon={<InfoOutlined />}
+      label="No changes"
+    />
+  );
+}
+
+function SectionFeedback({
+  section,
+  dirty,
+  saved,
+  saving,
+}: {
+  section: string;
+  dirty: boolean;
+  saved: boolean;
+  saving: boolean;
+}) {
+  if (saving) {
+    return (
+      <Alert severity="info">
+        Saving {section.toLowerCase()}...
+      </Alert>
+    );
+  }
+
+  if (dirty) {
+    return (
+      <Alert severity="warning" icon={<WarningAmberOutlined />}>
+        You have unsaved changes in {section}.
+        Click Save to store them in the database.
+      </Alert>
+    );
+  }
+
+  if (saved) {
+    return (
+      <Alert severity="success" icon={<CheckCircleOutlined />}>
+        {section} saved successfully.
+        Your latest changes have been stored.
+      </Alert>
+    );
+  }
+
+  return null;
+}
+
+// SPH/CYL input with MUI-compatible autocomplete props.
 function PowerField({
   label,
   value,
   options,
   onChange,
-}: PowerFieldProps) {
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
   return (
     <Autocomplete
       freeSolo
@@ -298,13 +485,13 @@ function PowerField({
       options={options}
       value={value}
       inputValue={value}
-      onInputChange={(_, newValue, reason) => {
+      onInputChange={(_, nextValue, reason) => {
         if (reason === "input" || reason === "clear") {
-          onChange(newValue);
+          onChange(nextValue);
         }
       }}
-      onChange={(_, newValue) => {
-        onChange(newValue ?? "");
+      onChange={(_, nextValue) => {
+        onChange(nextValue ?? "");
       }}
       renderInput={(params) => (
         <TextField
@@ -317,12 +504,12 @@ function PowerField({
   );
 }
 
-// -----------------------------------------------------
-// 4. EDIT CUSTOMER PAGE
-// -----------------------------------------------------
+// --------------------------------------------------
+// MAIN EDIT CUSTOMER PAGE
+// --------------------------------------------------
 
-// nik - All edits target one customer and the selected
-// prescription or purchase record by its unique ID.
+// nik - Track unsaved changes independently for each
+// editing section and confirm successful database saves.
 export default function EditCustomerPage() {
   const { id } = useParams();
   const [params] = useSearchParams();
@@ -334,19 +521,34 @@ export default function EditCustomerPage() {
   const [personal, setPersonal] =
     useState<PersonalForm | null>(null);
 
-  const [purchase, setPurchase] =
-    useState<PurchaseForm | null>(null);
+  const [originalPersonal, setOriginalPersonal] =
+    useState<PersonalForm | null>(null);
 
   const [prescription, setPrescription] =
     useState<PrescriptionForm | null>(null);
+
+  const [originalPrescription, setOriginalPrescription] =
+    useState<PrescriptionForm | null>(null);
+
+  const [purchase, setPurchase] =
+    useState<PurchaseForm | null>(null);
+
+  const [originalPurchase, setOriginalPurchase] =
+    useState<PurchaseForm | null>(null);
 
   const [recordId, setRecordId] = useState("");
   const [prescriptionId, setPrescriptionId] = useState("");
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState("");
+  const [saving, setSaving] = useState<Section | null>(null);
+
+  const [saved, setSaved] = useState<SaveStatus>({
+    personal: false,
+    prescription: false,
+    purchase: false,
+  });
+
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   const search = params.get("search") ?? "";
 
@@ -358,32 +560,73 @@ export default function EditCustomerPage() {
     ? `/customers/${id}${query}`
     : "/customers";
 
-  // Fill all sections using the saved customer.
+  // Compare current values with their last saved versions.
+  const personalDirty = !samePersonal(
+    personal,
+    originalPersonal
+  );
+
+  const prescriptionDirty = !samePrescription(
+    prescription,
+    originalPrescription
+  );
+
+  const purchaseDirty = !samePurchase(
+    purchase,
+    originalPurchase
+  );
+
+  const hasUnsavedChanges =
+    personalDirty || prescriptionDirty || purchaseDirty;
+
+  const unsavedCount = [
+    personalDirty,
+    prescriptionDirty,
+    purchaseDirty,
+  ].filter(Boolean).length;
+
+  // --------------------------------------------------
+  // LOAD AND RESET FORMS
+  // --------------------------------------------------
+
   function loadIntoForms(data: CustomerDetails) {
-    setCustomer(data);
-    setPersonal(personalFrom(data));
+    const personalValues = personalFrom(data);
 
-    const firstRecord = data.records[0];
     const firstPrescription = data.prescriptions[0];
+    const firstRecord = data.records[0];
 
-    setRecordId(firstRecord?.id ?? "");
-    setPurchase(
-      firstRecord ? purchaseFrom(firstRecord) : null
-    );
+    const prescriptionValues = firstPrescription
+      ? prescriptionFrom(firstPrescription)
+      : null;
+
+    const purchaseValues = firstRecord
+      ? purchaseFrom(firstRecord)
+      : null;
+
+    setCustomer(data);
+
+    setPersonal(personalValues);
+    setOriginalPersonal(personalValues);
 
     setPrescriptionId(firstPrescription?.id ?? "");
-    setPrescription(
-      firstPrescription
-        ? prescriptionFrom(firstPrescription)
-        : null
-    );
+    setPrescription(prescriptionValues);
+    setOriginalPrescription(prescriptionValues);
+
+    setRecordId(firstRecord?.id ?? "");
+    setPurchase(purchaseValues);
+    setOriginalPurchase(purchaseValues);
+
+    setSaved({
+      personal: false,
+      prescription: false,
+      purchase: false,
+    });
   }
 
-  // Fetch exactly one customer.
   useEffect(() => {
     if (!id) {
-      setLoading(false);
       setError("Customer ID is missing.");
+      setLoading(false);
       return;
     }
 
@@ -391,7 +634,6 @@ export default function EditCustomerPage() {
 
     setLoading(true);
     setError("");
-    setCustomer(null);
 
     getCustomer(id, controller.signal)
       .then((data) => {
@@ -417,79 +659,140 @@ export default function EditCustomerPage() {
     return () => controller.abort();
   }, [id]);
 
-  // -----------------------------------------------------
-  // 5. FORM STATE
-  // -----------------------------------------------------
+  // Warn when trying to close or reload with unsaved edits.
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", warnBeforeUnload);
+
+    return () => {
+      window.removeEventListener(
+        "beforeunload",
+        warnBeforeUnload
+      );
+    };
+  }, [hasUnsavedChanges]);
+
+  // --------------------------------------------------
+  // UPDATE FORM VALUES
+  // --------------------------------------------------
 
   function editPersonal(
     key: keyof PersonalForm,
     value: string
   ) {
-    setPersonal((previous) =>
-      previous
-        ? { ...previous, [key]: value }
-        : previous
+    setPersonal((current) =>
+      current ? { ...current, [key]: value } : current
     );
+
+    setSaved((current) => ({
+      ...current,
+      personal: false,
+    }));
+  }
+
+  function editEye(key: EyeKey, value: string) {
+    setPrescription((current) =>
+      current ? { ...current, [key]: value } : current
+    );
+
+    setSaved((current) => ({
+      ...current,
+      prescription: false,
+    }));
   }
 
   function editPurchase(
     key: keyof PurchaseForm,
     value: string
   ) {
-    setPurchase((previous) =>
-      previous
-        ? { ...previous, [key]: value }
-        : previous
-    );
-  }
-
-  function editEye(key: EyeKey, value: string) {
-    setPrescription((previous) =>
-      previous
-        ? { ...previous, [key]: value }
-        : previous
-    );
-  }
-
-  // Choose one historical purchase.
-  function choosePurchase(nextId: string) {
-    const selected = customer?.records.find(
-      (record) => record.id === nextId
+    setPurchase((current) =>
+      current ? { ...current, [key]: value } : current
     );
 
-    setRecordId(nextId);
-    setPurchase(selected ? purchaseFrom(selected) : null);
-    setError("");
-    setMessage("");
+    setSaved((current) => ({
+      ...current,
+      purchase: false,
+    }));
   }
 
-  // Choose one historical prescription.
+  // Ask before discarding a modified historical record.
   function choosePrescription(nextId: string) {
+    if (prescriptionDirty) {
+      const confirmed = window.confirm(
+        "This prescription has unsaved changes. Discard them and select another prescription?"
+      );
+
+      if (!confirmed) return;
+    }
+
     const selected = customer?.prescriptions.find(
       (item) => item.id === nextId
     );
 
+    const values = selected
+      ? prescriptionFrom(selected)
+      : null;
+
     setPrescriptionId(nextId);
-    setPrescription(
-      selected ? prescriptionFrom(selected) : null
-    );
+    setPrescription(values);
+    setOriginalPrescription(values);
+
+    setSaved((current) => ({
+      ...current,
+      prescription: false,
+    }));
 
     setError("");
-    setMessage("");
   }
 
-  // Reload only the saved section while preserving
-  // unsaved changes in the other sections.
-  async function refreshSavedSection(
-    section: "personal" | "prescription" | "purchase"
-  ) {
+  function choosePurchase(nextId: string) {
+    if (purchaseDirty) {
+      const confirmed = window.confirm(
+        "This purchase has unsaved changes. Discard them and select another purchase?"
+      );
+
+      if (!confirmed) return;
+    }
+
+    const selected = customer?.records.find(
+      (item) => item.id === nextId
+    );
+
+    const values = selected
+      ? purchaseFrom(selected)
+      : null;
+
+    setRecordId(nextId);
+    setPurchase(values);
+    setOriginalPurchase(values);
+
+    setSaved((current) => ({
+      ...current,
+      purchase: false,
+    }));
+
+    setError("");
+  }
+
+  // Refresh only the section that was saved.
+  // Keep edits in the other sections untouched.
+  async function refreshSavedSection(section: Section) {
     if (!id) return;
 
     const data = await getCustomer(id);
+
     setCustomer(data);
 
     if (section === "personal") {
-      setPersonal(personalFrom(data));
+      const values = personalFrom(data);
+      setPersonal(values);
+      setOriginalPersonal(values);
     }
 
     if (section === "prescription") {
@@ -497,9 +800,12 @@ export default function EditCustomerPage() {
         (item) => item.id === prescriptionId
       );
 
-      setPrescription(
-        selected ? prescriptionFrom(selected) : null
-      );
+      const values = selected
+        ? prescriptionFrom(selected)
+        : null;
+
+      setPrescription(values);
+      setOriginalPrescription(values);
     }
 
     if (section === "purchase") {
@@ -507,16 +813,21 @@ export default function EditCustomerPage() {
         (item) => item.id === recordId
       );
 
-      setPurchase(selected ? purchaseFrom(selected) : null);
+      const values = selected
+        ? purchaseFrom(selected)
+        : null;
+
+      setPurchase(values);
+      setOriginalPurchase(values);
     }
   }
 
-  // -----------------------------------------------------
-  // 6. SAVE PERSONAL INFORMATION
-  // -----------------------------------------------------
+  // --------------------------------------------------
+  // SAVE PERSONAL INFORMATION
+  // --------------------------------------------------
 
   async function savePersonal() {
-    if (!id || !personal) return;
+    if (!id || !personal || !personalDirty || saving) return;
 
     const name = personal.name.trim();
     const phone = personal.mobNumber.trim();
@@ -531,16 +842,6 @@ export default function EditCustomerPage() {
       return;
     }
 
-    if (personal.reference.trim().length > 255) {
-      setError("Reference cannot exceed 255 characters.");
-      return;
-    }
-
-    if (personal.notes.trim().length > 5000) {
-      setError("Internal notes cannot exceed 5000 characters.");
-      return;
-    }
-
     const changes: CustomerPersonalUpdate = {
       name,
       mobNumber: phone || null,
@@ -552,67 +853,87 @@ export default function EditCustomerPage() {
     try {
       setSaving("personal");
       setError("");
-      setMessage("");
 
       await updateCustomer(id, changes);
+
+      // The PATCH succeeded. Confirm the saved values
+      // by reading the customer again.
       await refreshSavedSection("personal");
 
-      setMessage("Personal information saved successfully.");
+      setSaved((current) => ({
+        ...current,
+        personal: true,
+      }));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Save failed."
       );
     } finally {
-      setSaving("");
+      setSaving(null);
     }
   }
 
-  // -----------------------------------------------------
-  // 7. SAVE PRESCRIPTION
-  // -----------------------------------------------------
+  // --------------------------------------------------
+  // SAVE PRESCRIPTION
+  // --------------------------------------------------
 
   async function savePrescription() {
-    if (!id || !prescriptionId || !prescription) return;
+    if (
+      !id ||
+      !prescriptionId ||
+      !prescription ||
+      !prescriptionDirty ||
+      saving
+    ) {
+      return;
+    }
 
     try {
       const changes = buildPrescription(prescription);
 
       setSaving("prescription");
       setError("");
-      setMessage("");
 
-      await updatePrescription(id, prescriptionId, changes);
+      await updatePrescription(
+        id,
+        prescriptionId,
+        changes
+      );
+
       await refreshSavedSection("prescription");
 
-      setMessage("Selected prescription saved successfully.");
+      setSaved((current) => ({
+        ...current,
+        prescription: true,
+      }));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Save failed."
       );
     } finally {
-      setSaving("");
+      setSaving(null);
     }
   }
 
-  // -----------------------------------------------------
-  // 8. SAVE PURCHASE
-  // -----------------------------------------------------
+  // --------------------------------------------------
+  // SAVE PURCHASE
+  // --------------------------------------------------
 
   async function savePurchase() {
-    if (!id || !recordId || !purchase) return;
+    if (
+      !id ||
+      !recordId ||
+      !purchase ||
+      !purchaseDirty ||
+      saving
+    ) {
+      return;
+    }
 
     const date = purchase.purchaseDate.trim();
 
     if (date && !validDate(date)) {
       setError("Enter a valid purchase date.");
-      return;
-    }
-
-    if (
-      purchase.specsType.trim().length > 100 ||
-      purchase.lensType.trim().length > 100
-    ) {
-      setError("Frame or lens type is too long.");
       return;
     }
 
@@ -630,7 +951,7 @@ export default function EditCustomerPage() {
         : !validMoney(purchase.mrp)
     ) {
       setError(
-        "Enter a valid amount with up to two decimal places."
+        "Enter valid prices with up to two decimal places."
       );
       return;
     }
@@ -651,7 +972,6 @@ export default function EditCustomerPage() {
     try {
       setSaving("purchase");
       setError("");
-      setMessage("");
 
       await updatePurchase(id, recordId, {
         record,
@@ -660,24 +980,44 @@ export default function EditCustomerPage() {
 
       await refreshSavedSection("purchase");
 
-      setMessage("Selected purchase saved successfully.");
+      setSaved((current) => ({
+        ...current,
+        purchase: true,
+      }));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Save failed."
       );
     } finally {
-      setSaving("");
+      setSaving(null);
     }
   }
 
-  // -----------------------------------------------------
-  // 9. LOADING / ERROR
-  // -----------------------------------------------------
+  // --------------------------------------------------
+  // SAFE NAVIGATION
+  // --------------------------------------------------
+
+  function returnToDetails() {
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm(
+        "You have unsaved changes. Leave without saving them?"
+      );
+
+      if (!confirmed) return;
+    }
+
+    navigate(detailsUrl);
+  }
+
+  // --------------------------------------------------
+  // PAGE CONTENT
+  // --------------------------------------------------
 
   if (loading) {
     return (
       <Box sx={{ py: 8, textAlign: "center" }}>
         <CircularProgress />
+
         <Typography sx={{ mt: 2 }}>
           Loading customer information...
         </Typography>
@@ -699,17 +1039,12 @@ export default function EditCustomerPage() {
     );
   }
 
-  // -----------------------------------------------------
-  // 10. PAGE CONTENT
-  // -----------------------------------------------------
-
   return (
     <Stack spacing={3} sx={{ pb: 5 }}>
-      {/* HEADER */}
+      {/* PAGE HEADER */}
       <Box>
         <Button
-          component={Link}
-          to={detailsUrl}
+          onClick={returnToDetails}
           startIcon={<ArrowBackOutlined />}
         >
           Back to Customer Details
@@ -727,24 +1062,52 @@ export default function EditCustomerPage() {
         </Typography>
       </Box>
 
+      {/* OVERALL UNSAVED CHANGE WARNING */}
+      {hasUnsavedChanges && (
+        <Alert
+          severity="warning"
+          icon={<WarningAmberOutlined />}
+        >
+          You have unsaved changes in {unsavedCount}{" "}
+          {unsavedCount === 1 ? "section" : "sections"}.
+          Save each modified section before leaving.
+        </Alert>
+      )}
+
+      {/* GENERAL ERROR */}
       {error && (
-        <Alert severity="error" onClose={() => setError("")}>
+        <Alert
+          severity="error"
+          onClose={() => setError("")}
+        >
           {error}
         </Alert>
       )}
 
-      {message && (
-        <Alert severity="success" onClose={() => setMessage("")}>
-          {message}
-        </Alert>
-      )}
-
-      {/* PERSONAL INFORMATION */}
+      {/* -------------------------------------------
+          PERSONAL INFORMATION
+      ------------------------------------------- */}
       <Card>
         <CardContent sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            Personal Information
-          </Typography>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            sx={{
+              justifyContent: "space-between",
+              alignItems: { sm: "center" },
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6">
+              Personal Information
+            </Typography>
+
+            <SectionStatus
+              dirty={personalDirty}
+              saved={saved.personal}
+              saving={saving === "personal"}
+            />
+          </Stack>
 
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 6 }}>
@@ -753,6 +1116,7 @@ export default function EditCustomerPage() {
                 required
                 label="Customer Name"
                 value={personal.name}
+                disabled={Boolean(saving)}
                 onChange={(event) =>
                   editPersonal("name", event.target.value)
                 }
@@ -764,10 +1128,13 @@ export default function EditCustomerPage() {
                 fullWidth
                 label="Mobile Number"
                 value={personal.mobNumber}
+                disabled={Boolean(saving)}
                 onChange={(event) =>
                   editPersonal(
                     "mobNumber",
-                    event.target.value.replace(/\D/g, "").slice(0, 10)
+                    event.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 10)
                   )
                 }
                 slotProps={{
@@ -781,10 +1148,11 @@ export default function EditCustomerPage() {
 
             <Grid size={{ xs: 12, md: 6 }}>
               <TextField
-                select
                 fullWidth
+                select
                 label="Gender"
                 value={personal.gender}
+                disabled={Boolean(saving)}
                 onChange={(event) =>
                   editPersonal("gender", event.target.value)
                 }
@@ -801,6 +1169,7 @@ export default function EditCustomerPage() {
                 fullWidth
                 label="Reference"
                 value={personal.reference}
+                disabled={Boolean(saving)}
                 onChange={(event) =>
                   editPersonal("reference", event.target.value)
                 }
@@ -814,20 +1183,30 @@ export default function EditCustomerPage() {
                 rows={3}
                 label="Internal Notes"
                 value={personal.notes}
+                disabled={Boolean(saving)}
                 onChange={(event) =>
                   editPersonal("notes", event.target.value)
                 }
-                helperText="Staff only. Never include notes in customer PDFs."
+                helperText="Staff only — do not include in customer PDFs."
               />
             </Grid>
           </Grid>
+
+          <Box sx={{ mt: 2 }}>
+            <SectionFeedback
+              section="Personal information"
+              dirty={personalDirty}
+              saved={saved.personal}
+              saving={saving === "personal"}
+            />
+          </Box>
 
           <Button
             variant="contained"
             startIcon={<SaveOutlined />}
             onClick={savePersonal}
-            disabled={Boolean(saving)}
-            sx={{ mt: 3 }}
+            disabled={Boolean(saving) || !personalDirty}
+            sx={{ mt: 2 }}
           >
             {saving === "personal"
               ? "Saving..."
@@ -836,22 +1215,39 @@ export default function EditCustomerPage() {
         </CardContent>
       </Card>
 
-      {/* OPTICAL PRESCRIPTIONS */}
+      {/* -------------------------------------------
+          OPTICAL PRESCRIPTIONS
+      ------------------------------------------- */}
       <Card>
         <CardContent sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            Optical Prescriptions
-          </Typography>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            sx={{
+              justifyContent: "space-between",
+              alignItems: { sm: "center" },
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6">
+              Optical Prescriptions
+            </Typography>
 
-          <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-            Select a prescription and enter eye powers.
+            <SectionStatus
+              dirty={prescriptionDirty}
+              saved={saved.prescription}
+              saving={saving === "prescription"}
+            />
+          </Stack>
+
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
             SPH and CYL have searchable dropdowns.
-            AXIS uses manual entry.
+            AXIS is entered manually.
           </Typography>
 
           {customer.prescriptions.length === 0 ? (
             <Alert severity="info">
-              No saved prescription is available.
+              No existing prescription is available to edit.
             </Alert>
           ) : (
             <Stack spacing={3}>
@@ -868,7 +1264,9 @@ export default function EditCustomerPage() {
                 {customer.prescriptions.map((item, index) => (
                   <MenuItem key={item.id} value={item.id}>
                     Prescription {index + 1} —{" "}
-                    {new Date(item.createdAt).toLocaleDateString("en-IN")}
+                    {new Date(
+                      item.createdAt
+                    ).toLocaleDateString("en-IN")}
                   </MenuItem>
                 ))}
               </TextField>
@@ -878,7 +1276,10 @@ export default function EditCustomerPage() {
                   <TableContainer
                     component={Paper}
                     variant="outlined"
-                    sx={{ borderRadius: 2, overflowX: "auto" }}
+                    sx={{
+                      borderRadius: 2,
+                      overflowX: "auto",
+                    }}
                   >
                     <Table
                       size="small"
@@ -892,16 +1293,23 @@ export default function EditCustomerPage() {
                       }}
                     >
                       <TableHead>
-                        <TableRow sx={{ bgcolor: "background.default" }}>
+                        <TableRow
+                          sx={{
+                            bgcolor: "background.default",
+                          }}
+                        >
                           <TableCell sx={{ fontWeight: 700 }}>
                             Eye / Vision
                           </TableCell>
+
                           <TableCell sx={{ fontWeight: 700 }}>
                             SPH
                           </TableCell>
+
                           <TableCell sx={{ fontWeight: 700 }}>
                             CYL
                           </TableCell>
+
                           <TableCell sx={{ fontWeight: 700 }}>
                             AXIS
                           </TableCell>
@@ -910,9 +1318,14 @@ export default function EditCustomerPage() {
 
                       <TableBody>
                         {eyeGroups.map((group) => {
-                          const sphKey: EyeKey = `${group.key}_sph`;
-                          const cylKey: EyeKey = `${group.key}_cyl`;
-                          const axisKey: EyeKey = `${group.key}_axis`;
+                          const sphKey: EyeKey =
+                            `${group.key}_sph`;
+
+                          const cylKey: EyeKey =
+                            `${group.key}_cyl`;
+
+                          const axisKey: EyeKey =
+                            `${group.key}_axis`;
 
                           return (
                             <TableRow key={group.key} hover>
@@ -929,7 +1342,7 @@ export default function EditCustomerPage() {
                                 </Typography>
                               </TableCell>
 
-                              {/* SPH: Searchable power dropdown */}
+                              {/* SPH DROPDOWN */}
                               <TableCell sx={{ minWidth: 140 }}>
                                 <PowerField
                                   label={`${group.label} SPH`}
@@ -941,7 +1354,7 @@ export default function EditCustomerPage() {
                                 />
                               </TableCell>
 
-                              {/* CYL: Searchable power dropdown */}
+                              {/* CYL DROPDOWN */}
                               <TableCell sx={{ minWidth: 140 }}>
                                 <PowerField
                                   label={`${group.label} CYL`}
@@ -953,8 +1366,8 @@ export default function EditCustomerPage() {
                                 />
                               </TableCell>
 
-                              {/* AXIS: Numeric typing, no dropdown */}
-                              <TableCell sx={{ minWidth: 110 }}>
+                              {/* AXIS MANUAL ENTRY */}
+                              <TableCell sx={{ minWidth: 115 }}>
                                 <TextField
                                   fullWidth
                                   size="small"
@@ -971,7 +1384,8 @@ export default function EditCustomerPage() {
                                   slotProps={{
                                     htmlInput: {
                                       inputMode: "numeric",
-                                      "aria-label": `${group.label} AXIS`,
+                                      "aria-label":
+                                        `${group.label} AXIS`,
                                     },
                                   }}
                                 />
@@ -983,11 +1397,20 @@ export default function EditCustomerPage() {
                     </Table>
                   </TableContainer>
 
+                  <SectionFeedback
+                    section="Optical prescription"
+                    dirty={prescriptionDirty}
+                    saved={saved.prescription}
+                    saving={saving === "prescription"}
+                  />
+
                   <Button
                     variant="contained"
                     startIcon={<SaveOutlined />}
                     onClick={savePrescription}
-                    disabled={Boolean(saving)}
+                    disabled={
+                      Boolean(saving) || !prescriptionDirty
+                    }
                     sx={{ alignSelf: "flex-start" }}
                   >
                     {saving === "prescription"
@@ -1001,21 +1424,39 @@ export default function EditCustomerPage() {
         </CardContent>
       </Card>
 
-      {/* PURCHASE HISTORY */}
+      {/* -------------------------------------------
+          PURCHASE HISTORY
+      ------------------------------------------- */}
       <Card>
         <CardContent sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            Purchase History
-          </Typography>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            sx={{
+              justifyContent: "space-between",
+              alignItems: { sm: "center" },
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6">
+              Purchase History
+            </Typography>
 
-          <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-            Select the exact purchase record to edit its date,
-            frame, lens and pricing details.
+            <SectionStatus
+              dirty={purchaseDirty}
+              saved={saved.purchase}
+              saving={saving === "purchase"}
+            />
+          </Stack>
+
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            Select a purchase and modify its date,
+            frame, lens or pricing.
           </Typography>
 
           {customer.records.length === 0 ? (
             <Alert severity="info">
-              No saved purchase records are available.
+              No existing purchase records are available to edit.
             </Alert>
           ) : (
             <Stack spacing={3}>
@@ -1049,6 +1490,7 @@ export default function EditCustomerPage() {
                         type="date"
                         label="Date of Purchase"
                         value={purchase.purchaseDate}
+                        disabled={Boolean(saving)}
                         onChange={(event) =>
                           editPurchase(
                             "purchaseDate",
@@ -1066,8 +1508,12 @@ export default function EditCustomerPage() {
                         fullWidth
                         label="Spectacle / Frame Type"
                         value={purchase.specsType}
+                        disabled={Boolean(saving)}
                         onChange={(event) =>
-                          editPurchase("specsType", event.target.value)
+                          editPurchase(
+                            "specsType",
+                            event.target.value
+                          )
                         }
                       />
                     </Grid>
@@ -1077,18 +1523,23 @@ export default function EditCustomerPage() {
                         fullWidth
                         label="Lens Type"
                         value={purchase.lensType}
+                        disabled={Boolean(saving)}
                         onChange={(event) =>
-                          editPurchase("lensType", event.target.value)
+                          editPurchase(
+                            "lensType",
+                            event.target.value
+                          )
                         }
                       />
                     </Grid>
 
                     <Grid size={{ xs: 12, md: 6 }}>
                       <TextField
-                        select
                         fullWidth
+                        select
                         label="Pricing Mode"
                         value={purchase.pricingMode}
+                        disabled={Boolean(saving)}
                         onChange={(event) =>
                           editPurchase(
                             "pricingMode",
@@ -1099,6 +1550,7 @@ export default function EditCustomerPage() {
                         <MenuItem value="SPLIT">
                           Frame + Lens
                         </MenuItem>
+
                         <MenuItem value="MRP_ONLY">
                           MRP Only
                         </MenuItem>
@@ -1112,6 +1564,7 @@ export default function EditCustomerPage() {
                             fullWidth
                             label="Frame Rate (₹)"
                             value={purchase.frameRate}
+                            disabled={Boolean(saving)}
                             onChange={(event) =>
                               editPurchase(
                                 "frameRate",
@@ -1131,6 +1584,7 @@ export default function EditCustomerPage() {
                             fullWidth
                             label="Lens Rate (₹)"
                             value={purchase.lensRate}
+                            disabled={Boolean(saving)}
                             onChange={(event) =>
                               editPurchase(
                                 "lensRate",
@@ -1164,8 +1618,12 @@ export default function EditCustomerPage() {
                           fullWidth
                           label="Total MRP (₹)"
                           value={purchase.mrp}
+                          disabled={Boolean(saving)}
                           onChange={(event) =>
-                            editPurchase("mrp", event.target.value)
+                            editPurchase(
+                              "mrp",
+                              event.target.value
+                            )
                           }
                           slotProps={{
                             htmlInput: {
@@ -1177,11 +1635,18 @@ export default function EditCustomerPage() {
                     )}
                   </Grid>
 
+                  <SectionFeedback
+                    section="Purchase history"
+                    dirty={purchaseDirty}
+                    saved={saved.purchase}
+                    saving={saving === "purchase"}
+                  />
+
                   <Button
                     variant="contained"
                     startIcon={<SaveOutlined />}
                     onClick={savePurchase}
-                    disabled={Boolean(saving)}
+                    disabled={Boolean(saving) || !purchaseDirty}
                     sx={{ alignSelf: "flex-start" }}
                   >
                     {saving === "purchase"
@@ -1198,7 +1663,7 @@ export default function EditCustomerPage() {
       <Button
         variant="outlined"
         startIcon={<ArrowBackOutlined />}
-        onClick={() => navigate(detailsUrl)}
+        onClick={returnToDetails}
         sx={{ alignSelf: "flex-start" }}
       >
         Return to Customer Details
