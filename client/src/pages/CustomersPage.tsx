@@ -1,25 +1,64 @@
-
+import { useEffect, useState } from "react";
 import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Stack,
-  TextField,
-  Typography,
+  Alert, Box, Button, Card, CardContent, CircularProgress,
+  List, ListItemButton, ListItemText, Stack, TextField,
+  Typography, Chip,
 } from "@mui/material";
-
-import { AddOutlined } from "@mui/icons-material";
 import { Link, useSearchParams } from "react-router";
+import {
+  searchCustomers,
+  type CustomerSummary,
+} from "../services/customerApi";
 
+// nik - Search customers and select one unique record.
 export default function CustomersPage() {
   const [params, setParams] = useSearchParams();
   const search = params.get("search") ?? "";
 
-  // Save the search value in the URL.
-  // Returning to this page will restore the search text.
-  function updateSearch(value: string) {
-    setParams(value ? { search: value } : {}, {
+  const [customers, setCustomers] = useState<CustomerSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Request customers whenever the search term changes.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setLoading(true);
+    setError("");
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await searchCustomers(search, controller.signal);
+
+        if (!controller.signal.aborted) {
+          setCustomers(data);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setCustomers([]);
+          setError(
+            err instanceof Error ? err.message : "Search failed"
+          );
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [search]);
+
+  function handleSearch(value: string) {
+    const next = /^[0-9]+$/.test(value)
+      ? value.slice(0, 10)
+      : value.slice(0, 150);
+
+    setParams(next ? { search: next } : {}, {
       replace: true,
     });
   }
@@ -28,13 +67,14 @@ export default function CustomersPage() {
     <Stack spacing={3}>
       <Stack
         direction={{ xs: "column", sm: "row" }}
-       
-        gap={2}
-       sx={{ justifyContent: "space-between" }}>
+        sx={{ justifyContent: "space-between", gap: 2 }}
+      >
         <Box>
-          <Typography variant="h5">Customers</Typography>
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+            Customers
+          </Typography>
           <Typography color="text.secondary">
-            Search customers by name or mobile number.
+            Search by name or mobile number.
           </Typography>
         </Box>
 
@@ -42,7 +82,6 @@ export default function CustomersPage() {
           component={Link}
           to="/customers/new"
           variant="contained"
-          startIcon={<AddOutlined />}
         >
           Add Customer
         </Button>
@@ -52,22 +91,67 @@ export default function CustomersPage() {
         <CardContent>
           <TextField
             fullWidth
-            label="Search customer"
-            placeholder="Enter name or phone number"
+            label="Search Customer"
+            placeholder="Enter name or mobile number"
             value={search}
-            onChange={(event) => updateSearch(event.target.value)}
-            slotProps={{
-              htmlInput: { maxLength: 150 },
-            }}
+            onChange={(event) => handleSearch(event.target.value)}
           />
+        </CardContent>
+      </Card>
 
-          <Typography
-            color="text.secondary"
-            sx={{ mt: 3 }}
+      <Card>
+        <CardContent>
+          <Stack
+            direction="row"
+            sx={{
+              justifyContent: "space-between",
+              alignItems: "center",
+              mb: 2,
+            }}
           >
-            Customer search results will appear here
-            when we connect the backend API.
-          </Typography>
+            <Typography variant="h6">
+              Matching Customers
+            </Typography>
+
+            {!loading && !error && (
+              <Chip label={`${customers.length} shown`} size="small" />
+            )}
+          </Stack>
+
+          {loading ? (
+            <Box sx={{ py: 4, textAlign: "center" }}>
+              <CircularProgress size={28} />
+              <Typography sx={{ mt: 2 }}>
+                Searching...
+              </Typography>
+            </Box>
+          ) : error ? (
+            <Alert severity="error">{error}</Alert>
+          ) : customers.length === 0 ? (
+            <Typography color="text.secondary">
+              No customers found.
+            </Typography>
+          ) : (
+            <List>
+              {customers.map((customer) => (
+                <ListItemButton
+                  key={customer.id}
+                  component={Link}
+                  to={`/customers/${customer.id}${
+                    search
+                      ? `?search=${encodeURIComponent(search)}`
+                      : ""
+                  }`}
+                  divider
+                >
+                  <ListItemText
+                    primary={customer.name}
+                    secondary={customer.mobNumber || "No mobile number"}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          )}
         </CardContent>
       </Card>
     </Stack>

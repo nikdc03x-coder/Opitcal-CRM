@@ -62,3 +62,109 @@ export async function createCustomer(
 
   return result.data as CreatedCustomer;
 }
+
+// -----------------------------------------------------
+// CUSTOMER SEARCH AND DETAILS
+// -----------------------------------------------------
+
+// Prisma decimal values are usually returned as strings.
+export type Prescription = {
+  id: string;
+  createdAt: string;
+  reDistSph: string | null;
+  reDistCyl: string | null;
+  reDistAxis: number | null;
+  reNearSph: string | null;
+  reNearCyl: string | null;
+  reNearAxis: number | null;
+  leDistSph: string | null;
+  leDistCyl: string | null;
+  leDistAxis: number | null;
+  leNearSph: string | null;
+  leNearCyl: string | null;
+  leNearAxis: number | null;
+};
+
+export type CustomerRecord = {
+  id: string;
+  prescriptionId: string | null;
+  specsType: string | null;
+  lensType: string | null;
+  pricingMode: "SPLIT" | "MRP_ONLY";
+  frameRate: string | null;
+  lensRate: string | null;
+  mrp: string;
+  createdAt: string;
+};
+
+export type CustomerSummary = {
+  id: string;
+  name: string;
+  mobNumber: string | null;
+  gender: string | null;
+  createdAt: string;
+};
+
+export type CustomerDetails = CustomerSummary & {
+  reference: string | null;
+  notes: string | null;
+  updatedAt: string;
+  prescriptions: Prescription[];
+  records: CustomerRecord[];
+};
+
+// Shared function for reading the API response.
+// It provides a useful error when the backend is unavailable.
+async function readResponse<T>(
+  response: Response
+): Promise<T> {
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok || !result?.success) {
+    throw new Error(
+      result?.message || "Unable to load customer information."
+    );
+  }
+
+  return result.data as T;
+}
+
+// Search by partial name or mobile number.
+// Numeric input is treated as a phone search.
+export async function searchCustomers(
+  search: string,
+  signal?: AbortSignal
+): Promise<CustomerSummary[]> {
+  const value = search.trim();
+  const params = new URLSearchParams();
+
+  if (value) {
+    if (/^\d+$/.test(value)) {
+      params.set("phone", value);
+    } else {
+      params.set("name", value);
+    }
+  }
+
+  const query = params.toString();
+
+  const response = await fetch(
+    `/api/customers${query ? `?${query}` : ""}`,
+    { signal }
+  );
+
+  return readResponse<CustomerSummary[]>(response);
+}
+
+// Retrieve a complete customer record using its UUID.
+export async function getCustomer(
+  id: string,
+  signal?: AbortSignal
+): Promise<CustomerDetails> {
+  const response = await fetch(
+    `/api/customers/${encodeURIComponent(id)}`,
+    { signal }
+  );
+
+  return readResponse<CustomerDetails>(response);
+}
