@@ -4,46 +4,76 @@ import cors from "cors";
 
 import healthRoutes from "./routes/healthRoutes";
 import customerRoutes from "./routes/customerRoutes";
+import catalogRoutes from "./routes/catalogRoutes";
+
 import { errorHandler } from "./middleware/errorHandler";
 
-// Create the Express application.
+// nik - Only expose development data APIs locally
+// until real admin authentication is implemented.
 const app = express();
 
-// Only allow our React development frontend.
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "http://localhost:5173",
   })
 );
 
-// Parse JSON data from incoming requests.
 app.use(express.json({ limit: "1mb" }));
 
-// Register application API routes.
+// Health checks can remain publicly reachable.
 app.use("/api/health", healthRoutes);
 
-// Customer routes are development-only until
-// authentication and authorization are implemented.
-// Do not publish these APIs to the internet yet.
+// These APIs must not be publicly deployed before
+// authentication and authorization are complete.
 if (process.env.NODE_ENV === "development") {
-  app.use("/api/customers", customerRoutes);
+  // Reject requests not connected from this computer.
+  // CORS alone does not protect backend write operations.
+  app.use("/api/customers", (req, res, next) => {
+    const address = req.socket.remoteAddress;
+
+    if (
+      address !== "127.0.0.1" &&
+      address !== "::1" &&
+      address !== "::ffff:127.0.0.1"
+    ) {
+      res.status(403).json({
+        success: false,
+        message: "Local development access only.",
+      });
+      return;
+    }
+
+    next();
+  }, customerRoutes);
+
+  app.use("/api/catalog", (req, res, next) => {
+    const address = req.socket.remoteAddress;
+
+    if (
+      address !== "127.0.0.1" &&
+      address !== "::1" &&
+      address !== "::ffff:127.0.0.1"
+    ) {
+      res.status(403).json({
+        success: false,
+        message: "Local development access only.",
+      });
+      return;
+    }
+
+    next();
+  }, catalogRoutes);
 }
 
-// Handle unknown API routes.
-app.use((req, res) => {
+// Handle routes that do not exist.
+app.use((_req, res) => {
   res.status(404).json({
     success: false,
-    message: "API route not found",
+    message: "API route not found.",
   });
 });
 
-// Handle unexpected application errors.
+// Keep unexpected error handling last.
 app.use(errorHandler);
-
-// Enable customer APIs for local development only.
-// They must be protected by authentication before deployment.
-if (process.env.NODE_ENV === "development") {
-  app.use("/api/customers", customerRoutes);
-}
 
 export default app;
