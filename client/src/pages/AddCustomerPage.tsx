@@ -1,7 +1,9 @@
 
 import { useState } from "react";
+
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -10,14 +12,30 @@ import {
   Divider,
   Grid,
   MenuItem,
+  Paper,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 
-import { Controller, useForm, useWatch } from "react-hook-form";
+import SaveOutlined from "@mui/icons-material/SaveOutlined";
+import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
+import InfoOutlined from "@mui/icons-material/InfoOutlined";
+
+import {
+  Controller,
+  useForm,
+  useWatch,
+} from "react-hook-form";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router";
@@ -28,117 +46,211 @@ import {
   type EyeValues,
 } from "../services/customerApi";
 
-// --------------------------------------------------
-// 1. FORM VALIDATION
-// --------------------------------------------------
+// -----------------------------------------------------
+// 1. PRESCRIPTION SETTINGS
+// -----------------------------------------------------
 
-// Form fields use strings because HTML inputs return text.
-// We convert numerical values before sending to the API.
-const optionalNumber = z.string().refine(
-  value =>
-    value === "" ||
-    (Number.isFinite(Number(value)) &&
-      Number(value) >= -30 &&
-      Number(value) <= 180),
-  "Enter a valid number"
-);
+// nik - Use one consistent prescription order across
+// Add Customer, Edit Customer and Customer Details.
 
-const moneyField = z.string().refine(
-  value =>
-    value.trim() !== "" &&
-    /^\d+(\.\d{1,2})?$/.test(value) &&
-    Number(value) <= 9999999999.99,
-  "Enter a valid amount (maximum 2 decimal places)"
-);
+const eyePrefixes = [
+  "re_dist",
+  "re_near",
+  "le_dist",
+  "le_near",
+] as const;
 
-const formSchema = z.object({
-  name: z.string().trim().min(1, "Customer name is required"),
-  mobNumber: z.string().refine(
-    value => value === "" || /^[6-9]\d{9}$/.test(value),
-    "Enter a valid 10-digit Indian mobile number"
-  ),
-  gender: z.enum(["", "Male", "Female", "Other"]),
-  reference: z.string(),
-  notes: z.string().max(5000, "Maximum 5000 characters"),
+type EyePrefix = (typeof eyePrefixes)[number];
+type EyeMeasure = "sph" | "cyl" | "axis";
+type EyeFieldName = `${EyePrefix}_${EyeMeasure}`;
 
-  specsType: z.string(),
-  lensType: z.string(),
+const prescriptionGroups: {
+  prefix: EyePrefix;
+  label: string;
+  description: string;
+}[] = [
+  {
+    prefix: "re_dist",
+    label: "RE DIST",
+    description: "Right Eye Distance",
+  },
+  {
+    prefix: "re_near",
+    label: "RE NEAR",
+    description: "Right Eye Near",
+  },
+  {
+    prefix: "le_dist",
+    label: "LE DIST",
+    description: "Left Eye Distance",
+  },
+  {
+    prefix: "le_near",
+    label: "LE NEAR",
+    description: "Left Eye Near",
+  },
+];
 
-  pricingMode: z.enum(["SPLIT", "MRP_ONLY"]),
-  frameRate: z.string(),
-  lensRate: z.string(),
-  mrp: z.string(),
+// Generate standard eye powers in 0.25 steps.
+// The searchable dropdown also supports typed values.
+function powerOptions(min: number, max: number) {
+  const options: string[] = [];
 
-  re_dist_sph: optionalNumber,
-  re_dist_cyl: optionalNumber,
-  re_dist_axis: optionalNumber,
-  re_near_sph: optionalNumber,
-  re_near_cyl: optionalNumber,
-  re_near_axis: optionalNumber,
+  for (let quarter = min * 4; quarter <= max * 4; quarter++) {
+    const value = quarter / 4;
 
-  le_dist_sph: optionalNumber,
-  le_dist_cyl: optionalNumber,
-  le_dist_axis: optionalNumber,
-  le_near_sph: optionalNumber,
-  le_near_cyl: optionalNumber,
-  le_near_axis: optionalNumber,
-}).superRefine((data, ctx) => {
-  // Only validate amounts used by the selected pricing mode.
-  const fields = data.pricingMode === "SPLIT"
-    ? (["frameRate", "lensRate"] as const)
-    : (["mrp"] as const);
-
-  for (const field of fields) {
-    const result = moneyField.safeParse(data[field]);
-
-    if (!result.success) {
-      ctx.addIssue({
-        code: "custom",
-        path: [field],
-        message: "Enter a valid amount (maximum 2 decimals)",
-      });
-    }
+    options.push(
+      `${value > 0 ? "+" : ""}${value.toFixed(2)}`
+    );
   }
 
-  // SPH and CYL accept signed decimal measurements.
-  // AXIS must be a whole number between 0 and 180.
-  const prefixes = ["re_dist", "re_near", "le_dist", "le_near"] as const;
+  return options;
+}
 
-  for (const prefix of prefixes) {
-    const axisField = `${prefix}_axis` as keyof typeof data;
-    const axisValue = data[axisField];
+const sphOptions = powerOptions(-30, 30);
+const cylOptions = powerOptions(-15, 15);
 
-    if (
-      axisValue !== "" &&
-      (!/^\d+$/.test(axisValue) || Number(axisValue) > 180)
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: [axisField],
-        message: "Axis must be a whole number from 0 to 180",
-      });
-    }
+// -----------------------------------------------------
+// 2. VALIDATION
+// -----------------------------------------------------
 
-    for (const kind of ["sph", "cyl"] as const) {
-      const key = `${prefix}_${kind}` as keyof typeof data;
-      const value = data[key];
+// Inputs are strings in the form.
+// Convert them to numbers only when building the API payload.
 
-      if (value !== "" && (
-        !/^[+-]?\d+(\.\d+)?$/.test(value) ||
-        Number(value) < (kind === "sph" ? -30 : -15) ||
-        Number(value) > (kind === "sph" ? 30 : 15)
-      )) {
-        ctx.addIssue({
+const optionalNumber = z.string();
+
+const moneyField = z.string().refine(
+  (value) =>
+    /^\d+(\.\d{1,2})?$/.test(value) &&
+    Number(value) <= 9999999999.99,
+  "Enter a valid amount with at most 2 decimal places."
+);
+
+const formSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "Customer name is required.")
+      .max(150, "Maximum 150 characters."),
+
+    mobNumber: z.string().refine(
+      (value) =>
+        value === "" || /^[6-9]\d{9}$/.test(value),
+      "Enter a valid 10-digit Indian mobile number."
+    ),
+
+    gender: z.enum(["", "Male", "Female", "Other"]),
+
+    reference: z.string().max(
+      255,
+      "Maximum 255 characters."
+    ),
+
+    notes: z.string().max(
+      5000,
+      "Maximum 5000 characters."
+    ),
+
+    specsType: z.string().max(
+      100,
+      "Maximum 100 characters."
+    ),
+
+    lensType: z.string().max(
+      100,
+      "Maximum 100 characters."
+    ),
+
+    pricingMode: z.enum(["SPLIT", "MRP_ONLY"]),
+
+    frameRate: z.string(),
+    lensRate: z.string(),
+    mrp: z.string(),
+
+    re_dist_sph: optionalNumber,
+    re_dist_cyl: optionalNumber,
+    re_dist_axis: optionalNumber,
+
+    re_near_sph: optionalNumber,
+    re_near_cyl: optionalNumber,
+    re_near_axis: optionalNumber,
+
+    le_dist_sph: optionalNumber,
+    le_dist_cyl: optionalNumber,
+    le_dist_axis: optionalNumber,
+
+    le_near_sph: optionalNumber,
+    le_near_cyl: optionalNumber,
+    le_near_axis: optionalNumber,
+  })
+  .superRefine((data, context) => {
+    // Validate only the fields relevant to pricing mode.
+    const priceFields =
+      data.pricingMode === "SPLIT"
+        ? (["frameRate", "lensRate"] as const)
+        : (["mrp"] as const);
+
+    for (const name of priceFields) {
+      if (!moneyField.safeParse(data[name]).success) {
+        context.addIssue({
           code: "custom",
-          path: [key],
-          message: `Enter a valid ${kind.toUpperCase()} value`,
+          path: [name],
+          message: "Enter a valid price (max 2 decimals).",
         });
       }
     }
-  }
-});
+
+    // Validate each of the four eye groups.
+    for (const prefix of eyePrefixes) {
+      for (const measure of [
+        "sph",
+        "cyl",
+        "axis",
+      ] as const) {
+        const key: EyeFieldName = `${prefix}_${measure}`;
+        const value = data[key].trim();
+
+        // A blank prescription field is allowed.
+        if (value === "") continue;
+
+        if (measure === "axis") {
+          if (
+            !/^\d+$/.test(value) ||
+            Number(value) > 180
+          ) {
+            context.addIssue({
+              code: "custom",
+              path: [key],
+              message: "AXIS must be a whole number from 0 to 180.",
+            });
+          }
+        } else {
+          const limit = measure === "sph" ? 30 : 15;
+
+          if (
+            !/^[+-]?\d+(\.\d+)?$/.test(value) ||
+            !Number.isFinite(Number(value)) ||
+            Number(value) < -limit ||
+            Number(value) > limit
+          ) {
+            context.addIssue({
+              code: "custom",
+              path: [key],
+              message:
+                `${measure.toUpperCase()} must be between -${limit} and +${limit}.`,
+            });
+          }
+        }
+      }
+    }
+  });
 
 type FormValues = z.infer<typeof formSchema>;
+
+// -----------------------------------------------------
+// 3. INITIAL VALUES
+// -----------------------------------------------------
 
 const initialValues: FormValues = {
   name: "",
@@ -146,104 +258,131 @@ const initialValues: FormValues = {
   gender: "",
   reference: "",
   notes: "",
+
   specsType: "",
   lensType: "",
+
   pricingMode: "SPLIT",
   frameRate: "",
   lensRate: "",
   mrp: "",
+
   re_dist_sph: "",
   re_dist_cyl: "",
   re_dist_axis: "",
+
   re_near_sph: "",
   re_near_cyl: "",
   re_near_axis: "",
+
   le_dist_sph: "",
   le_dist_cyl: "",
   le_dist_axis: "",
+
   le_near_sph: "",
   le_near_cyl: "",
   le_near_axis: "",
 };
 
-// --------------------------------------------------
-// 2. PRESCRIPTION FIELD CONFIGURATION
-// --------------------------------------------------
+// -----------------------------------------------------
+// 4. PAYLOAD HELPERS
+// -----------------------------------------------------
 
-type EyePrefix = "re_dist" | "re_near" | "le_dist" | "le_near";
-type Measure = "sph" | "cyl" | "axis";
-type EyeFieldName = `${EyePrefix}_${Measure}`;
-
-const prescriptionGroups: {
-  title: string;
-  prefix: EyePrefix;
-}[] = [
-  { title: "Right Eye — Distance", prefix: "re_dist" },
-  { title: "Left Eye — Distance", prefix: "le_dist" },
-  { title: "Right Eye — Near", prefix: "re_near" },
-  { title: "Left Eye — Near", prefix: "le_near" },
-];
-
-// Build one eye's measurements from form strings.
-// Blank values are omitted rather than stored as zero.
+// Read one eye group.
+// Blank values are omitted instead of stored as zero.
 function readEye(
   values: FormValues,
   prefix: EyePrefix
 ): EyeValues | undefined {
   const result: EyeValues = {};
 
-  for (const kind of ["sph", "cyl", "axis"] as const) {
-    const key: EyeFieldName = `${prefix}_${kind}`;
-    const raw = values[key];
+  for (const measure of [
+    "sph",
+    "cyl",
+    "axis",
+  ] as const) {
+    const key: EyeFieldName = `${prefix}_${measure}`;
+    const raw = values[key].trim();
 
-    if (raw.trim() !== "") {
-      result[kind] = Number(raw);
+    if (raw !== "") {
+      result[measure] = Number(raw);
     }
   }
 
-  return Object.keys(result).length > 0 ? result : undefined;
+  return Object.keys(result).length > 0
+    ? result
+    : undefined;
 }
 
-// --------------------------------------------------
-// 3. CUSTOMER REGISTRATION COMPONENT
-// --------------------------------------------------
+// -----------------------------------------------------
+// 5. ADD CUSTOMER PAGE
+// -----------------------------------------------------
 
 export default function AddCustomerPage() {
   const navigate = useNavigate();
+
   const [saveError, setSaveError] = useState("");
 
   const {
     control,
     handleSubmit,
     setValue,
-    formState: { errors, isSubmitting, isDirty },
+    formState: {
+      errors,
+      isSubmitting,
+      isDirty,
+    },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: initialValues,
     mode: "onBlur",
   });
 
-  // Watch pricing fields to calculate MRP live.
-  const [pricingMode, frameRate, lensRate, mrp] = useWatch({
+  // Watch prices and update the displayed MRP automatically.
+  const [
+    pricingMode,
+    frameRate,
+    lensRate,
+    mrp,
+  ] = useWatch({
     control,
-    name: ["pricingMode", "frameRate", "lensRate", "mrp"],
+    name: [
+      "pricingMode",
+      "frameRate",
+      "lensRate",
+      "mrp",
+    ],
   });
 
-  const frameValid = moneyField.safeParse(frameRate).success;
-  const lensValid = moneyField.safeParse(lensRate).success;
-  const mrpValid = moneyField.safeParse(mrp).success;
+  const frameValid =
+    moneyField.safeParse(frameRate).success;
 
-  const total = pricingMode === "SPLIT"
-    ? frameValid && lensValid
-      ? (Math.round(Number(frameRate) * 100) +
-          Math.round(Number(lensRate) * 100)) / 100
-      : null
-    : mrpValid ? Number(mrp) : null;
+  const lensValid =
+    moneyField.safeParse(lensRate).success;
 
-  // Convert the form into the backend's expected structure.
+  const mrpValid =
+    moneyField.safeParse(mrp).success;
+
+  const total =
+    pricingMode === "SPLIT"
+      ? frameValid && lensValid
+        ? (
+            Math.round(Number(frameRate) * 100) +
+            Math.round(Number(lensRate) * 100)
+          ) / 100
+        : null
+      : mrpValid
+        ? Number(mrp)
+        : null;
+
+  // -----------------------------------------------------
+  // 6. SAVE NEW CUSTOMER
+  // -----------------------------------------------------
+
   async function onSubmit(values: FormValues) {
     setSaveError("");
 
+    // Build all four prescription groups.
     const prescription = {
       re_dist: readEye(values, "re_dist"),
       re_near: readEye(values, "re_near"),
@@ -251,14 +390,16 @@ export default function AddCustomerPage() {
       le_near: readEye(values, "le_near"),
     };
 
-    const hasPrescription = Object.values(prescription)
-      .some(value => value !== undefined);
+    const hasPrescription = Object.values(
+      prescription
+    ).some((value) => value !== undefined);
 
     const commonRecord = {
       specsType: values.specsType.trim() || null,
       lensType: values.lensType.trim() || null,
     };
 
+    // Pricing is calculated again by the backend.
     const record: CustomerPayload["record"] =
       values.pricingMode === "SPLIT"
         ? {
@@ -275,30 +416,48 @@ export default function AddCustomerPage() {
 
     const payload: CustomerPayload = {
       name: values.name.trim(),
+
       mobNumber: values.mobNumber || null,
+
       gender: values.gender || null,
+
       reference: values.reference.trim() || null,
+
+      // Internal notes stay in the CRM only.
       notes: values.notes.trim() || null,
-      prescription: hasPrescription ? prescription : undefined,
+
+      prescription: hasPrescription
+        ? prescription
+        : undefined,
+
       record,
     };
 
     try {
+      // React Hook Form automatically prevents
+      // a second submit while this request is pending.
       const customer = await createCustomer(payload);
 
-      // Only redirect after PostgreSQL confirms the save.
+      // Navigate only after the database confirms creation.
       navigate(`/customers/${customer.id}`, {
         replace: true,
-        state: { saved: true },
+        state: {
+          saved: true,
+        },
       });
     } catch (error) {
       setSaveError(
-        error instanceof Error ? error.message : "Unable to save customer."
+        error instanceof Error
+          ? error.message
+          : "Unable to save customer."
       );
     }
   }
 
-  // Reusable MUI input connected to React Hook Form.
+  // -----------------------------------------------------
+  // 7. REUSABLE TEXT INPUT
+  // -----------------------------------------------------
+
   function formInput(
     name: keyof FormValues,
     label: string,
@@ -322,6 +481,7 @@ export default function AddCustomerPage() {
             required={options.required}
             multiline={options.multiline}
             rows={options.rows}
+            disabled={isSubmitting}
             error={Boolean(errors[name])}
             helperText={errors[name]?.message}
             slotProps={{
@@ -340,6 +500,101 @@ export default function AddCustomerPage() {
     );
   }
 
+  // -----------------------------------------------------
+  // 8. PRESCRIPTION POWER DROPDOWN
+  // -----------------------------------------------------
+
+  function prescriptionPowerInput(
+    name: EyeFieldName,
+    label: string,
+    options: string[]
+  ) {
+    return (
+      <Controller
+        name={name}
+        control={control}
+        render={({ field }) => (
+          <Autocomplete
+            freeSolo
+            fullWidth
+            size="small"
+            options={options}
+            value={field.value}
+            inputValue={field.value}
+            disabled={isSubmitting}
+            onInputChange={(_, nextValue, reason) => {
+              if (
+                reason === "input" ||
+                reason === "clear"
+              ) {
+                field.onChange(nextValue);
+              }
+            }}
+            onChange={(_, nextValue) => {
+              field.onChange(nextValue ?? "");
+            }}
+            onBlur={field.onBlur}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                inputRef={field.ref}
+                placeholder="Power"
+                aria-label={label}
+                error={Boolean(errors[name])}
+                helperText={errors[name]?.message}
+              />
+            )}
+          />
+        )}
+      />
+    );
+  }
+
+  // -----------------------------------------------------
+  // 9. AXIS MANUAL INPUT
+  // -----------------------------------------------------
+
+  function axisInput(
+    name: EyeFieldName,
+    label: string
+  ) {
+    return (
+      <Controller
+        name={name}
+        control={control}
+        render={({ field }) => (
+          <TextField
+            {...field}
+            fullWidth
+            size="small"
+            placeholder="0–180"
+            disabled={isSubmitting}
+            onChange={(event) => {
+              // Only digits are allowed for AXIS.
+              const value = event.target.value
+                .replace(/\D/g, "")
+                .slice(0, 3);
+
+              field.onChange(value);
+            }}
+            error={Boolean(errors[name])}
+            helperText={errors[name]?.message}
+            slotProps={{
+              htmlInput: {
+                inputMode: "numeric",
+                "aria-label": label,
+              },
+            }}
+          />
+        )}
+      />
+    );
+  }
+
+  // -----------------------------------------------------
+  // 10. MAIN PAGE
+  // -----------------------------------------------------
+
   return (
     <Box
       component="form"
@@ -348,47 +603,94 @@ export default function AddCustomerPage() {
       sx={{ maxWidth: 1150, mx: "auto" }}
     >
       <Stack spacing={3}>
-        {/* Page heading and navigation */}
+        {/* PAGE HEADER */}
         <Box>
           <Button
-            onClick={() => navigate("/customers")}
+            startIcon={<ArrowBackOutlined />}
+            disabled={isSubmitting}
+            onClick={() => {
+              if (
+                !isDirty ||
+                window.confirm(
+                  "Discard the unsaved customer information?"
+                )
+              ) {
+                navigate("/customers");
+              }
+            }}
             sx={{ mb: 2 }}
           >
-            ← Back to Customers
+            Back to Customers
           </Button>
 
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+          <Typography
+            variant="h4"
+            sx={{ fontWeight: 700 }}
+          >
             Add New Customer
           </Typography>
 
-          <Typography color="text.secondary" sx={{ mt: 1 }}>
-            Register customer details, prescription and pricing.
+          <Typography
+            color="text.secondary"
+            sx={{ mt: 1 }}
+          >
+            Register personal information, eye
+            prescription and purchase details.
           </Typography>
         </Box>
 
+        {/* API ERRORS */}
         {saveError && (
-          <Alert severity="error" onClose={() => setSaveError("")}>
+          <Alert
+            severity="error"
+            onClose={() => setSaveError("")}
+          >
             {saveError}
           </Alert>
         )}
 
-        {/* Personal information */}
+        {/* SAVE PROGRESS */}
+        {isSubmitting && (
+          <Alert severity="info">
+            <Stack
+              direction="row"
+              spacing={1.5}
+              sx={{ alignItems: "center" }}
+            >
+              <CircularProgress size={18} />
+
+              <Typography variant="body2">
+                Saving the customer and related records...
+              </Typography>
+            </Stack>
+          </Alert>
+        )}
+
+        {/* PERSONAL INFORMATION */}
         <Card>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
+            <Typography variant="h6" sx={{ mb: 3 }}>
               Personal Information
             </Typography>
 
-            <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput("name", "Customer Name", { required: true })}
+                {formInput(
+                  "name",
+                  "Customer Name",
+                  { required: true }
+                )}
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput("mobNumber", "Mobile Number", {
-                  inputMode: "numeric",
-                  maxLength: 10,
-                })}
+                {formInput(
+                  "mobNumber",
+                  "Mobile Number",
+                  {
+                    inputMode: "numeric",
+                    maxLength: 10,
+                  }
+                )}
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
@@ -396,141 +698,293 @@ export default function AddCustomerPage() {
                   name="gender"
                   control={control}
                   render={({ field }) => (
-                    <TextField {...field} fullWidth select label="Gender">
-                      <MenuItem value="">Not specified</MenuItem>
-                      <MenuItem value="Male">Male</MenuItem>
-                      <MenuItem value="Female">Female</MenuItem>
-                      <MenuItem value="Other">Other</MenuItem>
+                    <TextField
+                      {...field}
+                      fullWidth
+                      select
+                      label="Gender"
+                      disabled={isSubmitting}
+                    >
+                      <MenuItem value="">
+                        Not specified
+                      </MenuItem>
+
+                      <MenuItem value="Male">
+                        Male
+                      </MenuItem>
+
+                      <MenuItem value="Female">
+                        Female
+                      </MenuItem>
+
+                      <MenuItem value="Other">
+                        Other
+                      </MenuItem>
                     </TextField>
                   )}
                 />
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput("reference", "Reference / Referred By")}
+                {formInput(
+                  "reference",
+                  "Reference / Referred By"
+                )}
               </Grid>
             </Grid>
           </CardContent>
         </Card>
 
-        {/* Prescription: four panels, three inputs each */}
+        {/* OPTICAL PRESCRIPTION */}
         <Card>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6">
+            <Typography
+              variant="h6"
+              sx={{ fontWeight: 700, mb: 1 }}
+            >
               Optical Prescription
             </Typography>
 
-            <Typography color="text.secondary" sx={{ mb: 3 }}>
-              Enter SPH, CYL and AXIS where applicable.
-              Blank fields are allowed.
+            <Typography
+              color="text.secondary"
+              sx={{ mb: 2 }}
+            >
+              Enter eye powers using the searchable
+              SPH/CYL dropdowns. Type AXIS manually.
+              Blank measurements are allowed.
             </Typography>
 
-            <Grid container spacing={2}>
-              {prescriptionGroups.map(group => (
-                <Grid key={group.prefix} size={{ xs: 12, md: 6 }}>
-                  <Box
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{
+                borderRadius: 2,
+                overflowX: "auto",
+              }}
+            >
+              <Table
+                size="small"
+                sx={{
+                  minWidth: 580,
+                  "& .MuiTableCell-root": {
+                    px: 1.5,
+                    py: 1.5,
+                    verticalAlign: "middle",
+                  },
+                }}
+              >
+                <TableHead>
+                  <TableRow
                     sx={{
-                      p: 2,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 2,
+                      bgcolor: "background.default",
                     }}
                   >
-                    <Typography sx={{ fontWeight: 600,  mb: 2 }}>
-                      {group.title}
-                    </Typography>
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      Eye / Vision
+                    </TableCell>
 
-                    <Grid container spacing={1.5}>
-                      {(["sph", "cyl", "axis"] as const).map(kind => (
-                        <Grid size={4} key={kind}>
-                          {formInput(
-                            `${group.prefix}_${kind}`,
-                            kind.toUpperCase(),
-                            {
-                              inputMode:
-                                kind === "axis" ? "numeric" : "decimal",
-                            }
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      SPH
+                    </TableCell>
+
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      CYL
+                    </TableCell>
+
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      AXIS
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+
+                <TableBody>
+                  {prescriptionGroups.map((group) => {
+                    const sphKey: EyeFieldName =
+                      `${group.prefix}_sph`;
+
+                    const cylKey: EyeFieldName =
+                      `${group.prefix}_cyl`;
+
+                    const axisKey: EyeFieldName =
+                      `${group.prefix}_axis`;
+
+                    return (
+                      <TableRow key={group.prefix} hover>
+                        <TableCell
+                          sx={{ minWidth: 150 }}
+                        >
+                          <Typography
+                            sx={{ fontWeight: 700 }}
+                          >
+                            {group.label}
+                          </Typography>
+
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                          >
+                            {group.description}
+                          </Typography>
+                        </TableCell>
+
+                        {/* SPH DROPDOWN */}
+                        <TableCell
+                          sx={{ minWidth: 145 }}
+                        >
+                          {prescriptionPowerInput(
+                            sphKey,
+                            `${group.label} SPH`,
+                            sphOptions
                           )}
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Box>
-                </Grid>
-              ))}
-            </Grid>
+                        </TableCell>
+
+                        {/* CYL DROPDOWN */}
+                        <TableCell
+                          sx={{ minWidth: 145 }}
+                        >
+                          {prescriptionPowerInput(
+                            cylKey,
+                            `${group.label} CYL`,
+                            cylOptions
+                          )}
+                        </TableCell>
+
+                        {/* MANUAL AXIS */}
+                        <TableCell
+                          sx={{ minWidth: 115 }}
+                        >
+                          {axisInput(
+                            axisKey,
+                            `${group.label} AXIS`
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Alert
+              severity="info"
+              icon={<InfoOutlined />}
+              sx={{ mt: 2 }}
+            >
+              SPH range: -30 to +30. CYL range:
+              -15 to +15. AXIS range: 0 to 180.
+            </Alert>
           </CardContent>
         </Card>
 
-        {/* Product selection */}
+        {/* FRAME AND LENS DETAILS */}
         <Card>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
+            <Typography
+              variant="h6"
+              sx={{ mb: 3 }}
+            >
               Frame & Lens Details
             </Typography>
 
-            <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput("specsType", "Spectacle / Frame Type")}
+                {formInput(
+                  "specsType",
+                  "Spectacle / Frame Type"
+                )}
               </Grid>
+
               <Grid size={{ xs: 12, md: 6 }}>
-                {formInput("lensType", "Lens Type")}
+                {formInput(
+                  "lensType",
+                  "Lens Type"
+                )}
               </Grid>
             </Grid>
           </CardContent>
         </Card>
 
-        {/* Two supported pricing modes */}
+        {/* PRICING DETAILS */}
         <Card>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
+            <Typography variant="h6">
               Pricing Details
             </Typography>
 
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              color="primary"
-              value={pricingMode}
-              onChange={(_, value) => {
-                if (value) {
-                  setValue("pricingMode", value, {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  });
-                }
-              }}
-              sx={{ my: 2, flexWrap: "wrap" }}
-            >
-              <ToggleButton value="SPLIT">
-                Frame + Lens
-              </ToggleButton>
-              <ToggleButton value="MRP_ONLY">
-                MRP Only
-              </ToggleButton>
-            </ToggleButtonGroup>
+            <Controller
+              name="pricingMode"
+              control={control}
+              render={({ field }) => (
+                <ToggleButtonGroup
+                  exclusive
+                  color="primary"
+                  size="small"
+                  value={field.value}
+                  disabled={isSubmitting}
+                  onChange={(_, value) => {
+                    if (value !== null) {
+                      setValue(
+                        "pricingMode",
+                        value as "SPLIT" | "MRP_ONLY",
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      );
+                    }
+                  }}
+                  sx={{
+                    my: 2,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <ToggleButton value="SPLIT">
+                    Frame + Lens
+                  </ToggleButton>
+
+                  <ToggleButton value="MRP_ONLY">
+                    MRP Only
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
+            />
 
             {pricingMode === "SPLIT" ? (
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  {formInput("frameRate", "Frame Rate (₹)", {
-                    required: true,
-                    inputMode: "decimal",
-                  })}
+                  {formInput(
+                    "frameRate",
+                    "Frame Rate (₹)",
+                    {
+                      required: true,
+                      inputMode: "decimal",
+                    }
+                  )}
                 </Grid>
+
                 <Grid size={{ xs: 12, md: 6 }}>
-                  {formInput("lensRate", "Lens Rate (₹)", {
-                    required: true,
-                    inputMode: "decimal",
-                  })}
+                  {formInput(
+                    "lensRate",
+                    "Lens Rate (₹)",
+                    {
+                      required: true,
+                      inputMode: "decimal",
+                    }
+                  )}
                 </Grid>
               </Grid>
             ) : (
-              formInput("mrp", "Total MRP (₹)", {
-                required: true,
-                inputMode: "decimal",
-              })
+              formInput(
+                "mrp",
+                "Total MRP (₹)",
+                {
+                  required: true,
+                  inputMode: "decimal",
+                }
+              )
             )}
 
+            {/* LIVE TOTAL */}
             <Box
               sx={{
                 mt: 3,
@@ -540,13 +994,19 @@ export default function AddCustomerPage() {
                 color: "white",
               }}
             >
-              <Typography variant="body2" sx={{ opacity: 0.85 }}>
+              <Typography
+                variant="body2"
+                sx={{ opacity: 0.85 }}
+              >
                 {pricingMode === "SPLIT"
                   ? "Automatically Calculated MRP"
                   : "Entered MRP"}
               </Typography>
 
-              <Typography variant="h4" sx={{ fontWeight: 700 }}>
+              <Typography
+                variant="h4"
+                sx={{ fontWeight: 700 }}
+              >
                 {total === null
                   ? "₹ —"
                   : `₹${total.toLocaleString("en-IN", {
@@ -558,33 +1018,43 @@ export default function AddCustomerPage() {
           </CardContent>
         </Card>
 
-        {/* Staff-only notes */}
+        {/* STAFF-ONLY NOTES */}
         <Card>
           <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
+            <Typography
+              variant="h6"
+              sx={{ mb: 2 }}
+            >
               Private Customer Notes
             </Typography>
 
             <Alert severity="info" sx={{ mb: 2 }}>
-              These notes are for internal CRM use only and will not
-              appear in customer PDFs.
+              Notes are for internal CRM use only.
+              Never include them in customer PDFs
+              or WhatsApp messages.
             </Alert>
 
-            {formInput("notes", "Internal Notes", {
-              multiline: true,
-              rows: 3,
-            })}
+            {formInput(
+              "notes",
+              "Internal Notes",
+              {
+                multiline: true,
+                rows: 3,
+              }
+            )}
           </CardContent>
         </Card>
 
         <Divider />
 
-        {/* Save action */}
+        {/* SAVE ACTIONS */}
         <Stack
           direction={{ xs: "column", sm: "row" }}
-         
           spacing={2}
-          sx={{ justifyContent: "flex-end",  pb: 4 }}
+          sx={{
+            justifyContent: "flex-end",
+            pb: 4,
+          }}
         >
           <Button
             variant="outlined"
@@ -592,7 +1062,9 @@ export default function AddCustomerPage() {
             onClick={() => {
               if (
                 !isDirty ||
-                window.confirm("Discard unsaved customer details?")
+                window.confirm(
+                  "Discard unsaved customer details?"
+                )
               ) {
                 navigate("/customers");
               }
@@ -607,12 +1079,19 @@ export default function AddCustomerPage() {
             size="large"
             disabled={isSubmitting}
             startIcon={
-              isSubmitting
-                ? <CircularProgress size={18} color="inherit" />
-                : undefined
+              isSubmitting ? (
+                <CircularProgress
+                  size={18}
+                  color="inherit"
+                />
+              ) : (
+                <SaveOutlined />
+              )
             }
           >
-            {isSubmitting ? "Saving Customer..." : "Save Customer"}
+            {isSubmitting
+              ? "Saving Customer..."
+              : "Save Customer"}
           </Button>
         </Stack>
       </Stack>
