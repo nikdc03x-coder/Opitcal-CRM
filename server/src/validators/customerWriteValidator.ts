@@ -1,7 +1,7 @@
 
 import { z } from "zod";
 
-// nik - Validate incoming customer data before it reaches PostgreSQL.
+// nik - Validate customer and catalog data before saving.
 
 // Mobile numbers are optional.
 const phoneSchema = z
@@ -10,8 +10,6 @@ const phoneSchema = z
   .nullable()
   .optional();
 
-// Check actual calendar dates, including leap years.
-// This prevents dates such as 2026-02-30.
 function isValidCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;
@@ -25,8 +23,6 @@ function isValidCalendarDate(value: string): boolean {
   );
 }
 
-// An actual purchase date is optional.
-// Null means the shop has not recorded one.
 export const purchaseDateSchema = z
   .string()
   .refine(
@@ -36,7 +32,6 @@ export const purchaseDateSchema = z
   .nullable()
   .optional();
 
-// Optical measurements can be empty.
 const eyeSchema = z
   .object({
     sph: z.number().finite().min(-30).max(30).nullable().optional(),
@@ -45,7 +40,6 @@ const eyeSchema = z
   })
   .strict();
 
-// Maintain the original optical measurement structure.
 export const prescriptionSchema = z
   .object({
     re_dist: eyeSchema.optional(),
@@ -55,7 +49,6 @@ export const prescriptionSchema = z
   })
   .strict();
 
-// Only allow valid prices with up to two decimal places.
 const amountSchema = z
   .number()
   .finite()
@@ -68,15 +61,23 @@ const amountSchema = z
     "Amount must have at most two decimal places"
   );
 
-// A purchase can use individual rates or total MRP.
+// Catalog references are optional, so older customers
+// and manually entered purchase names remain supported.
+const catalogFields = {
+  specsType: z.string().trim().max(100).nullable().optional(),
+  lensType: z.string().trim().max(100).nullable().optional(),
+  frameCatalogId: z.string().uuid().nullable().optional(),
+  lensCatalogId: z.string().uuid().nullable().optional(),
+};
+
+// A purchase may use split pricing or total MRP.
 export const recordSchema = z.discriminatedUnion(
   "pricingMode",
   [
     z
       .object({
         pricingMode: z.literal("SPLIT"),
-        specsType: z.string().trim().max(100).nullable().optional(),
-        lensType: z.string().trim().max(100).nullable().optional(),
+        ...catalogFields,
         frameRate: amountSchema,
         lensRate: amountSchema,
       })
@@ -85,15 +86,13 @@ export const recordSchema = z.discriminatedUnion(
     z
       .object({
         pricingMode: z.literal("MRP_ONLY"),
-        specsType: z.string().trim().max(100).nullable().optional(),
-        lensType: z.string().trim().max(100).nullable().optional(),
+        ...catalogFields,
         mrp: amountSchema,
       })
       .strict(),
   ]
 );
 
-// Information shared by Create and Update operations.
 const customerFields = z
   .object({
     name: z.string().trim().min(1).max(150),
@@ -103,14 +102,12 @@ const customerFields = z
       .nullable()
       .optional(),
     reference: z.string().trim().max(255).nullable().optional(),
-
-    // Staff-only notes must never be included in customer PDFs.
     notes: z.string().trim().max(5000).nullable().optional(),
   })
   .strict();
 
 // CREATE CUSTOMER:
-// Purchase date is a top-level field, separate from pricing.
+// Date remains separate from the purchase record.
 export const createCustomerSchema = customerFields.extend({
   prescription: prescriptionSchema.optional(),
   record: recordSchema,
@@ -118,7 +115,8 @@ export const createCustomerSchema = customerFields.extend({
 });
 
 // UPDATE CUSTOMER:
-// Existing historical purchase editing uses its own endpoint.
+// Existing personal, prescription and record updates
+// remain backward compatible.
 export const updateCustomerSchema = customerFields
   .partial()
   .extend({
@@ -130,7 +128,6 @@ export const updateCustomerSchema = customerFields
     "Provide at least one field to update"
   );
 
-// Types used by controllers and services.
 export type CreateCustomerInput =
   z.infer<typeof createCustomerSchema>;
 

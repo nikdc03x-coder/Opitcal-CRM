@@ -9,13 +9,17 @@ import type {
 import { calculatePricing } from "../utils/pricing";
 import { mapPrescription } from "../utils/prescription";
 
-// nik - All customer operations are scoped to the demo shop.
-// Later, authentication will determine the authorized shop.
+import {
+  resolveCatalogSelection,
+} from "./catalogSelection";
+
+// nik - All customer operations belong to the
+// demo shop until authentication is implemented.
 const DEMO_SHOP_CODE = "DEMO_SHOP";
 
-// -----------------------------------------------------
-// 1. FIND THE CURRENT SHOP
-// -----------------------------------------------------
+// --------------------------------------------------
+// 1. FIND SHOP
+// --------------------------------------------------
 
 async function getDemoShopId(): Promise<string> {
   const shop = await prisma.shop.findUnique({
@@ -36,12 +40,10 @@ async function getDemoShopId(): Promise<string> {
   return shop.id;
 }
 
-// -----------------------------------------------------
+// --------------------------------------------------
 // 2. SEARCH CUSTOMERS
-// -----------------------------------------------------
+// --------------------------------------------------
 
-// Return a list because multiple customers can share
-// the same mobile number.
 export async function searchCustomers(
   phone?: string,
   name?: string
@@ -71,8 +73,6 @@ export async function searchCustomers(
         : {}),
     },
 
-    // Keep search results small.
-    // Private notes are not needed in the search list.
     select: {
       id: true,
       name: true,
@@ -89,11 +89,10 @@ export async function searchCustomers(
   });
 }
 
-// -----------------------------------------------------
+// --------------------------------------------------
 // 3. GET CUSTOMER DETAILS
-// -----------------------------------------------------
+// --------------------------------------------------
 
-// Retrieve exactly one active customer in this shop.
 export async function getCustomerById(id: string) {
   const shopId = await getDemoShopId();
 
@@ -120,28 +119,32 @@ export async function getCustomerById(id: string) {
   });
 }
 
-// -----------------------------------------------------
+// --------------------------------------------------
 // 4. CREATE CUSTOMER
-// -----------------------------------------------------
+// --------------------------------------------------
 
-// A transaction ensures that the personal information,
-// prescription and initial purchase are saved together.
 export async function createCustomer(
   data: CreateCustomerInput
 ) {
   const shopId = await getDemoShopId();
 
-  // Always calculate pricing on the backend.
   const pricing = calculatePricing(data.record);
 
-  // Convert a calendar date into a PostgreSQL DATE value.
-  // Do not default to today when no purchase date was given.
   const purchaseDate = data.purchaseDate
     ? new Date(`${data.purchaseDate}T00:00:00.000Z`)
     : null;
 
+  // Customer, prescription, and purchase are saved
+  // together or not at all.
   return prisma.$transaction(async (tx) => {
-    // Step A: Create the customer.
+    // Validate catalog selections before creating
+    // any customer information.
+    const catalog = await resolveCatalogSelection(
+      tx,
+      shopId,
+      data.record
+    );
+
     const customer = await tx.customer.create({
       data: {
         shopId,
@@ -153,7 +156,6 @@ export async function createCustomer(
       },
     });
 
-    // Step B: Save the prescription if provided.
     const prescription = data.prescription
       ? await tx.prescription.create({
           data: {
@@ -163,23 +165,20 @@ export async function createCustomer(
         })
       : null;
 
-    // Step C: Save the purchase with its actual date.
     await tx.customerRecord.create({
       data: {
         customerId: customer.id,
         prescriptionId: prescription?.id ?? null,
 
-        specsType: data.record.specsType,
-        lensType: data.record.lensType,
+        // Validated catalog IDs and historical names.
+        ...catalog,
 
         ...pricing,
 
-        // This is independent of the database createdAt field.
         purchaseDate,
       },
     });
 
-    // Step D: Return the saved customer and related records.
     return tx.customer.findUniqueOrThrow({
       where: {
         id: customer.id,
@@ -193,13 +192,12 @@ export async function createCustomer(
   });
 }
 
-// -----------------------------------------------------
+// --------------------------------------------------
 // 5. UPDATE CUSTOMER
-// -----------------------------------------------------
+// --------------------------------------------------
 
-// Keep existing Update Customer behavior.
-// The historical editing endpoints handle exact
-// record IDs for purchase and prescription updates.
+// Historical purchase editing also has a separate
+// endpoint. Keep this existing method compatible.
 export async function updateCustomer(
   id: string,
   data: UpdateCustomerInput
@@ -207,8 +205,6 @@ export async function updateCustomer(
   const shopId = await getDemoShopId();
 
   return prisma.$transaction(async (tx) => {
-    // Step A: Confirm that this active customer
-    // belongs to the demo shop.
     const existing = await tx.customer.findFirst({
       where: {
         id,
@@ -237,7 +233,25 @@ export async function updateCustomer(
       return null;
     }
 
-    // Step B: Update only the personal fields provided.
+    // Resolve catalog selections before changing data.
+    const latestRecord = existing.records[0];
+
+    const catalog = data.record
+      ? await resolveCatalogSelection(
+          tx,
+          shopId,
+          data.record,
+          latestRecord
+            ? {
+                frameCatalogId: latestRecord.frameCatalogId,
+                lensCatalogId: latestRecord.lensCatalogId,
+                specsType: latestRecord.specsType,
+                lensType: latestRecord.lensType,
+              }
+            : undefined
+        )
+      : null;
+
     await tx.customer.update({
       where: {
         id,
@@ -252,7 +266,7 @@ export async function updateCustomer(
       },
     });
 
-    // Step C: Update the latest prescription if supplied.
+    // Preserve prescription update behavior.
     if (data.prescription) {
       const measurements = mapPrescription(
         data.prescription
@@ -270,7 +284,6 @@ export async function updateCustomer(
           data: measurements,
         });
       } else {
-        // Create a new prescription if none exists.
         const newPrescription =
           await tx.prescription.create({
             data: {
@@ -278,9 +291,6 @@ export async function updateCustomer(
               ...measurements,
             },
           });
-
-        // Connect the latest purchase if needed.
-        const latestRecord = existing.records[0];
 
         if (
           latestRecord &&
@@ -299,13 +309,10 @@ export async function updateCustomer(
       }
     }
 
-    // Step D: Update the latest purchase if supplied.
-    if (data.record) {
+    // Update only the latest purchase when requested.
+    if (data.record && catalog) {
       const pricing = calculatePricing(data.record);
-      const latestRecord = existing.records[0];
 
-      // Explicitly handle split prices.
-      // MRP-only records do not keep separate rates.
       const rates =
         data.record.pricingMode === "SPLIT"
           ? {
@@ -324,15 +331,12 @@ export async function updateCustomer(
           },
 
           data: {
-            specsType: data.record.specsType,
-            lensType: data.record.lensType,
-
+            ...catalog,
             ...pricing,
             ...rates,
           },
         });
       } else {
-        // Create a purchase when none exists.
         const latestPrescription =
           await tx.prescription.findFirst({
             where: {
@@ -350,9 +354,7 @@ export async function updateCustomer(
             prescriptionId:
               latestPrescription?.id ?? null,
 
-            specsType: data.record.specsType,
-            lensType: data.record.lensType,
-
+            ...catalog,
             ...pricing,
             ...rates,
 
@@ -362,7 +364,6 @@ export async function updateCustomer(
       }
     }
 
-    // Step E: Return the updated customer.
     return tx.customer.findUniqueOrThrow({
       where: {
         id,

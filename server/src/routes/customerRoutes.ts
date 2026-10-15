@@ -8,19 +8,33 @@ import {
   editCustomer,
 } from "../controllers/customerController";
 
-// Connect the customer API to the correct controller.
+import {
+  editPurchase,
+  editPrescription,
+} from "../controllers/historyController";
+
+// nik - Customer routes for the Optical CRM.
 const router = Router();
 
-// List and search customers.
+// Search customers by name or mobile number.
 router.get("/", listCustomers);
 
-// Register a customer with prescription and pricing.
+// Register a new customer.
 router.post("/", addCustomer);
 
-// Get one customer's details.
+// View one customer using their unique ID.
 router.get("/:id", showCustomer);
 
-// Edit customer details.
+// Edit a customer's personal information.
 router.patch("/:id", editCustomer);
+
+// Edit one specific purchase, including its purchase date.
+router.patch("/:id/records/:recordId", editPurchase);
+
+// Edit one specific prescription from the customer's history.
+router.patch(
+  "/:id/prescriptions/:prescriptionId",
+  editPrescription
+);
 
 export default router;
