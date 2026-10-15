@@ -1,27 +1,40 @@
 
-// Optical CRM database structure.
-// These models replace the old MongoDB customer document
-// with related PostgreSQL tables.
+//
+// Optical CRM — PostgreSQL Database
+//
+// Existing customer information and purchase history
+// are preserved while adding admin-managed catalogs.
+//
+// nik - Keep product catalogs separate from purchases
+// so catalog changes do not rewrite historical records.
+//
 
 generator client {
-  provider                = "prisma-client"
-  output                  = "../src/generated/prisma"
-  moduleFormat            = "cjs"
-  importFileExtension     = "ts"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = "ts"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-// Staff can enter separate rates or only the total MRP.
+// -----------------------------------------------------
+// 1. PRICING MODE
+// -----------------------------------------------------
+
 enum PricingMode {
   SPLIT
   MRP_ONLY
 }
 
-// Each shop has its own customers and records.
-// Shop selection will be implemented in a later phase.
+// -----------------------------------------------------
+// 2. SHOP
+// -----------------------------------------------------
+
+// Each shop has its own customers and product catalogs.
+// Authorized shop selection comes in a later phase.
 model Shop {
   id        String   @id @default(uuid())
   name      String
@@ -30,20 +43,27 @@ model Shop {
   updatedAt DateTime @updatedAt
 
   customers Customer[]
+
+  // Each shop manages its own frames and lenses.
+  frameCatalog FrameCatalog[]
+  lensCatalog  LensCatalog[]
 }
 
-// Personal information belonging to a customer.
-model Customer {
-  id            String   @id @default(uuid())
-  shopId        String
-  name          String
-  mobNumber     String?
-  gender        String?
-  reference     String?
-  notes         String?  @db.Text
-  isActive      Boolean  @default(true)
+// -----------------------------------------------------
+// 3. CUSTOMER
+// -----------------------------------------------------
 
-  // Keep the original MongoDB ID for future migration.
+model Customer {
+  id        String  @id @default(uuid())
+  shopId    String
+  name      String
+  mobNumber String?
+  gender    String?
+  reference String?
+  notes     String? @db.Text
+  isActive  Boolean @default(true)
+
+  // Preserve original IDs during MongoDB migration.
   legacyMongoId String?
 
   createdAt DateTime @default(now())
@@ -53,70 +73,209 @@ model Customer {
   prescriptions Prescription[]
   records       CustomerRecord[]
 
-  // Customers can share phone numbers.
+  // Several customers can share one mobile number.
   @@index([shopId, mobNumber])
   @@index([shopId, name])
   @@unique([shopId, legacyMongoId])
 }
 
-// Prescriptions are stored separately so we can
-// preserve a customer's prescription history.
+// -----------------------------------------------------
+// 4. PRESCRIPTION
+// -----------------------------------------------------
+
+// Preserve each customer's optical history.
 model Prescription {
   id         String   @id @default(uuid())
   customerId String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  // Right eye - distance
+  // Right eye — distance.
   reDistSph  Decimal? @db.Decimal(5, 2)
   reDistCyl  Decimal? @db.Decimal(5, 2)
   reDistAxis Int?
 
-  // Right eye - near
+  // Right eye — near.
   reNearSph  Decimal? @db.Decimal(5, 2)
   reNearCyl  Decimal? @db.Decimal(5, 2)
   reNearAxis Int?
 
-  // Left eye - distance
+  // Left eye — distance.
   leDistSph  Decimal? @db.Decimal(5, 2)
   leDistCyl  Decimal? @db.Decimal(5, 2)
   leDistAxis Int?
 
-  // Left eye - near
+  // Left eye — near.
   leNearSph  Decimal? @db.Decimal(5, 2)
   leNearCyl  Decimal? @db.Decimal(5, 2)
   leNearAxis Int?
 
-  customer Customer @relation(fields: [customerId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
   records  CustomerRecord[]
 
   @@index([customerId, createdAt])
 }
 
-// Each customer can have multiple purchase-related records.
+// -----------------------------------------------------
+// 5. FRAME CATALOG — ADMIN MANAGED
+// -----------------------------------------------------
+
+// The admin can add, edit, or deactivate frame models
+// without changing React or backend code.
+model FrameCatalog {
+  id     String @id @default(uuid())
+  shopId String
+
+  // Examples:
+  // brand: "Titan Eye+"
+  // model: "TF-204"
+  // frameCode: "TIT-TF204"
+  // frameStyle: "Full Rim"
+  brand      String @db.VarChar(150)
+  model      String @db.VarChar(150)
+  frameCode  String? @db.VarChar(100)
+  frameStyle String? @db.VarChar(100)
+
+  // Optional internal product description.
+  description String? @db.Text
+
+  // Inactive products disappear from new-customer
+  // selection but remain available in purchase history.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  // Historical purchases that selected this frame.
+  records CustomerRecord[]
+
+  @@index([shopId, isActive, brand])
+  @@index([shopId, model])
+}
+
+// -----------------------------------------------------
+// 6. LENS CATALOG — ADMIN MANAGED
+// -----------------------------------------------------
+
+// The admin can manage companies, lens models,
+// vision categories, and coatings from the website.
+//
+// Text fields allow shop-specific product names
+// without requiring a new database migration.
+model LensCatalog {
+  id     String @id @default(uuid())
+  shopId String
+
+  // Examples:
+  // company: "ZEISS"
+  // lensName: "SmartLife"
+  // visionType: "Progressive"
+  // coating: "Anti-Reflective"
+  company    String @db.VarChar(150)
+  lensName   String @db.VarChar(150)
+  visionType String @db.VarChar(100)
+  coating    String? @db.VarChar(200)
+
+  // Optional model or stock reference code.
+  lensCode String? @db.VarChar(100)
+
+  // Additional information about lens material,
+  // treatments, or special features.
+  description String? @db.Text
+
+  // Deactivation does not erase old purchases.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  // Historical purchases that selected this lens.
+  records CustomerRecord[]
+
+  @@index([shopId, isActive, company])
+  @@index([shopId, lensName])
+  @@index([shopId, visionType])
+}
+
+// -----------------------------------------------------
+// 7. CUSTOMER PURCHASE HISTORY
+// -----------------------------------------------------
+
+// Every customer can have multiple purchases.
+// Product catalog references are optional so older
+// purchases continue working without any migration
+// of their product names.
 model CustomerRecord {
-  id             String      @id @default(uuid())
+  id             String  @id @default(uuid())
   customerId     String
   prescriptionId String?
 
-  specsType      String?
-  lensType       String?
+  // Existing text fields are retained.
+  // They will also serve as purchase-time snapshots
+  // of product descriptions for new catalog selections.
+  //
+  // Example specsType:
+  // "Titan Eye+ — TF-204 (Full Rim)"
+  //
+  // Example lensType:
+  // "ZEISS — SmartLife | Progressive | Anti-Reflective"
+  specsType String?
+  lensType  String?
 
-  // Two supported pricing methods.
-  pricingMode    PricingMode @default(MRP_ONLY)
-  frameRate      Decimal?    @db.Decimal(12, 2)
-  lensRate       Decimal?    @db.Decimal(12, 2)
-  mrp            Decimal     @db.Decimal(12, 2)
+  // Optional references to admin-managed products.
+  // Existing purchases will have null references.
+  frameCatalogId String?
+  lensCatalogId  String?
 
-  // Original MongoDB ID if this record was migrated.
-  legacyMongoId  String?
+  // Pricing is stored on the purchase itself.
+  // Editing a catalog product must never change
+  // the historical purchase's saved price.
+  pricingMode PricingMode @default(MRP_ONLY)
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  frameRate Decimal? @db.Decimal(12, 2)
+  lensRate  Decimal? @db.Decimal(12, 2)
+  mrp       Decimal  @db.Decimal(12, 2)
 
-  customer     Customer      @relation(fields: [customerId], references: [id])
-  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+  // Original MongoDB ID for future migration.
+  legacyMongoId String?
+
+  // Actual purchase date, which may be unknown.
+  purchaseDate DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(
+    fields: [customerId],
+    references: [id]
+  )
+
+  prescription Prescription? @relation(
+    fields: [prescriptionId],
+    references: [id]
+  )
+
+  // If a catalog item is permanently removed later,
+  // its reference can become null without deleting
+  // the customer purchase.
+  frameCatalog FrameCatalog? @relation(
+    fields: [frameCatalogId],
+    references: [id],
+    onDelete: SetNull
+  )
+
+  lensCatalog LensCatalog? @relation(
+    fields: [lensCatalogId],
+    references: [id],
+    onDelete: SetNull
+  )
 
   @@index([customerId, createdAt])
+  @@index([frameCatalogId])
+  @@index([lensCatalogId])
   @@unique([customerId, legacyMongoId])
 }
