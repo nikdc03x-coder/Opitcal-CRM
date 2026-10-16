@@ -1,7 +1,6 @@
-
 import { z } from "zod";
 
-// nik - Validate customer and catalog data before saving.
+// Validate customer and catalog data before saving.
 
 // Mobile numbers are optional.
 const phoneSchema = z
@@ -17,18 +16,12 @@ function isValidCalendarDate(value: string): boolean {
 
   const parsed = new Date(`${value}T00:00:00.000Z`);
 
-  return (
-    !Number.isNaN(parsed.getTime()) &&
-    parsed.toISOString().slice(0, 10) === value
-  );
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 export const purchaseDateSchema = z
   .string()
-  .refine(
-    isValidCalendarDate,
-    "Enter a valid purchase date in YYYY-MM-DD format"
-  )
+  .refine(isValidCalendarDate, "Enter a valid purchase date in YYYY-MM-DD format")
   .nullable()
   .optional();
 
@@ -55,10 +48,8 @@ const amountSchema = z
   .nonnegative()
   .max(9999999999.99)
   .refine(
-    (value) =>
-      Math.abs(value * 100 - Math.round(value * 100)) <
-      0.000001,
-    "Amount must have at most two decimal places"
+    (value) => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001,
+    "Amount must have at most two decimal places",
   );
 
 // Catalog references are optional, so older customers
@@ -71,36 +62,45 @@ const catalogFields = {
 };
 
 // A purchase may use split pricing or total MRP.
-export const recordSchema = z.discriminatedUnion(
-  "pricingMode",
-  [
-    z
-      .object({
-        pricingMode: z.literal("SPLIT"),
-        ...catalogFields,
-        frameRate: amountSchema,
-        lensRate: amountSchema,
-      })
-      .strict(),
+export const recordSchema = z.discriminatedUnion("pricingMode", [
+  z
+    .object({
+      pricingMode: z.literal("SPLIT"),
+      ...catalogFields,
+      frameRate: amountSchema,
+      lensRate: amountSchema,
+    })
+    .strict(),
 
-    z
-      .object({
-        pricingMode: z.literal("MRP_ONLY"),
-        ...catalogFields,
-        mrp: amountSchema,
-      })
-      .strict(),
-  ]
+  z
+    .object({
+      pricingMode: z.literal("MRP_ONLY"),
+      ...catalogFields,
+      mrp: amountSchema,
+    })
+    .strict(),
+]);
+
+const ageMessage = "Enter a whole-number age from 0 to 120, or leave it blank.";
+
+// nik - Blank explicitly clears age; an omitted value leaves an existing observation unchanged.
+const ageSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z
+    .number({ error: ageMessage })
+    .int(ageMessage)
+    .min(0, ageMessage)
+    .max(120, ageMessage)
+    .nullable()
+    .optional(),
 );
 
 const customerFields = z
   .object({
     name: z.string().trim().min(1).max(150),
     mobNumber: phoneSchema,
-    gender: z
-      .enum(["Male", "Female", "Other"])
-      .nullable()
-      .optional(),
+    gender: z.enum(["Male", "Female", "Other"]).nullable().optional(),
+    ageAtRecording: ageSchema,
     reference: z.string().trim().max(255).nullable().optional(),
     notes: z.string().trim().max(5000).nullable().optional(),
   })
@@ -123,19 +123,12 @@ export const updateCustomerSchema = customerFields
     prescription: prescriptionSchema.optional(),
     record: recordSchema.optional(),
   })
-  .refine(
-    (data) => Object.keys(data).length > 0,
-    "Provide at least one field to update"
-  );
+  .refine((data) => Object.keys(data).length > 0, "Provide at least one field to update");
 
-export type CreateCustomerInput =
-  z.infer<typeof createCustomerSchema>;
+export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 
-export type UpdateCustomerInput =
-  z.infer<typeof updateCustomerSchema>;
+export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 
-export type PrescriptionInput =
-  z.infer<typeof prescriptionSchema>;
+export type PrescriptionInput = z.infer<typeof prescriptionSchema>;
 
-export type RecordInput =
-  z.infer<typeof recordSchema>;
+export type RecordInput = z.infer<typeof recordSchema>;

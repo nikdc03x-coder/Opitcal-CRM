@@ -1,5 +1,5 @@
-
 import { prisma } from "../config/database";
+import { getShopId } from "./shopService";
 
 import type {
   CatalogListInput,
@@ -9,25 +9,7 @@ import type {
   LensUpdateInput,
 } from "../validators/catalogValidator";
 
-// nik - Keep all catalog queries inside the current shop.
-const DEMO_SHOP_CODE = "DEMO_SHOP";
-
-async function getShopId() {
-  const shop = await prisma.shop.findUnique({
-    where: { code: DEMO_SHOP_CODE },
-    select: { id: true },
-  });
-
-  if (!shop) {
-    throw new Error("Demo shop not found. Run the database seed first.");
-  }
-
-  return shop.id;
-}
-
-// -----------------------------------------------------
 // FRAME CATALOG
-// -----------------------------------------------------
 
 export async function listFrames(filters: CatalogListInput) {
   const shopId = await getShopId();
@@ -36,9 +18,7 @@ export async function listFrames(filters: CatalogListInput) {
   return prisma.frameCatalog.findMany({
     where: {
       shopId,
-      ...(filters.includeInactive === "true"
-        ? {}
-        : { isActive: true }),
+      ...(filters.includeInactive === "true" ? {} : { isActive: true }),
 
       ...(search
         ? {
@@ -71,10 +51,7 @@ export async function createFrame(input: FrameCreateInput) {
   });
 }
 
-export async function updateFrame(
-  id: string,
-  input: FrameUpdateInput
-) {
+export async function updateFrame(id: string, input: FrameUpdateInput) {
   const shopId = await getShopId();
 
   // Update only a frame that belongs to this shop.
@@ -90,9 +67,7 @@ export async function updateFrame(
   });
 }
 
-// -----------------------------------------------------
 // LENS CATALOG
-// -----------------------------------------------------
 
 export async function listLenses(filters: CatalogListInput) {
   const shopId = await getShopId();
@@ -101,9 +76,7 @@ export async function listLenses(filters: CatalogListInput) {
   return prisma.lensCatalog.findMany({
     where: {
       shopId,
-      ...(filters.includeInactive === "true"
-        ? {}
-        : { isActive: true }),
+      ...(filters.includeInactive === "true" ? {} : { isActive: true }),
 
       ...(search
         ? {
@@ -138,10 +111,7 @@ export async function createLens(input: LensCreateInput) {
   });
 }
 
-export async function updateLens(
-  id: string,
-  input: LensUpdateInput
-) {
+export async function updateLens(id: string, input: LensUpdateInput) {
   const shopId = await getShopId();
 
   const result = await prisma.lensCatalog.updateMany({

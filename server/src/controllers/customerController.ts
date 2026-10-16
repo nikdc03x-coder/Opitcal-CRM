@@ -1,4 +1,3 @@
-
 import type { Request, Response } from "express";
 
 import {
@@ -8,22 +7,13 @@ import {
   updateCustomer,
 } from "../services/customerService";
 
-import {
-  customerSearchSchema,
-  customerIdSchema,
-} from "../validators/customerValidator";
+import { customerSearchSchema, customerIdSchema } from "../validators/customerValidator";
 
-import {
-  createCustomerSchema,
-  updateCustomerSchema,
-} from "../validators/customerWriteValidator";
+import { createCustomerSchema, updateCustomerSchema } from "../validators/customerWriteValidator";
 
 // GET /api/customers
 // Return all matching customers by name or phone.
-export async function listCustomers(
-  req: Request,
-  res: Response
-) {
+export async function listCustomers(req: Request, res: Response) {
   const result = customerSearchSchema.safeParse(req.query);
 
   if (!result.success) {
@@ -47,10 +37,7 @@ export async function listCustomers(
 
 // GET /api/customers/:id
 // Return one customer with their complete details.
-export async function showCustomer(
-  req: Request,
-  res: Response
-) {
+export async function showCustomer(req: Request, res: Response) {
   const id = customerIdSchema.safeParse(req.params.id);
 
   if (!id.success) {
@@ -79,16 +66,15 @@ export async function showCustomer(
 
 // POST /api/customers
 // Validate and register the customer in PostgreSQL.
-export async function addCustomer(
-  req: Request,
-  res: Response
-) {
+export async function addCustomer(req: Request, res: Response) {
   const result = createCustomerSchema.safeParse(req.body);
 
   if (!result.success) {
     res.status(400).json({
       success: false,
-      message: "Invalid customer information.",
+      // nik - Keep age validation readable for clients that display only the response message.
+      message:
+        result.error.flatten().fieldErrors.ageAtRecording?.[0] ?? "Invalid customer information.",
       errors: result.error.flatten(),
     });
     return;
@@ -105,10 +91,7 @@ export async function addCustomer(
 
 // PATCH /api/customers/:id
 // Update an existing customer and return the result.
-export async function editCustomer(
-  req: Request,
-  res: Response
-) {
+export async function editCustomer(req: Request, res: Response) {
   const id = customerIdSchema.safeParse(req.params.id);
 
   if (!id.success) {
@@ -124,7 +107,8 @@ export async function editCustomer(
   if (!result.success) {
     res.status(400).json({
       success: false,
-      message: "Invalid update information.",
+      message:
+        result.error.flatten().fieldErrors.ageAtRecording?.[0] ?? "Invalid update information.",
       errors: result.error.flatten(),
     });
     return;

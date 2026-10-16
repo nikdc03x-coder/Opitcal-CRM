@@ -1,4 +1,3 @@
-
 import type { PrescriptionInput } from "../validators/customerWriteValidator";
 
 // Convert the original optical prescription structure

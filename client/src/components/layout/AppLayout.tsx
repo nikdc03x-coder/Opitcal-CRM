@@ -1,11 +1,10 @@
-
 import { useState } from "react";
 
 import {
   AppBar,
+  Alert,
+  Button,
   Box,
-  Chip,
-  CssBaseline,
   Divider,
   Drawer,
   IconButton,
@@ -26,16 +25,17 @@ import MenuIcon from "@mui/icons-material/Menu";
 import StorefrontOutlined from "@mui/icons-material/StorefrontOutlined";
 import Inventory2Outlined from "@mui/icons-material/Inventory2Outlined";
 
-import {
-  NavLink,
-  Outlet,
-  useLocation,
-} from "react-router";
+// Icons for order tracking and business analytics.
+import LocalShippingOutlined from "@mui/icons-material/LocalShippingOutlined";
+import AnalyticsOutlined from "@mui/icons-material/AnalyticsOutlined";
+import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
+import { logoutAdmin } from "../../services/authApi";
+
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 const drawerWidth = 250;
 
-// nik - Keep navigation easy for shop staff to understand.
-// Admin catalog access is only shown in local development.
+// Keep all workspace navigation in one place.
 const navigation = [
   {
     label: "Dashboard",
@@ -52,18 +52,25 @@ const navigation = [
     path: "/customers/new",
     icon: <PersonAddAltOutlined />,
   },
-  ...(import.meta.env.DEV
-    ? [
-        {
-          label: "Product Catalog",
-          path: "/admin/catalog",
-          icon: <Inventory2Outlined />,
-        },
-      ]
-    : []),
+
+  // Staff can track spectacle preparation and delivery.
+  {
+    label: "Order Tracking",
+    path: "/orders",
+    icon: <LocalShippingOutlined />,
+  },
+
+  { label: "Product Catalog", path: "/admin/catalog", icon: <Inventory2Outlined /> },
+
+  // Open the existing sales analytics in its own page.
+  {
+    label: "Business Analytics",
+    path: "/analytics",
+    icon: <AnalyticsOutlined />,
+  },
 ];
 
-// Display clear page names in the top bar.
+// Display the current page name in the top bar.
 function getPageTitle(path: string): string {
   if (path === "/dashboard") {
     return "Dashboard";
@@ -77,14 +84,19 @@ function getPageTitle(path: string): string {
     return "Add Customer";
   }
 
+  if (path === "/orders") {
+    return "Order Tracking";
+  }
+
+  if (path === "/analytics") {
+    return "Business Analytics";
+  }
+
   if (path === "/admin/catalog") {
     return "Product Catalog";
   }
 
-  if (
-    path.startsWith("/customers/") &&
-    path.endsWith("/edit")
-  ) {
+  if (path.startsWith("/customers/") && path.endsWith("/edit")) {
     return "Edit Customer";
   }
 
@@ -96,22 +108,33 @@ function getPageTitle(path: string): string {
 }
 
 export default function AppLayout() {
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
+  const [authError, setAuthError] = useState("");
+  async function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setAuthError("");
+    try {
+      await logoutAdmin();
+      navigate("/login", { replace: true });
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Unable to sign out. Try again.");
+    } finally {
+      setSigningOut(false);
+    }
+  }
   const theme = useTheme();
 
-  const isMobile = useMediaQuery(
-    theme.breakpoints.down("md")
-  );
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-  const [mobileOpen, setMobileOpen] =
-    useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const location = useLocation();
 
-  const pageTitle = getPageTitle(
-    location.pathname
-  );
+  const pageTitle = getPageTitle(location.pathname);
 
-  // Sidebar links are shared between desktop and mobile.
+  // Desktop and mobile share the same navigation.
   const sidebar = (
     <Box
       sx={{
@@ -119,19 +142,18 @@ export default function AppLayout() {
         bgcolor: "background.paper",
       }}
     >
+      {/* CRM logo and name */}
       <Toolbar sx={{ gap: 1.5 }}>
         <StorefrontOutlined color="primary" />
 
-        <Typography
-          variant="h6"
-          sx={{ fontWeight: 700 }}
-        >
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>
           Optical CRM
         </Typography>
       </Toolbar>
 
       <Divider />
 
+      {/* Workspace heading */}
       <Typography
         variant="overline"
         color="text.secondary"
@@ -144,20 +166,22 @@ export default function AppLayout() {
         Workspace
       </Typography>
 
+      {/* Workspace navigation */}
       <List sx={{ px: 1.5 }}>
         {navigation.map((item) => (
           <ListItemButton
             key={item.path}
             component={NavLink}
             to={item.path}
-            end={item.path === "/customers"}
-            onClick={() =>
-              setMobileOpen(false)
-            }
+            end
+            onClick={() => {
+              setMobileOpen(false);
+            }}
             sx={{
               borderRadius: 2,
               mb: 0.5,
 
+              // Highlight the currently selected page.
               "&.active": {
                 bgcolor: "primary.main",
                 color: "white",
@@ -166,17 +190,18 @@ export default function AppLayout() {
                   color: "white",
                 },
               },
+
+              "&:hover": {
+                bgcolor: "action.hover",
+                "&.active": {
+                  bgcolor: "primary.dark",
+                },
+              },
             }}
           >
-            <ListItemIcon
-              sx={{ minWidth: 40 }}
-            >
-              {item.icon}
-            </ListItemIcon>
+            <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
 
-            <ListItemText
-              primary={item.label}
-            />
+            <ListItemText primary={item.label} />
           </ListItemButton>
         ))}
       </List>
@@ -190,32 +215,18 @@ export default function AppLayout() {
         minHeight: "100vh",
       }}
     >
-      <CssBaseline />
-
-      {/* Mobile uses a temporary drawer.
-          Desktop keeps its navigation visible. */}
+      {/* Mobile drawer; permanent sidebar on desktop. */}
       <Drawer
-        variant={
-          isMobile
-            ? "temporary"
-            : "permanent"
-        }
-        open={
-          isMobile
-            ? mobileOpen
-            : true
-        }
-        onClose={() =>
-          setMobileOpen(false)
-        }
+        variant={isMobile ? "temporary" : "permanent"}
+        open={isMobile ? mobileOpen : true}
+        onClose={() => {
+          setMobileOpen(false);
+        }}
         ModalProps={{
           keepMounted: true,
         }}
         sx={{
-          width: isMobile
-            ? 0
-            : drawerWidth,
-
+          width: isMobile ? 0 : drawerWidth,
           flexShrink: 0,
 
           "& .MuiDrawer-paper": {
@@ -227,51 +238,50 @@ export default function AppLayout() {
         {sidebar}
       </Drawer>
 
-      {/* Main application area. */}
+      {/* Main application content */}
       <Box
         sx={{
           flexGrow: 1,
           minWidth: 0,
         }}
       >
+        {/* Top navigation bar */}
         <AppBar
           position="sticky"
           color="inherit"
           elevation={0}
           sx={{
-            borderBottom:
-              "1px solid #E7EBF2",
+            borderBottom: "1px solid #E7EBF2",
           }}
         >
           <Toolbar sx={{ gap: 2 }}>
             {isMobile && (
               <IconButton
                 aria-label="Open navigation"
-                onClick={() =>
-                  setMobileOpen(true)
-                }
+                onClick={() => {
+                  setMobileOpen(true);
+                }}
               >
                 <MenuIcon />
               </IconButton>
             )}
 
-            <Typography
-              variant="h6"
-              sx={{ flexGrow: 1 }}
-            >
+            {/* Current page title */}
+            <Typography variant="h6" sx={{ flexGrow: 1 }}>
               {pageTitle}
             </Typography>
 
-            <Chip
-              size="small"
-              color="primary"
-              variant="outlined"
-              label="Demo Shop"
-            />
+            <Button
+              startIcon={<LogoutOutlined />}
+              disabled={signingOut}
+              onClick={() => void signOut()}
+            >
+              {signingOut ? "Signing out..." : "Sign out"}
+            </Button>
           </Toolbar>
         </AppBar>
 
-        {/* React Router renders the current page here. */}
+        {/* React Router displays the selected page here. */}
         <Box
           component="main"
           sx={{
@@ -284,6 +294,11 @@ export default function AppLayout() {
             },
           }}
         >
+          {authError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {authError}
+            </Alert>
+          )}
           <Outlet />
         </Box>
       </Box>

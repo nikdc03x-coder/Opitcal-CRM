@@ -1,20 +1,13 @@
-
 import type { Prisma } from "../generated/prisma/client";
+import { CatalogSelectionError } from "../utils/errors";
+export { CatalogSelectionError } from "../utils/errors";
 
-import type {
-  RecordInput,
-} from "../validators/customerWriteValidator";
+import type { RecordInput } from "../validators/customerWriteValidator";
 
-// nik - Save a product's name as it appeared
+// Save a product's name as it appeared
 // when the customer made the purchase.
 
-type DatabaseClient =
-  Prisma.TransactionClient;
-
-type CatalogReference = {
-  frameCatalogId?: string | null;
-  lensCatalogId?: string | null;
-};
+type DatabaseClient = Prisma.TransactionClient;
 
 type ExistingCatalogSelection = {
   frameCatalogId: string | null;
@@ -23,25 +16,9 @@ type ExistingCatalogSelection = {
   lensType: string | null;
 };
 
-// This is a business validation failure, not a
-// database or server failure.
-export class CatalogSelectionError extends Error {
-  statusCode = 400;
-
-  constructor(message: string) {
-    super(message);
-    this.name = "CatalogSelectionError";
-  }
-}
-
-function checkSnapshotLength(
-  name: string,
-  label: string
-): string {
+function checkSnapshotLength(name: string, label: string): string {
   if (name.length > 100) {
-    throw new CatalogSelectionError(
-      `${label} name is too long for a purchase record.`
-    );
+    throw new CatalogSelectionError(`${label} name is too long for a purchase record.`);
   }
 
   return name;
@@ -53,32 +30,32 @@ export async function resolveCatalogSelection(
   tx: DatabaseClient,
   shopId: string,
   record: RecordInput,
-  existing?: ExistingCatalogSelection
+  existing?: ExistingCatalogSelection,
 ) {
   let frameCatalogId =
     record.frameCatalogId !== undefined
       ? record.frameCatalogId
-      : existing?.frameCatalogId ?? null;
+      : (existing?.frameCatalogId ?? null);
 
   let lensCatalogId =
-    record.lensCatalogId !== undefined
-      ? record.lensCatalogId
-      : existing?.lensCatalogId ?? null;
+    record.lensCatalogId !== undefined ? record.lensCatalogId : (existing?.lensCatalogId ?? null);
 
-  let specsType =
-    record.specsType !== undefined
-      ? record.specsType
-      : existing?.specsType ?? null;
+  let specsType = record.specsType !== undefined ? record.specsType : (existing?.specsType ?? null);
 
-  let lensType =
-    record.lensType !== undefined
-      ? record.lensType
-      : existing?.lensType ?? null;
+  let lensType = record.lensType !== undefined ? record.lensType : (existing?.lensType ?? null);
 
   // Newly chosen IDs must refer to active products
   // in the same shop. Previously linked inactive items
   // may remain attached to old purchases.
-  if (record.frameCatalogId) {
+  if (record.frameCatalogId && record.frameCatalogId === existing?.frameCatalogId) {
+    specsType = existing.specsType;
+  }
+
+  if (record.lensCatalogId && record.lensCatalogId === existing?.lensCatalogId) {
+    lensType = existing.lensType;
+  }
+
+  if (record.frameCatalogId && record.frameCatalogId !== existing?.frameCatalogId) {
     const frame = await tx.frameCatalog.findFirst({
       where: {
         id: record.frameCatalogId,
@@ -93,19 +70,14 @@ export async function resolveCatalogSelection(
     });
 
     if (!frame) {
-      throw new CatalogSelectionError(
-        "Selected frame is unavailable or inactive."
-      );
+      throw new CatalogSelectionError("Selected frame is unavailable or inactive.");
     }
 
     frameCatalogId = frame.id;
-    specsType = checkSnapshotLength(
-      `${frame.brand} - ${frame.model}`,
-      "Frame"
-    );
+    specsType = checkSnapshotLength(`${frame.brand} - ${frame.model}`, "Frame");
   }
 
-  if (record.lensCatalogId) {
+  if (record.lensCatalogId && record.lensCatalogId !== existing?.lensCatalogId) {
     const lens = await tx.lensCatalog.findFirst({
       where: {
         id: record.lensCatalogId,
@@ -122,20 +94,16 @@ export async function resolveCatalogSelection(
     });
 
     if (!lens) {
-      throw new CatalogSelectionError(
-        "Selected lens is unavailable or inactive."
-      );
+      throw new CatalogSelectionError("Selected lens is unavailable or inactive.");
     }
 
     lensCatalogId = lens.id;
 
-    const coating = lens.coating
-      ? ` - ${lens.coating}`
-      : "";
+    const coating = lens.coating ? ` - ${lens.coating}` : "";
 
     lensType = checkSnapshotLength(
       `${lens.company} - ${lens.lensName} - ${lens.visionType}${coating}`,
-      "Lens"
+      "Lens",
     );
   }
 
@@ -148,7 +116,3 @@ export async function resolveCatalogSelection(
     lensType,
   };
 }
-
-// Useful type for future customer form integration.
-export type CustomerCatalogReferences =
-  CatalogReference;

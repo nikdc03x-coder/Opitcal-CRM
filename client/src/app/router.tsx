@@ -1,23 +1,17 @@
 import { createBrowserRouter, Navigate } from "react-router";
 
 import AppLayout from "../components/layout/AppLayout";
-import DashboardPage from "../pages/DashboardPage";
-import CustomersPage from "../pages/CustomersPage";
-import AddCustomerPage from "../pages/AddCustomerPage";
-import CustomerDetailPage from "../pages/CustomerDetailPage";
-import EditCustomerPage from "../pages/EditCustomerPage";
-import AdminCatalogPage from "../pages/AdminCatalogPage";
-import NotFoundPage from "../pages/NotFoundPage";
-import LoginPage from "../pages/LoginPage";
 import RequireAdmin from "./RequireAdmin";
 
-// nik - Keep all Optical CRM routes in one place.
+// Load pages only when they are visited.
+// This keeps the initial application loading faster.
 export const router = createBrowserRouter([
- 
-{
-  path: "/login",
-  element: <LoginPage />,
-},
+  {
+    path: "/login",
+    lazy: async () => ({
+      Component: (await import("../pages/LoginPage")).default,
+    }),
+  },
 
   {
     path: "/",
@@ -28,37 +22,82 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
 
         children: [
+          // Open the dashboard by default.
           {
             index: true,
             element: <Navigate to="/dashboard" replace />,
           },
+
+          // Dashboard page.
           {
             path: "dashboard",
-            element: <DashboardPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/DashboardPage")).default,
+            }),
           },
+
+          // Manual order tracking and management.
+          {
+            path: "orders",
+            lazy: async () => ({
+              Component: (await import("../pages/OrdersPage")).default,
+            }),
+          },
+
+          // Open Business Analytics in its own protected page.
+          {
+            path: "analytics",
+            lazy: async () => ({
+              Component: (await import("../pages/BusinessAnalyticsPage")).default,
+            }),
+          },
+
+          // Customer list.
           {
             path: "customers",
-            element: <CustomersPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/CustomersPage")).default,
+            }),
           },
+
+          // Register a new customer.
           {
             path: "customers/new",
-            element: <AddCustomerPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/AddCustomerPage")).default,
+            }),
           },
+
+          // Edit customer details.
           {
             path: "customers/:id/edit",
-            element: <EditCustomerPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/EditCustomerPage")).default,
+            }),
           },
+
+          // View customer purchase history.
           {
             path: "customers/:id",
-            element: <CustomerDetailPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/CustomerDetailPage")).default,
+            }),
           },
+
+          // Frame and lens catalog management.
           {
             path: "admin/catalog",
-            element: <AdminCatalogPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/AdminCatalogPage")).default,
+            }),
           },
+
+          // Handle unknown routes.
           {
             path: "*",
-            element: <NotFoundPage />,
+            lazy: async () => ({
+              Component: (await import("../pages/NotFoundPage")).default,
+            }),
           },
         ],
       },

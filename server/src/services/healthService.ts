@@ -1,4 +1,3 @@
-
 // Service layer: prepare the information returned by
 // our backend health check.
 

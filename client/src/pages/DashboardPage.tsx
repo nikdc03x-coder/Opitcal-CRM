@@ -1,16 +1,15 @@
-
 /**
  * Optical CRM — Dashboard
  *
  * Main starting page for optical shop staff.
  *
- * nik - Make the most common tasks easy to find:
+ * Make the most common tasks easy to find:
  * search customers, register customers, view records,
  * and manage frame/lens catalog products.
  */
 
 import { useState, type FormEvent } from "react";
-import DashboardAnalytics from "../components/dashboard/DashboardAnalytics";
+
 import {
   Box,
   Button,
@@ -29,13 +28,12 @@ import PeopleOutlined from "@mui/icons-material/PeopleOutlined";
 import Inventory2Outlined from "@mui/icons-material/Inventory2Outlined";
 import ArrowForwardOutlined from "@mui/icons-material/ArrowForwardOutlined";
 
+// Quick access to order preparation and delivery.
+import OrderTrackingDashboardCard from "../components/dashboard/OrderTrackingDashboardCard";
+
 import { Link, useNavigate } from "react-router";
 
-// -----------------------------------------------------
-// 1. REUSABLE DASHBOARD ACTION CARD
-// -----------------------------------------------------
-
-// nik - Keep all quick-action cards consistent.
+// Keep all quick-action cards consistent.
 // Every card provides one clear navigation action.
 
 type ActionCardProps = {
@@ -46,13 +44,7 @@ type ActionCardProps = {
   icon: React.ReactNode;
 };
 
-function ActionCard({
-  title,
-  description,
-  buttonText,
-  destination,
-  icon,
-}: ActionCardProps) {
+function ActionCard({ title, description, buttonText, destination, icon }: ActionCardProps) {
   return (
     <Card
       variant="outlined"
@@ -138,20 +130,12 @@ function ActionCard({
   );
 }
 
-// -----------------------------------------------------
-// 2. MAIN DASHBOARD COMPONENT
-// -----------------------------------------------------
-
 export default function DashboardPage() {
   const navigate = useNavigate();
 
   const [search, setSearch] = useState("");
 
-  // ---------------------------------------------------
-  // 3. CUSTOMER SEARCH
-  // ---------------------------------------------------
-
-  // nik - Send the search text to the existing customer
+  // Send the search text to the existing customer
   // search page. The URL preserves the search value
   // when staff open a customer and return to the list.
 
@@ -165,14 +149,8 @@ export default function DashboardPage() {
       return;
     }
 
-    navigate(
-      `/customers?search=${encodeURIComponent(value)}`
-    );
+    navigate(`/customers?search=${encodeURIComponent(value)}`);
   }
-
-  // ---------------------------------------------------
-  // 4. DASHBOARD USER INTERFACE
-  // ---------------------------------------------------
 
   return (
     <Box
@@ -205,8 +183,7 @@ export default function DashboardPage() {
               fontSize: "0.95rem",
             }}
           >
-            Manage customer records, prescriptions,
-            purchases and optical products in one place.
+            Manage customer records, prescriptions, purchases and optical products in one place.
           </Typography>
         </Box>
 
@@ -231,27 +208,16 @@ export default function DashboardPage() {
           >
             <Stack spacing={2}>
               <Box>
-                <Typography
-                  variant="h6"
-                  sx={{ fontWeight: 700 }}
-                >
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
                   Find a Customer
                 </Typography>
 
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mt: 0.5 }}
-                >
-                  Search by customer name or mobile number
-                  to open their records.
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Search by customer name or mobile number to open their records.
                 </Typography>
               </Box>
 
-              <Box
-                component="form"
-                onSubmit={handleSearch}
-              >
+              <Box component="form" onSubmit={handleSearch}>
                 <Stack
                   direction={{
                     xs: "column",
@@ -266,16 +232,12 @@ export default function DashboardPage() {
                     label="Customer Name or Mobile Number"
                     placeholder="Search customers..."
                     value={search}
-                    onChange={(event) =>
-                      setSearch(event.target.value)
-                    }
+                    onChange={(event) => setSearch(event.target.value)}
                     slotProps={{
                       input: {
                         startAdornment: (
                           <InputAdornment position="start">
-                            <SearchOutlined
-                              color="action"
-                            />
+                            <SearchOutlined color="action" />
                           </InputAdornment>
                         ),
                       },
@@ -302,12 +264,8 @@ export default function DashboardPage() {
                 </Stack>
               </Box>
 
-              <Typography
-                variant="caption"
-                color="text.secondary"
-              >
-                Customers with the same mobile number
-                will appear as separate records.
+              <Typography variant="caption" color="text.secondary">
+                Customers with the same mobile number will appear as separate records.
               </Typography>
             </Stack>
           </CardContent>
@@ -319,17 +277,11 @@ export default function DashboardPage() {
 
         <Box>
           <Stack spacing={0.5} sx={{ mb: 2 }}>
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 700 }}
-            >
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
               Quick Actions
             </Typography>
 
-            <Typography
-              variant="body2"
-              color="text.secondary"
-            >
+            <Typography variant="body2" color="text.secondary">
               Choose what you want to do next.
             </Typography>
           </Stack>
@@ -340,16 +292,11 @@ export default function DashboardPage() {
               <ActionCard
                 title="Add New Customer"
                 description={
-                  "Register personal information, " +
-                  "eye prescription and purchase details."
+                  "Register personal information, " + "eye prescription and purchase details."
                 }
                 buttonText="Add Customer"
                 destination="/customers/new"
-                icon={
-                  <PersonAddAltOutlined
-                    fontSize="medium"
-                  />
-                }
+                icon={<PersonAddAltOutlined fontSize="medium" />}
               />
             </Grid>
 
@@ -358,36 +305,32 @@ export default function DashboardPage() {
               <ActionCard
                 title="Customer Records"
                 description={
-                  "Find customers, review their purchase " +
-                  "history and edit prescriptions."
+                  "Find customers, review their purchase " + "history and edit prescriptions."
                 }
                 buttonText="View Customers"
                 destination="/customers"
-                icon={
-                  <PeopleOutlined fontSize="medium" />
-                }
+                icon={<PeopleOutlined fontSize="medium" />}
               />
             </Grid>
+
             {/* Manage catalog */}
             <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
               <ActionCard
                 title="Product Catalog"
                 description={
-                  "Add or update frame brands, lens " +
-                  "models, coatings and product details."
+                  "Add or update frame brands, lens " + "models, coatings and product details."
                 }
                 buttonText="Manage Catalog"
                 destination="/admin/catalog"
-                icon={
-                  <Inventory2Outlined
-                    fontSize="medium"
-                  />
-                }
+                icon={<Inventory2Outlined fontSize="medium" />}
               />
             </Grid>
           </Grid>
         </Box>
-<DashboardAnalytics />
+        {/* Give staff fast access to Order Tracking. */}
+        <OrderTrackingDashboardCard />
+
+        {/* Keep the existing sales reports unchanged. */}
 
         {/* ------------------------------------------
             WORKFLOW GUIDANCE
@@ -406,24 +349,14 @@ export default function DashboardPage() {
               "&:last-child": { pb: 2.5 },
             }}
           >
-            <Typography
-              variant="subtitle1"
-              sx={{ fontWeight: 700, mb: 1 }}
-            >
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
               Daily Workflow
             </Typography>
 
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ lineHeight: 1.8 }}
-            >
-              Search for an existing customer before
-              registering a new one. If the customer
-              is already registered, open their details
-              to review previous purchases and
-              prescriptions. Use the Product Catalog
-              to manage frame and lens options.
+            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.8 }}>
+              Search for an existing customer before registering a new one. If the customer is
+              already registered, open their details to review previous purchases and prescriptions.
+              Use the Product Catalog to manage frame and lens options.
             </Typography>
           </CardContent>
         </Card>

@@ -1,35 +1,19 @@
-
 /**
  * Optical CRM — Customer Documents
  *
- * nik - Create professional purchase receipts and prescriptions.
- * nik - Keep printing, PDF and WhatsApp sharing in one place.
- * nik - Never include private staff notes in customer documents.
+ * Create professional purchase receipts and prescriptions.
+ * Keep printing, PDF and WhatsApp sharing in one place.
+ * Never include private staff notes in customer documents.
  */
 
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
-
-import type {
-  CustomerDetails,
-  CustomerRecord,
-  Prescription,
-} from "../services/customerApi";
-
-// -----------------------------------------------------
-// 1. SHOP SETTINGS
-// -----------------------------------------------------
+import { type CustomerDetails, type CustomerRecord, type Prescription } from "../models/customer";
 
 const SHOP_NAME = "हर्षु चश्मा घर";
 const SHOP_NAME_ENGLISH = "Harshu Chashma Ghar";
 
 type DocumentType = "receipt" | "prescription";
 
-// -----------------------------------------------------
-// 2. FORMATTING HELPERS
-// -----------------------------------------------------
-
-// nik - Escape values before inserting them into HTML.
+// Escape values before inserting them into HTML.
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -47,10 +31,8 @@ function display(value: unknown): string {
   return String(value);
 }
 
-// nik - Format prices in Indian rupees.
-function money(
-  value: string | number | null | undefined
-): string {
+// Format prices in Indian rupees.
+function money(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "Not recorded";
   }
@@ -69,10 +51,8 @@ function money(
   }).format(amount);
 }
 
-// nik - Display dates without timezone-related day changes.
-function dateText(
-  value: string | null | undefined
-): string {
+// Display dates without timezone-related day changes.
+function dateText(value: string | null | undefined): string {
   if (!value) return "Not recorded";
 
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
@@ -101,10 +81,8 @@ function dateText(
   });
 }
 
-// nik - Show eye power with + or - signs.
-function power(
-  value: string | number | null | undefined
-): string {
+// Show eye power with + or - signs.
+function power(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
@@ -118,10 +96,8 @@ function power(
   return `${safeAmount > 0 ? "+" : ""}${safeAmount.toFixed(2)}`;
 }
 
-// nik - Keep optical axis values simple.
-function axis(
-  value: string | number | null | undefined
-): string {
+// Keep optical axis values simple.
+function axis(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
@@ -129,14 +105,7 @@ function axis(
   return String(value);
 }
 
-// -----------------------------------------------------
-// 3. REUSABLE DOCUMENT ELEMENTS
-// -----------------------------------------------------
-
-function detailRow(
-  label: string,
-  value: unknown
-): string {
+function detailRow(label: string, value: unknown): string {
   return `
     <div class="detail-row">
       <span class="detail-label">${escapeHtml(label)}</span>
@@ -145,10 +114,7 @@ function detailRow(
   `;
 }
 
-function sectionHeading(
-  number: string,
-  title: string
-): string {
+function sectionHeading(number: string, title: string): string {
   return `
     <div class="section-heading">
       <span class="section-number">${escapeHtml(number)}</span>
@@ -157,10 +123,8 @@ function sectionHeading(
   `;
 }
 
-// nik - Keep personal information compact and readable.
-function personalInfoHtml(
-  customer: CustomerDetails
-): string {
+// Keep personal information compact and readable.
+function personalInfoHtml(customer: CustomerDetails): string {
   return `
     <section class="document-section">
       ${sectionHeading("01", "Customer Information")}
@@ -181,20 +145,12 @@ function personalInfoHtml(
   `;
 }
 
-// -----------------------------------------------------
-// 4. PURCHASE INFORMATION
-// -----------------------------------------------------
-
-function purchaseDetailsHtml(
-  record: CustomerRecord
-): string {
+function purchaseDetailsHtml(record: CustomerRecord): string {
   const splitPricing = record.pricingMode === "SPLIT";
 
-  const frameName =
-    record.specsType?.trim() || "Not specified";
+  const frameName = record.specsType?.trim() || "Not specified";
 
-  const lensName =
-    record.lensType?.trim() || "Not specified";
+  const lensName = record.lensType?.trim() || "Not specified";
 
   return `
     <section class="document-section">
@@ -249,12 +205,8 @@ function purchaseDetailsHtml(
   `;
 }
 
-// -----------------------------------------------------
-// 5. OPTICAL PRESCRIPTION
-// -----------------------------------------------------
-
 /**
- * nik - Display measurements in this exact shop order:
+ * Display measurements in this exact shop order:
  *
  * RE DIST
  * RE NEAR
@@ -263,10 +215,7 @@ function purchaseDetailsHtml(
  *
  * Each row includes SPH, CYL and AXIS.
  */
-function prescriptionTableHtml(
-  prescription: Prescription,
-  sectionNumber = "03"
-): string {
+function prescriptionTableHtml(prescription: Prescription, sectionNumber = "03"): string {
   const measurements = [
     {
       label: "RE DIST",
@@ -319,7 +268,7 @@ function prescriptionTableHtml(
             ${escapeHtml(axis(item.axis))}
           </td>
         </tr>
-      `
+      `,
     )
     .join("");
 
@@ -359,16 +308,8 @@ function prescriptionTableHtml(
   `;
 }
 
-// -----------------------------------------------------
-// 6. COMPLETE DOCUMENT LAYOUT
-// -----------------------------------------------------
-
-function documentHtml(
-  title: string,
-  customer: CustomerDetails,
-  content: string
-): string {
-  // nik - Staff-only notes are intentionally excluded.
+function documentHtml(title: string, customer: CustomerDetails, content: string): string {
+  // Staff-only notes are intentionally excluded.
   return `
     <div class="customer-document">
       <header class="document-header">
@@ -406,12 +347,8 @@ function documentHtml(
   `;
 }
 
-// -----------------------------------------------------
-// 7. MODERN PRINT AND PDF STYLING
-// -----------------------------------------------------
-
 /**
- * nik - Minimal and readable document design.
+ * Minimal and readable document design.
  *
  * Uses white, charcoal and soft gray.
  * Styles are scoped to customer-document only.
@@ -742,55 +679,29 @@ const documentCss = `
   }
 `;
 
-// -----------------------------------------------------
-// 8. RECEIPT AND PRESCRIPTION DOCUMENTS
-// -----------------------------------------------------
-
-// nik - Include an associated prescription only if selected.
+// Include an associated prescription only if selected.
 export function receiptHtml(
   customer: CustomerDetails,
   record: CustomerRecord,
-  prescription?: Prescription | null
+  prescription?: Prescription | null,
 ): string {
   const purchase = purchaseDetailsHtml(record);
 
-  const prescriptionSection = prescription
-    ? prescriptionTableHtml(prescription, "03")
-    : "";
+  const prescriptionSection = prescription ? prescriptionTableHtml(prescription, "03") : "";
 
-  return documentHtml(
-    "Purchase Receipt",
-    customer,
-    purchase + prescriptionSection
-  );
+  return documentHtml("Purchase Receipt", customer, purchase + prescriptionSection);
 }
 
-// nik - Print a prescription independently from purchases.
-export function prescriptionHtml(
-  customer: CustomerDetails,
-  prescription: Prescription
-): string {
-  return documentHtml(
-    "Optical Prescription",
-    customer,
-    prescriptionTableHtml(prescription, "02")
-  );
+// Print a prescription independently from purchases.
+export function prescriptionHtml(customer: CustomerDetails, prescription: Prescription): string {
+  return documentHtml("Optical Prescription", customer, prescriptionTableHtml(prescription, "02"));
 }
 
-// -----------------------------------------------------
-// 9. PRINT DOCUMENT
-// -----------------------------------------------------
-
-export function printDocument(
-  content: string,
-  title: string
-): void {
+export function printDocument(content: string, title: string): void {
   const popup = window.open("", "_blank");
 
   if (!popup) {
-    throw new Error(
-      "Print window blocked. Please allow pop-ups."
-    );
+    throw new Error("Print window blocked. Please allow pop-ups.");
   }
 
   popup.document.open();
@@ -822,7 +733,7 @@ export function printDocument(
   popup.document.close();
   popup.focus();
 
-  // nik - Allow font loading before opening print settings.
+  // Allow font loading before opening print settings.
   void popup.document.fonts.ready
     .then(() => {
       if (!popup.closed) popup.print();
@@ -832,13 +743,8 @@ export function printDocument(
     });
 }
 
-// -----------------------------------------------------
-// 10. GENERATE PDF
-// -----------------------------------------------------
-
-
 /**
- * nik - Generate a clean multipage A4 PDF.
+ * Generate a clean multipage A4 PDF.
  *
  * This version:
  * - Keeps 12 mm margins on every page.
@@ -848,7 +754,11 @@ export function printDocument(
  * - Runs entirely in the browser.
  */
 export async function createPdf(content: string): Promise<Blob> {
-  // nik - Build the document off-screen without changing the CRM page.
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import("html2canvas"),
+    import("jspdf"),
+  ]);
+  // Build the document off-screen without changing the CRM page.
   const wrapper = document.createElement("div");
 
   Object.assign(wrapper.style, {
@@ -871,18 +781,16 @@ export async function createPdf(content: string): Promise<Blob> {
   document.body.appendChild(wrapper);
 
   try {
-    // nik - Wait until available fonts finish loading.
+    // Wait until available fonts finish loading.
     await document.fonts.ready;
 
-    const documentElement = sheet.querySelector<HTMLElement>(
-      ".customer-document"
-    );
+    const documentElement = sheet.querySelector<HTMLElement>(".customer-document");
 
     if (!documentElement) {
       throw new Error("Customer document could not be prepared.");
     }
 
-    // nik - Capture the full document once.
+    // Capture the full document once.
     const canvas = await html2canvas(documentElement, {
       scale: 2,
       backgroundColor: "#ffffff",
@@ -903,7 +811,7 @@ export async function createPdf(content: string): Promise<Blob> {
       compress: true,
     });
 
-    // nik - Reserve equal margins on all A4 pages.
+    // Reserve equal margins on all A4 pages.
     const margin = 12;
 
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -912,21 +820,19 @@ export async function createPdf(content: string): Promise<Blob> {
     const contentWidth = pageWidth - margin * 2;
     const contentHeight = pageHeight - margin * 2;
 
-    // nik - Convert A4 page height to captured canvas pixels.
+    // Convert A4 page height to captured canvas pixels.
     const pixelsPerMm = canvas.width / contentWidth;
-    const maxPagePixels = Math.floor(
-      contentHeight * pixelsPerMm
-    );
+    const maxPagePixels = Math.floor(contentHeight * pixelsPerMm);
 
-    // nik - Find document section boundaries to avoid cutting them.
+    // Find document section boundaries to avoid cutting them.
     const documentRect = documentElement.getBoundingClientRect();
 
     const scale = canvas.width / documentRect.width;
 
     const sections = Array.from(
       documentElement.querySelectorAll<HTMLElement>(
-        ".document-header, .document-section, .document-footer"
-      )
+        ".document-header, .document-section, .document-footer",
+      ),
     );
 
     const boundaries = sections
@@ -934,18 +840,8 @@ export async function createPdf(content: string): Promise<Blob> {
         const rect = section.getBoundingClientRect();
 
         return {
-          start: Math.max(
-            0,
-            Math.round(
-              (rect.top - documentRect.top) * scale
-            )
-          ),
-          end: Math.min(
-            canvas.height,
-            Math.round(
-              (rect.bottom - documentRect.top) * scale
-            )
-          ),
+          start: Math.max(0, Math.round((rect.top - documentRect.top) * scale)),
+          end: Math.min(canvas.height, Math.round((rect.bottom - documentRect.top) * scale)),
         };
       })
       .filter((section) => section.end > section.start);
@@ -954,48 +850,35 @@ export async function createPdf(content: string): Promise<Blob> {
     let pageNumber = 0;
 
     while (currentY < canvas.height) {
-      let nextY = Math.min(
-        currentY + maxPagePixels,
-        canvas.height
-      );
+      let nextY = Math.min(currentY + maxPagePixels, canvas.height);
 
-      // nik - Move a page break before a section when possible.
+      // Move a page break before a section when possible.
       if (nextY < canvas.height) {
         const crossingSection = boundaries.find(
-          (section) =>
-            section.start < nextY &&
-            section.end > nextY
+          (section) => section.start < nextY && section.end > nextY,
         );
 
         if (crossingSection) {
-          const sectionHeight =
-            crossingSection.end - crossingSection.start;
+          const sectionHeight = crossingSection.end - crossingSection.start;
 
-          const heightBeforeSection =
-            crossingSection.start - currentY;
+          const heightBeforeSection = crossingSection.start - currentY;
 
           // Move the entire section to the next page only
           // when the section fits and enough space was used.
-          if (
-            sectionHeight <= maxPagePixels &&
-            heightBeforeSection > maxPagePixels * 0.3
-          ) {
+          if (sectionHeight <= maxPagePixels && heightBeforeSection > maxPagePixels * 0.3) {
             nextY = crossingSection.start;
           }
         }
       }
 
-      // nik - Always make progress, including for oversized sections.
+      // Always make progress, including for oversized sections.
       if (nextY <= currentY) {
-        nextY = Math.min(
-          currentY + maxPagePixels,
-          canvas.height
-        );
+        nextY = Math.min(currentY + maxPagePixels, canvas.height);
       }
 
       const sliceHeight = nextY - currentY;
 
-      // nik - Crop only the content belonging to this A4 page.
+      // Crop only the content belonging to this A4 page.
       const pageCanvas = document.createElement("canvas");
 
       pageCanvas.width = canvas.width;
@@ -1008,12 +891,7 @@ export async function createPdf(content: string): Promise<Blob> {
       }
 
       context.fillStyle = "#ffffff";
-      context.fillRect(
-        0,
-        0,
-        pageCanvas.width,
-        pageCanvas.height
-      );
+      context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
 
       context.drawImage(
         canvas,
@@ -1024,28 +902,18 @@ export async function createPdf(content: string): Promise<Blob> {
         0,
         0,
         canvas.width,
-        sliceHeight
+        sliceHeight,
       );
 
-      const imageData = pageCanvas.toDataURL(
-        "image/png"
-      );
+      const imageData = pageCanvas.toDataURL("image/png");
 
-      const imageHeightMm =
-        sliceHeight / pixelsPerMm;
+      const imageHeightMm = sliceHeight / pixelsPerMm;
 
       if (pageNumber > 0) {
         pdf.addPage();
       }
 
-      pdf.addImage(
-        imageData,
-        "PNG",
-        margin,
-        margin,
-        contentWidth,
-        imageHeightMm
-      );
+      pdf.addImage(imageData, "PNG", margin, margin, contentWidth, imageHeightMm);
 
       currentY = nextY;
       pageNumber += 1;
@@ -1053,30 +921,19 @@ export async function createPdf(content: string): Promise<Blob> {
 
     return pdf.output("blob");
   } catch (error) {
-    // nik - Make PDF failures understandable to staff.
+    // Make PDF failures understandable to staff.
     if (error instanceof Error) {
       throw error;
     }
 
-    throw new Error(
-      "Unable to generate the PDF. Please try again.",
-      { cause: error }
-    );
+    throw new Error("Unable to generate the PDF. Please try again.", { cause: error });
   } finally {
-    // nik - Always remove the temporary document.
+    // Always remove the temporary document.
     wrapper.remove();
   }
 }
 
-
-// -----------------------------------------------------
-// 11. SAVE AND SHARE PDF
-// -----------------------------------------------------
-
-export function savePdf(
-  blob: Blob,
-  filename: string
-): void {
+export function savePdf(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
 
   const anchor = document.createElement("a");
@@ -1092,12 +949,12 @@ export function savePdf(
   }, 30_000);
 }
 
-// nik - Use native sharing when supported.
+// Use native sharing when supported.
 // Otherwise download PDF for manual sharing.
 export async function shareOrDownloadPdf(
   content: string,
   filename: string,
-  type: DocumentType
+  type: DocumentType,
 ): Promise<"shared" | "downloaded"> {
   const blob = await createPdf(content);
 
@@ -1106,10 +963,7 @@ export async function shareOrDownloadPdf(
   });
 
   const shareData: ShareData = {
-    title:
-      type === "receipt"
-        ? "Purchase Receipt"
-        : "Optical Prescription",
+    title: type === "receipt" ? "Purchase Receipt" : "Optical Prescription",
     files: [file],
   };
 
@@ -1122,10 +976,7 @@ export async function shareOrDownloadPdf(
       await navigator.share(shareData);
       return "shared";
     } catch (error) {
-      if (
-        error instanceof DOMException &&
-        error.name === "AbortError"
-      ) {
+      if (error instanceof DOMException && error.name === "AbortError") {
         throw new Error("Sharing cancelled.", { cause: error });
       }
     }
@@ -1135,13 +986,7 @@ export async function shareOrDownloadPdf(
   return "downloaded";
 }
 
-// -----------------------------------------------------
-// 12. WHATSAPP HELPERS
-// -----------------------------------------------------
-
-function whatsappNumber(
-  mobile: string | null | undefined
-): string {
+function whatsappNumber(mobile: string | null | undefined): string {
   const digits = (mobile ?? "").replace(/\D/g, "");
 
   if (/^[6-9]\d{9}$/.test(digits)) {
@@ -1152,15 +997,11 @@ function whatsappNumber(
     return digits;
   }
 
-  throw new Error(
-    "Please enter a valid Indian customer mobile number."
-  );
+  throw new Error("Please enter a valid Indian customer mobile number.");
 }
 
-// nik - Show prescription measurements in correct order.
-function whatsappPrescriptionText(
-  prescription: Prescription
-): string[] {
+// Show prescription measurements in correct order.
+function whatsappPrescriptionText(prescription: Prescription): string[] {
   return [
     "",
     "*OPTICAL PRESCRIPTION*",
@@ -1174,14 +1015,10 @@ function whatsappPrescriptionText(
   ];
 }
 
-// -----------------------------------------------------
-// 13. WHATSAPP RECEIPT MESSAGE
-// -----------------------------------------------------
-
 export function whatsappReceiptMessage(
   customer: CustomerDetails,
   record: CustomerRecord,
-  prescription?: Prescription | null
+  prescription?: Prescription | null,
 ): string {
   const message: string[] = [
     `Hello ${customer.name},`,
@@ -1202,20 +1039,13 @@ export function whatsappReceiptMessage(
   ];
 
   if (record.pricingMode === "SPLIT") {
-    message.push(
-      `Frame Rate: ${money(record.frameRate)}`,
-      `Lens Rate: ${money(record.lensRate)}`
-    );
+    message.push(`Frame Rate: ${money(record.frameRate)}`, `Lens Rate: ${money(record.lensRate)}`);
   }
 
-  message.push(
-    `*Total Purchase MRP: ${money(record.mrp)}*`
-  );
+  message.push(`*Total Purchase MRP: ${money(record.mrp)}*`);
 
   if (prescription) {
-    message.push(
-      ...whatsappPrescriptionText(prescription)
-    );
+    message.push(...whatsappPrescriptionText(prescription));
   }
 
   message.push(
@@ -1223,24 +1053,16 @@ export function whatsappReceiptMessage(
     "Thank you for choosing us!",
     SHOP_NAME_ENGLISH,
     "",
-    "Note: Purchase MRP is not proof of payment."
+    "Note: Purchase MRP is not proof of payment.",
   );
 
   return message.join("\n");
 }
 
-// -----------------------------------------------------
-// 14. OPEN WHATSAPP CHAT
-// -----------------------------------------------------
-
-export function openCustomerWhatsApp(
-  mobile: string | null,
-  message: string
-): void {
+export function openCustomerWhatsApp(mobile: string | null, message: string): void {
   const number = whatsappNumber(mobile);
 
-  const url =
-    `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
+  const url = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 
   const anchor = document.createElement("a");
 

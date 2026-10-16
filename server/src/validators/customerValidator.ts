@@ -1,10 +1,12 @@
-
 import { z } from "zod";
 
 // The search field can contain a partial mobile number.
 // A complete mobile number is validated when saving.
 export const customerSearchSchema = z.object({
-  phone: z.string().regex(/^\d{1,10}$/).optional(),
+  phone: z
+    .string()
+    .regex(/^\d{1,10}$/)
+    .optional(),
   name: z.string().trim().min(1).max(150).optional(),
 });
 

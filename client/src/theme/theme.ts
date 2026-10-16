@@ -1,4 +1,3 @@
-
 import { createTheme } from "@mui/material/styles";
 
 // Central theme for the entire Optical CRM.

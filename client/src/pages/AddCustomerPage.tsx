@@ -1,8 +1,7 @@
-
 /**
  * Optical CRM — Add Customer
  *
- * nik - Register a customer, optical prescription,
+ * Register a customer, optical prescription,
  * frame/lens products and the first purchase together.
  *
  * Staff can use catalog dropdowns or enter custom names.
@@ -45,34 +44,18 @@ import ShoppingBagOutlined from "@mui/icons-material/ShoppingBagOutlined";
 import InfoOutlined from "@mui/icons-material/InfoOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
 
-import {
-  Controller,
-  useForm,
-  useWatch,
-  type Control,
-  type FieldErrors,
-} from "react-hook-form";
+import { Controller, useForm, useWatch, type Control, type FieldErrors } from "react-hook-form";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router";
 
-import {
-  createCustomer,
-  type CustomerPayload,
-  type EyeValues,
-} from "../services/customerApi";
+import { createCustomer } from "../services/customerApi";
+import { type CustomerPayload, type EyeValues } from "../models/customer";
+import { CUSTOMER_AGE_ERROR, parseCustomerAge } from "../utils/customerAge";
 
-import {
-  getFrames,
-  getLenses,
-  type FrameProduct,
-  type LensProduct,
-} from "../services/catalogApi";
-
-// -----------------------------------------------------
-// 1. OPTICAL PRESCRIPTION CONFIGURATION
-// -----------------------------------------------------
+import { getFrames, getLenses } from "../services/catalogApi";
+import { type FrameProduct, type LensProduct } from "../models/catalog";
 
 const eyes = [
   {
@@ -101,26 +84,21 @@ type EyePrefix = (typeof eyes)[number]["prefix"];
 type EyeMeasure = "sph" | "cyl" | "axis";
 type EyeFieldName = `${EyePrefix}_${EyeMeasure}`;
 
-// nik - Common optical powers are offered in 0.25 steps.
+// Common optical powers are offered in 0.25 steps.
 // Manual values are also accepted and validated.
 
 function createPowerOptions(min: number, max: number) {
-  return Array.from(
-    { length: (max - min) * 4 + 1 },
-    (_, index) => {
-      const value = min + index / 4;
+  return Array.from({ length: (max - min) * 4 + 1 }, (_, index) => {
+    const value = min + index / 4;
 
-      return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
-    }
-  );
+    return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+  });
 }
 
 const sphOptions = createPowerOptions(-30, 30);
 const cylOptions = createPowerOptions(-15, 15);
 
-// -----------------------------------------------------
 // 2. DATE, PRICE AND PRODUCT HELPERS
-// -----------------------------------------------------
 
 // Use the shop computer's local calendar date.
 function todayLocalDate() {
@@ -143,17 +121,11 @@ function validDate(value: string) {
 
   const date = new Date(`${value}T00:00:00.000Z`);
 
-  return (
-    !Number.isNaN(date.getTime()) &&
-    date.toISOString().slice(0, 10) === value
-  );
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function validMoney(value: string) {
-  return (
-    /^\d+(\.\d{1,2})?$/.test(value) &&
-    Number(value) <= 9999999999.99
-  );
+  return /^\d+(\.\d{1,2})?$/.test(value) && Number(value) <= 9999999999.99;
 }
 
 function money(value: number) {
@@ -170,53 +142,35 @@ function frameLabel(frame: FrameProduct) {
 }
 
 function lensLabel(lens: LensProduct) {
-  return [
-    lens.company,
-    lens.lensName,
-    lens.visionType,
-    lens.coating,
-  ]
-    .filter(Boolean)
-    .join(" - ");
+  return [lens.company, lens.lensName, lens.visionType, lens.coating].filter(Boolean).join(" - ");
 }
-
-// -----------------------------------------------------
-// 3. CUSTOMER FORM VALIDATION
-// -----------------------------------------------------
 
 const formSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(1, "Customer name is required.")
-      .max(150),
+    name: z.string().trim().min(1, "Customer name is required.").max(150),
 
-    mobNumber: z.string().refine(
-      (value) =>
-        value === "" || /^[6-9]\d{9}$/.test(value),
-      "Enter a valid 10-digit Indian mobile number."
-    ),
+    mobNumber: z
+      .string()
+      .refine(
+        (value) => value === "" || /^[6-9]\d{9}$/.test(value),
+        "Enter a valid 10-digit Indian mobile number.",
+      ),
 
     gender: z.enum(["", "Male", "Female", "Other"]),
+
+    ageAtRecording: z
+      .string()
+      .refine((value) => parseCustomerAge(value) !== undefined, CUSTOMER_AGE_ERROR),
 
     reference: z.string().max(255),
 
     notes: z.string().max(5000),
 
-    purchaseDate: z
-      .string()
-      .refine(validDate, "Enter a valid purchase date."),
+    purchaseDate: z.string().refine(validDate, "Enter a valid purchase date."),
 
-    specsType: z.string().max(
-      100,
-      "Frame name cannot exceed 100 characters."
-    ),
+    specsType: z.string().max(100, "Frame name cannot exceed 100 characters."),
 
-    lensType: z.string().max(
-      100,
-      "Lens name cannot exceed 100 characters."
-    ),
+    lensType: z.string().max(100, "Lens name cannot exceed 100 characters."),
 
     frameCatalogId: z.string(),
     lensCatalogId: z.string(),
@@ -246,9 +200,7 @@ const formSchema = z
   .superRefine((values, context) => {
     // Only validate the fields used by the pricing mode.
     const priceFields =
-      values.pricingMode === "SPLIT"
-        ? (["frameRate", "lensRate"] as const)
-        : (["mrp"] as const);
+      values.pricingMode === "SPLIT" ? (["frameRate", "lensRate"] as const) : (["mrp"] as const);
 
     for (const field of priceFields) {
       if (!validMoney(values[field])) {
@@ -262,13 +214,8 @@ const formSchema = z
 
     // Validate each optical measurement independently.
     for (const eye of eyes) {
-      for (const measure of [
-        "sph",
-        "cyl",
-        "axis",
-      ] as const) {
-        const key: EyeFieldName =
-          `${eye.prefix}_${measure}`;
+      for (const measure of ["sph", "cyl", "axis"] as const) {
+        const key: EyeFieldName = `${eye.prefix}_${measure}`;
 
         const value = values[key].trim();
 
@@ -301,14 +248,11 @@ const formSchema = z
 
 type FormValues = z.infer<typeof formSchema>;
 
-// -----------------------------------------------------
-// 4. FORM DEFAULT VALUES
-// -----------------------------------------------------
-
 const initialValues: FormValues = {
   name: "",
   mobNumber: "",
   gender: "",
+  ageAtRecording: "",
   reference: "",
   notes: "",
 
@@ -342,10 +286,6 @@ const initialValues: FormValues = {
   le_near_cyl: "",
   le_near_axis: "",
 };
-
-// -----------------------------------------------------
-// 5. REUSABLE INPUT COMPONENTS
-// -----------------------------------------------------
 
 type SharedProps = {
   control: Control<FormValues>;
@@ -402,7 +342,7 @@ function FormTextInput({
   );
 }
 
-// nik - A visible searchable SPH/CYL dropdown.
+// A visible searchable SPH/CYL dropdown.
 // Do not override Autocomplete's internal input props:
 // MUI provides those through the {...params} spread.
 
@@ -436,10 +376,7 @@ function PowerInput({
           inputValue={field.value}
           disabled={disabled}
           onInputChange={(_, next, reason) => {
-            if (
-              reason === "input" ||
-              reason === "clear"
-            ) {
+            if (reason === "input" || reason === "clear") {
               field.onChange(next);
             }
           }}
@@ -488,9 +425,7 @@ function AxisInput({
           error={Boolean(errors[name])}
           helperText={errors[name]?.message}
           onChange={(event) => {
-            const next = event.target.value
-              .replace(/\D/g, "")
-              .slice(0, 3);
+            const next = event.target.value.replace(/\D/g, "").slice(0, 3);
 
             field.onChange(next);
           }}
@@ -505,23 +440,11 @@ function AxisInput({
   );
 }
 
-// -----------------------------------------------------
-// 6. PRESCRIPTION PAYLOAD HELPER
-// -----------------------------------------------------
-
-function readEye(
-  values: FormValues,
-  prefix: EyePrefix
-): EyeValues | undefined {
+function readEye(values: FormValues, prefix: EyePrefix): EyeValues | undefined {
   const eye: EyeValues = {};
 
-  for (const measure of [
-    "sph",
-    "cyl",
-    "axis",
-  ] as const) {
-    const text =
-      values[`${prefix}_${measure}`].trim();
+  for (const measure of ["sph", "cyl", "axis"] as const) {
+    const text = values[`${prefix}_${measure}`].trim();
 
     if (text) {
       eye[measure] = Number(text);
@@ -530,10 +453,6 @@ function readEye(
 
   return Object.keys(eye).length ? eye : undefined;
 }
-
-// -----------------------------------------------------
-// 7. PAGE COMPONENT
-// -----------------------------------------------------
 
 export default function AddCustomerPage() {
   const navigate = useNavigate();
@@ -544,8 +463,7 @@ export default function AddCustomerPage() {
   const [saveError, setSaveError] = useState("");
   const [catalogError, setCatalogError] = useState("");
 
-  const [catalogLoading, setCatalogLoading] =
-    useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(true);
 
   const [frames, setFrames] = useState<FrameProduct[]>([]);
   const [lenses, setLenses] = useState<LensProduct[]>([]);
@@ -554,12 +472,7 @@ export default function AddCustomerPage() {
     control,
     handleSubmit,
     setValue,
-    formState: {
-      errors,
-      isSubmitting,
-      isDirty,
-      submitCount,
-    },
+    formState: { errors, isSubmitting, isDirty, submitCount },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: initialValues,
@@ -568,50 +481,22 @@ export default function AddCustomerPage() {
   });
 
   // Watch fields needed for catalog and price previews.
-  const [
-    frameCatalogId,
-    lensCatalogId,
-    specsType,
-    lensType,
-  ] = useWatch({
+  const [frameCatalogId, lensCatalogId, specsType, lensType] = useWatch({
     control,
-    name: [
-      "frameCatalogId",
-      "lensCatalogId",
-      "specsType",
-      "lensType",
-    ],
+    name: ["frameCatalogId", "lensCatalogId", "specsType", "lensType"],
   });
 
-  const [
-    pricingMode,
-    frameRate,
-    lensRate,
-    mrp,
-  ] = useWatch({
+  const [pricingMode, frameRate, lensRate, mrp] = useWatch({
     control,
-    name: [
-      "pricingMode",
-      "frameRate",
-      "lensRate",
-      "mrp",
-    ],
+    name: ["pricingMode", "frameRate", "lensRate", "mrp"],
   });
-
-  // ---------------------------------------------------
-  // 8. LOAD THE PRODUCT CATALOG
-  // ---------------------------------------------------
 
   useEffect(() => {
     let active = true;
 
     async function loadCatalog() {
       try {
-        const [frameData, lensData] =
-          await Promise.all([
-            getFrames(false),
-            getLenses(false),
-          ]);
+        const [frameData, lensData] = await Promise.all([getFrames(false), getLenses(false)]);
 
         if (!active) return;
 
@@ -620,11 +505,7 @@ export default function AddCustomerPage() {
         setCatalogError("");
       } catch (err) {
         if (active) {
-          setCatalogError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load product catalog."
-          );
+          setCatalogError(err instanceof Error ? err.message : "Unable to load product catalog.");
         }
       } finally {
         if (active) {
@@ -640,11 +521,7 @@ export default function AddCustomerPage() {
     };
   }, []);
 
-  // ---------------------------------------------------
-  // 9. UNSAVED-CHANGES PROTECTION
-  // ---------------------------------------------------
-
-  // nik - Warn before browser refresh or closing a tab
+  // Warn before browser refresh or closing a tab
   // while a customer registration is unfinished.
 
   useEffect(() => {
@@ -655,22 +532,12 @@ export default function AddCustomerPage() {
       event.returnValue = "";
     }
 
-    window.addEventListener(
-      "beforeunload",
-      warnBeforeUnload
-    );
+    window.addEventListener("beforeunload", warnBeforeUnload);
 
     return () => {
-      window.removeEventListener(
-        "beforeunload",
-        warnBeforeUnload
-      );
+      window.removeEventListener("beforeunload", warnBeforeUnload);
     };
   }, [isDirty, isSubmitting]);
-
-  // ---------------------------------------------------
-  // 10. PURCHASE PREVIEW
-  // ---------------------------------------------------
 
   // Purchase type depends on actual product names,
   // not on whether prices are split.
@@ -689,20 +556,12 @@ export default function AddCustomerPage() {
 
   const total =
     pricingMode === "SPLIT"
-      ? validMoney(frameRate) &&
-        validMoney(lensRate)
-        ? (
-            Math.round(Number(frameRate) * 100) +
-            Math.round(Number(lensRate) * 100)
-          ) / 100
+      ? validMoney(frameRate) && validMoney(lensRate)
+        ? (Math.round(Number(frameRate) * 100) + Math.round(Number(lensRate) * 100)) / 100
         : null
       : validMoney(mrp)
         ? Number(mrp)
         : null;
-
-  // ---------------------------------------------------
-  // 11. SUBMIT CUSTOMER
-  // ---------------------------------------------------
 
   async function onSubmit(values: FormValues) {
     if (submissionLock.current) return;
@@ -718,19 +577,16 @@ export default function AddCustomerPage() {
         le_near: readEye(values, "le_near"),
       };
 
-      const hasPrescription =
-        Object.values(prescription).some(Boolean);
+      const hasPrescription = Object.values(prescription).some(Boolean);
 
       // Manual product names use null catalog IDs.
       const commonRecord = {
         specsType: values.specsType.trim() || null,
         lensType: values.lensType.trim() || null,
 
-        frameCatalogId:
-          values.frameCatalogId || null,
+        frameCatalogId: values.frameCatalogId || null,
 
-        lensCatalogId:
-          values.lensCatalogId || null,
+        lensCatalogId: values.lensCatalogId || null,
       };
 
       const record: CustomerPayload["record"] =
@@ -750,24 +606,19 @@ export default function AddCustomerPage() {
       const payload: CustomerPayload = {
         name: values.name.trim(),
 
-        mobNumber:
-          values.mobNumber.trim() || null,
+        mobNumber: values.mobNumber.trim() || null,
 
         gender: values.gender || null,
 
-        reference:
-          values.reference.trim() || null,
+        ageAtRecording: parseCustomerAge(values.ageAtRecording) ?? null,
 
-        notes:
-          values.notes.trim() || null,
+        reference: values.reference.trim() || null,
 
-        purchaseDate:
-          values.purchaseDate || null,
+        notes: values.notes.trim() || null,
 
-        prescription:
-          hasPrescription
-            ? prescription
-            : undefined,
+        purchaseDate: values.purchaseDate || null,
+
+        prescription: hasPrescription ? prescription : undefined,
 
         record,
       };
@@ -779,29 +630,16 @@ export default function AddCustomerPage() {
         state: { saved: true },
       });
     } catch (err) {
-      setSaveError(
-        err instanceof Error
-          ? err.message
-          : "Unable to save customer."
-      );
+      setSaveError(err instanceof Error ? err.message : "Unable to save customer.");
     } finally {
       submissionLock.current = false;
     }
   }
 
-  // ---------------------------------------------------
-  // 12. CANCEL REGISTRATION
-  // ---------------------------------------------------
-
   function cancelCreation() {
     if (isSubmitting) return;
 
-    if (
-      !isDirty ||
-      window.confirm(
-        "Discard unsaved customer information?"
-      )
-    ) {
+    if (!isDirty || window.confirm("Discard unsaved customer information?")) {
       navigate("/customers");
     }
   }
@@ -812,16 +650,12 @@ export default function AddCustomerPage() {
     disabled: isSubmitting,
   };
 
-  // ---------------------------------------------------
-  // 13. USER INTERFACE
-  // ---------------------------------------------------
-
   return (
     <Box
       component="form"
       noValidate
       onSubmit={(event) => {
-        // nik - Read the form only when the user submits it.
+        // Read the form only when the user submits it.
         void handleSubmit(onSubmit)(event);
       }}
       sx={{
@@ -844,59 +678,43 @@ export default function AddCustomerPage() {
             Back to Customers
           </Button>
 
-          <Typography
-            variant="h4"
-            sx={{ fontWeight: 800 }}
-          >
+          <Typography variant="h4" sx={{ fontWeight: 800 }}>
             Add New Customer
           </Typography>
 
-          <Typography
-            color="text.secondary"
-            variant="body2"
-            sx={{ mt: 0.75 }}
-          >
-            Register customer details, prescription
-            and purchase information.
+          <Typography color="text.secondary" variant="body2" sx={{ mt: 0.75 }}>
+            Register customer details, prescription and purchase information.
           </Typography>
         </Box>
 
         {/* STATUS MESSAGES */}
 
         {saveError && (
-          <Alert
-            severity="error"
-            onClose={() => setSaveError("")}
-          >
+          <Alert severity="error" onClose={() => setSaveError("")}>
             {saveError}
           </Alert>
         )}
 
         {catalogError && (
           <Alert severity="warning">
-            Product Catalog could not load:{" "}
-            {catalogError}. Manual product names
-            can still be entered.
+            Product Catalog could not load: {catalogError}. Manual product names can still be
+            entered.
           </Alert>
         )}
 
-        {submitCount > 0 &&
-          Object.keys(errors).length > 0 && (
-            <Alert severity="warning">
-              Please correct the highlighted fields
-              before saving.
-            </Alert>
-          )}
+        {submitCount > 0 && Object.keys(errors).length > 0 && (
+          <Alert severity="warning">Please correct the highlighted fields before saving.</Alert>
+        )}
 
         {isSubmitting && (
           <Alert severity="info">
             <Stack
               direction="row"
               spacing={1.5}
-              
-             sx={{ alignItems: "center" }}>
-              <CircularProgress size={18} />
 
+              sx={{ alignItems: "center" }}
+            >
+              <CircularProgress size={18} />
               Saving customer and optical records...
             </Stack>
           </Alert>
@@ -906,23 +724,21 @@ export default function AddCustomerPage() {
             PERSONAL INFORMATION
         ----------------------------------------- */}
 
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3 }}
-        >
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ p: 2.5 }}>
             <Stack
               direction="row"
               spacing={1}
-              
-              sx={{ alignItems: "center",  mb: 2.5 }}
+
+              sx={{ alignItems: "center", mb: 2.5 }}
             >
               <PersonOutlineOutlined color="primary" />
 
               <Typography
                 variant="h6"
-                
-               sx={{ fontWeight: 700 }}>
+
+                sx={{ fontWeight: 700 }}
+              >
                 Personal Information
               </Typography>
             </Stack>
@@ -953,28 +769,14 @@ export default function AddCustomerPage() {
                   name="gender"
                   control={control}
                   render={({ field }) => (
-                    <TextField
-                      {...field}
-                      fullWidth
-                      select
-                      label="Gender"
-                      disabled={isSubmitting}
-                    >
-                      <MenuItem value="">
-                        Not specified
-                      </MenuItem>
+                    <TextField {...field} fullWidth select label="Gender" disabled={isSubmitting}>
+                      <MenuItem value="">Not specified</MenuItem>
 
-                      <MenuItem value="Male">
-                        Male
-                      </MenuItem>
+                      <MenuItem value="Male">Male</MenuItem>
 
-                      <MenuItem value="Female">
-                        Female
-                      </MenuItem>
+                      <MenuItem value="Female">Female</MenuItem>
 
-                      <MenuItem value="Other">
-                        Other
-                      </MenuItem>
+                      <MenuItem value="Other">Other</MenuItem>
                     </TextField>
                   )}
                 />
@@ -988,6 +790,14 @@ export default function AddCustomerPage() {
                   maxLength={255}
                 />
               </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormTextInput
+                  {...sharedProps}
+                  name="ageAtRecording"
+                  label="Age at recording (optional)"
+                  inputMode="numeric"
+                />
+              </Grid>
             </Grid>
           </CardContent>
         </Card>
@@ -996,40 +806,29 @@ export default function AddCustomerPage() {
             OPTICAL PRESCRIPTION
         ----------------------------------------- */}
 
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3 }}
-        >
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ p: 2.5 }}>
             <Stack
               direction="row"
               spacing={1}
-              
-              sx={{ alignItems: "center",  mb: 1 }}
+
+              sx={{ alignItems: "center", mb: 1 }}
             >
               <VisibilityOutlined color="primary" />
 
               <Typography
                 variant="h6"
-                
-               sx={{ fontWeight: 700 }}>
+
+                sx={{ fontWeight: 700 }}
+              >
                 Optical Prescription
               </Typography>
 
-              <Chip
-                label="Optional"
-                size="small"
-                variant="outlined"
-              />
+              <Chip label="Optional" size="small" variant="outlined" />
             </Stack>
 
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ mb: 2 }}
-            >
-              Select SPH and CYL from searchable
-              dropdowns, or type the required power.
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Select SPH and CYL from searchable dropdowns, or type the required power.
             </Typography>
 
             <TableContainer
@@ -1058,21 +857,13 @@ export default function AddCustomerPage() {
                       bgcolor: "background.default",
                     }}
                   >
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      Eye / Vision
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Eye / Vision</TableCell>
 
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      SPH
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>SPH</TableCell>
 
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      CYL
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>CYL</TableCell>
 
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      AXIS
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>AXIS</TableCell>
                   </TableRow>
                 </TableHead>
 
@@ -1082,15 +873,13 @@ export default function AddCustomerPage() {
                       <TableCell sx={{ minWidth: 150 }}>
                         <Typography
                           variant="subtitle2"
-                          
-                         sx={{ fontWeight: 700 }}>
+
+                          sx={{ fontWeight: 700 }}
+                        >
                           {eye.label}
                         </Typography>
 
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                        >
+                        <Typography variant="caption" color="text.secondary">
                           {eye.description}
                         </Typography>
                       </TableCell>
@@ -1114,11 +903,7 @@ export default function AddCustomerPage() {
                       </TableCell>
 
                       <TableCell sx={{ minWidth: 125 }}>
-                        <AxisInput
-                          {...sharedProps}
-                          name={`${eye.prefix}_axis`}
-                          label="AXIS"
-                        />
+                        <AxisInput {...sharedProps} name={`${eye.prefix}_axis`} label="AXIS" />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1126,13 +911,8 @@ export default function AddCustomerPage() {
               </Table>
             </TableContainer>
 
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: "block", mt: 1.5 }}
-            >
-              SPH: −30 to +30 · CYL: −15 to +15 ·
-              AXIS: 0–180
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+              SPH: −30 to +30 · CYL: −15 to +15 · AXIS: 0–180
             </Typography>
           </CardContent>
         </Card>
@@ -1141,39 +921,33 @@ export default function AddCustomerPage() {
             PURCHASE INFORMATION
         ----------------------------------------- */}
 
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3 }}
-        >
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ p: 2.5 }}>
             <Stack
               direction="row"
-              
-              
-              sx={{ justifyContent: "space-between", alignItems: "center",  mb: 2.5 }}
+
+              sx={{ justifyContent: "space-between", alignItems: "center", mb: 2.5 }}
             >
               <Stack
                 direction="row"
                 spacing={1}
-                
-               sx={{ alignItems: "center" }}>
+
+                sx={{ alignItems: "center" }}
+              >
                 <ShoppingBagOutlined color="primary" />
 
                 <Typography
                   variant="h6"
-                  
-                 sx={{ fontWeight: 700 }}>
+
+                  sx={{ fontWeight: 700 }}
+                >
                   Purchase Information
                 </Typography>
               </Stack>
 
               <Chip
                 label={purchaseType}
-                color={
-                  hasFrame || hasLens
-                    ? "primary"
-                    : "default"
-                }
+                color={hasFrame || hasLens ? "primary" : "default"}
                 variant="outlined"
                 size="small"
               />
@@ -1193,12 +967,9 @@ export default function AddCustomerPage() {
                       type="date"
                       label="Date of Purchase"
                       disabled={isSubmitting}
-                      error={Boolean(
-                        errors.purchaseDate
-                      )}
+                      error={Boolean(errors.purchaseDate)}
                       helperText={
-                        errors.purchaseDate?.message ??
-                        "Defaults to today; can be changed."
+                        errors.purchaseDate?.message ?? "Defaults to today; can be changed."
                       }
                       slotProps={{
                         inputLabel: { shrink: true },
@@ -1215,12 +986,7 @@ export default function AddCustomerPage() {
                   name="specsType"
                   control={control}
                   render={({ field }) => (
-                    <Autocomplete<
-                      FrameProduct,
-                      false,
-                      false,
-                      true
-                    >
+                    <Autocomplete<FrameProduct, false, false, true>
                       freeSolo
                       fullWidth
                       openOnFocus
@@ -1230,69 +996,32 @@ export default function AddCustomerPage() {
                       disabled={isSubmitting}
                       loading={catalogLoading}
                       options={frames}
-                      filterOptions={(
-                        options,
-                        state
-                      ) =>
+                      filterOptions={(options, state) =>
                         options.filter((frame) =>
-                          [
-                            frame.brand,
-                            frame.model,
-                            frame.frameCode,
-                            frame.frameStyle,
-                          ]
+                          [frame.brand, frame.model, frame.frameCode, frame.frameStyle]
                             .filter(Boolean)
                             .join(" ")
                             .toLowerCase()
-                            .includes(
-                              state.inputValue
-                                .toLowerCase()
-                                .trim()
-                            )
+                            .includes(state.inputValue.toLowerCase().trim()),
                         )
                       }
                       getOptionLabel={(option) =>
-                        typeof option === "string"
-                          ? option
-                          : frameLabel(option)
+                        typeof option === "string" ? option : frameLabel(option)
                       }
-                      isOptionEqualToValue={(
-                        option,
-                        value
-                      ) =>
-                        typeof value !== "string" &&
-                        option.id === value.id
+                      isOptionEqualToValue={(option, value) =>
+                        typeof value !== "string" && option.id === value.id
                       }
-                      value={
-                        frames.find(
-                          (frame) =>
-                            frame.id === frameCatalogId
-                        ) ?? field.value
-                      }
+                      value={frames.find((frame) => frame.id === frameCatalogId) ?? field.value}
                       inputValue={field.value}
-                      onInputChange={(
-                        _,
-                        text,
-                        reason
-                      ) => {
-                        if (
-                          reason === "input" ||
-                          reason === "clear"
-                        ) {
+                      onInputChange={(_, text, reason) => {
+                        if (reason === "input" || reason === "clear") {
                           field.onChange(text);
 
-                          setValue(
-                            "frameCatalogId",
-                            "",
-                            { shouldDirty: true }
-                          );
+                          setValue("frameCatalogId", "", { shouldDirty: true });
                         }
                       }}
                       onChange={(_, selected) => {
-                        const product =
-                          typeof selected === "string"
-                            ? null
-                            : selected;
+                        const product = typeof selected === "string" ? null : selected;
 
                         const text =
                           typeof selected === "string"
@@ -1303,11 +1032,7 @@ export default function AddCustomerPage() {
 
                         field.onChange(text);
 
-                        setValue(
-                          "frameCatalogId",
-                          product?.id ?? "",
-                          { shouldDirty: true }
-                        );
+                        setValue("frameCatalogId", product?.id ?? "", { shouldDirty: true });
                       }}
                       onBlur={field.onBlur}
                       renderInput={(params) => (
@@ -1315,14 +1040,10 @@ export default function AddCustomerPage() {
                           {...params}
                           label="Frame / Spectacle"
                           placeholder="Search or type frame"
-                          error={Boolean(
-                            errors.specsType
-                          )}
+                          error={Boolean(errors.specsType)}
                           helperText={
                             errors.specsType?.message ??
-                            (frameCatalogId
-                              ? "Selected from catalog"
-                              : "Catalog or custom name")
+                            (frameCatalogId ? "Selected from catalog" : "Catalog or custom name")
                           }
                         />
                       )}
@@ -1338,12 +1059,7 @@ export default function AddCustomerPage() {
                   name="lensType"
                   control={control}
                   render={({ field }) => (
-                    <Autocomplete<
-                      LensProduct,
-                      false,
-                      false,
-                      true
-                    >
+                    <Autocomplete<LensProduct, false, false, true>
                       freeSolo
                       fullWidth
                       openOnFocus
@@ -1353,10 +1069,7 @@ export default function AddCustomerPage() {
                       disabled={isSubmitting}
                       loading={catalogLoading}
                       options={lenses}
-                      filterOptions={(
-                        options,
-                        state
-                      ) =>
+                      filterOptions={(options, state) =>
                         options.filter((lens) =>
                           [
                             lens.company,
@@ -1368,55 +1081,26 @@ export default function AddCustomerPage() {
                             .filter(Boolean)
                             .join(" ")
                             .toLowerCase()
-                            .includes(
-                              state.inputValue
-                                .toLowerCase()
-                                .trim()
-                            )
+                            .includes(state.inputValue.toLowerCase().trim()),
                         )
                       }
                       getOptionLabel={(option) =>
-                        typeof option === "string"
-                          ? option
-                          : lensLabel(option)
+                        typeof option === "string" ? option : lensLabel(option)
                       }
-                      isOptionEqualToValue={(
-                        option,
-                        value
-                      ) =>
-                        typeof value !== "string" &&
-                        option.id === value.id
+                      isOptionEqualToValue={(option, value) =>
+                        typeof value !== "string" && option.id === value.id
                       }
-                      value={
-                        lenses.find(
-                          (lens) =>
-                            lens.id === lensCatalogId
-                        ) ?? field.value
-                      }
+                      value={lenses.find((lens) => lens.id === lensCatalogId) ?? field.value}
                       inputValue={field.value}
-                      onInputChange={(
-                        _,
-                        text,
-                        reason
-                      ) => {
-                        if (
-                          reason === "input" ||
-                          reason === "clear"
-                        ) {
+                      onInputChange={(_, text, reason) => {
+                        if (reason === "input" || reason === "clear") {
                           field.onChange(text);
 
-                          setValue(
-                            "lensCatalogId",
-                            "",
-                            { shouldDirty: true }
-                          );
+                          setValue("lensCatalogId", "", { shouldDirty: true });
                         }
                       }}
                       onChange={(_, selected) => {
-                        const product =
-                          typeof selected === "string"
-                            ? null
-                            : selected;
+                        const product = typeof selected === "string" ? null : selected;
 
                         const text =
                           typeof selected === "string"
@@ -1427,11 +1111,7 @@ export default function AddCustomerPage() {
 
                         field.onChange(text);
 
-                        setValue(
-                          "lensCatalogId",
-                          product?.id ?? "",
-                          { shouldDirty: true }
-                        );
+                        setValue("lensCatalogId", product?.id ?? "", { shouldDirty: true });
                       }}
                       onBlur={field.onBlur}
                       renderInput={(params) => (
@@ -1439,14 +1119,10 @@ export default function AddCustomerPage() {
                           {...params}
                           label="Lens Type"
                           placeholder="Search or type lens"
-                          error={Boolean(
-                            errors.lensType
-                          )}
+                          error={Boolean(errors.lensType)}
                           helperText={
                             errors.lensType?.message ??
-                            (lensCatalogId
-                              ? "Selected from catalog"
-                              : "Catalog or custom name")
+                            (lensCatalogId ? "Selected from catalog" : "Catalog or custom name")
                           }
                         />
                       )}
@@ -1462,23 +1138,17 @@ export default function AddCustomerPage() {
             PRICING INFORMATION
         ----------------------------------------- */}
 
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3 }}
-        >
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ p: 2.5 }}>
             <Typography
               variant="h6"
-              
-              sx={{ fontWeight: 700,  mb: 0.75 }}
+
+              sx={{ fontWeight: 700, mb: 0.75 }}
             >
               Pricing Details
             </Typography>
 
-            <Typography
-              variant="body2"
-              color="text.secondary"
-            >
+            <Typography variant="body2" color="text.secondary">
               Choose how the purchase price is entered.
             </Typography>
 
@@ -1494,14 +1164,10 @@ export default function AddCustomerPage() {
                   disabled={isSubmitting}
                   onChange={(_, next) => {
                     if (next !== null) {
-                      setValue(
-                        "pricingMode",
-                        next as "SPLIT" | "MRP_ONLY",
-                        {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        }
-                      );
+                      setValue("pricingMode", next as "SPLIT" | "MRP_ONLY", {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
                     }
                   }}
                   sx={{
@@ -1510,13 +1176,9 @@ export default function AddCustomerPage() {
                     flexWrap: "wrap",
                   }}
                 >
-                  <ToggleButton value="SPLIT">
-                    Separate Rates
-                  </ToggleButton>
+                  <ToggleButton value="SPLIT">Separate Rates</ToggleButton>
 
-                  <ToggleButton value="MRP_ONLY">
-                    Total MRP Only
-                  </ToggleButton>
+                  <ToggleButton value="MRP_ONLY">Total MRP Only</ToggleButton>
                 </ToggleButtonGroup>
               )}
             />
@@ -1569,26 +1231,21 @@ export default function AddCustomerPage() {
                   xs: "column",
                   sm: "row",
                 }}
-                
-                
+
                 spacing={1}
-               sx={{ justifyContent: "space-between", alignItems: {
-                  sm: "center",
-                } }}>
+                sx={{
+                  justifyContent: "space-between",
+                  alignItems: {
+                    sm: "center",
+                  },
+                }}
+              >
                 <Box>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                  >
-                    {pricingMode === "SPLIT"
-                      ? "Calculated Total MRP"
-                      : "Purchase Total MRP"}
+                  <Typography variant="body2" color="text.secondary">
+                    {pricingMode === "SPLIT" ? "Calculated Total MRP" : "Purchase Total MRP"}
                   </Typography>
 
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                  >
+                  <Typography variant="caption" color="text.secondary">
                     Based on the currently entered rates.
                   </Typography>
                 </Box>
@@ -1596,22 +1253,16 @@ export default function AddCustomerPage() {
                 <Typography
                   variant="h5"
                   color="primary"
-                  
-                 sx={{ fontWeight: 800 }}>
-                  {total === null
-                    ? "₹ —"
-                    : money(total)}
+
+                  sx={{ fontWeight: 800 }}
+                >
+                  {total === null ? "₹ —" : money(total)}
                 </Typography>
               </Stack>
             </Paper>
 
-            <Alert
-              severity="info"
-              icon={<InfoOutlined />}
-              sx={{ mt: 2 }}
-            >
-              Pricing mode does not decide whether the
-              customer bought a frame, lens, or both.
+            <Alert severity="info" icon={<InfoOutlined />} sx={{ mt: 2 }}>
+              Pricing mode does not decide whether the customer bought a frame, lens, or both.
             </Alert>
           </CardContent>
         </Card>
@@ -1620,34 +1271,25 @@ export default function AddCustomerPage() {
             INTERNAL STAFF NOTES
         ----------------------------------------- */}
 
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3 }}
-        >
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ p: 2.5 }}>
             <Stack
               direction="row"
-              
+
               spacing={1}
-              sx={{ alignItems: "center",  mb: 1.5 }}
+              sx={{ alignItems: "center", mb: 1.5 }}
             >
-              <LockOutlined
-                color="action"
-                fontSize="small"
-              />
+              <LockOutlined color="action" fontSize="small" />
 
               <Typography
                 variant="subtitle1"
-                
-               sx={{ fontWeight: 700 }}>
+
+                sx={{ fontWeight: 700 }}
+              >
                 Private Staff Notes
               </Typography>
 
-              <Chip
-                label="Internal"
-                variant="outlined"
-                size="small"
-              />
+              <Chip label="Internal" variant="outlined" size="small" />
             </Stack>
 
             <FormTextInput
@@ -1667,8 +1309,7 @@ export default function AddCustomerPage() {
                 mt: 1,
               }}
             >
-              Staff only. Do not export these notes
-              to customer PDFs or WhatsApp messages.
+              Staff only. Do not export these notes to customer PDFs or WhatsApp messages.
             </Typography>
           </CardContent>
         </Card>
@@ -1684,9 +1325,10 @@ export default function AddCustomerPage() {
             xs: "column-reverse",
             sm: "row",
           }}
-          
+
           spacing={1.5}
-         sx={{ justifyContent: "flex-end" }}>
+          sx={{ justifyContent: "flex-end" }}
+        >
           <Button
             variant="outlined"
             onClick={cancelCreation}
@@ -1705,14 +1347,7 @@ export default function AddCustomerPage() {
             size="large"
             disabled={isSubmitting}
             startIcon={
-              isSubmitting ? (
-                <CircularProgress
-                  size={18}
-                  color="inherit"
-                />
-              ) : (
-                <SaveOutlined />
-              )
+              isSubmitting ? <CircularProgress size={18} color="inherit" /> : <SaveOutlined />
             }
             sx={{
               borderRadius: 2,
@@ -1720,9 +1355,7 @@ export default function AddCustomerPage() {
               fontWeight: 700,
             }}
           >
-            {isSubmitting
-              ? "Saving..."
-              : "Save Customer"}
+            {isSubmitting ? "Saving..." : "Save Customer"}
           </Button>
         </Stack>
       </Stack>

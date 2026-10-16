@@ -1,22 +1,7 @@
-
 import { Router } from "express";
-import { getDashboardAnalytics } from "../services/dashboardService";
+import { showDashboard } from "../controllers/dashboardController";
 
 const router = Router();
-
-// nik - Provide dashboard statistics from PostgreSQL.
-// Authentication is handled by requireAdmin in app.ts.
-router.get("/", async (_req, res, next) => {
-  try {
-    const data = await getDashboardAnalytics();
-
-    res.json({
-      success: true,
-      data,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+router.get("/", showDashboard);
 
 export default router;

@@ -1,8 +1,7 @@
-
 /**
  * Optical CRM — Interactive Dashboard Analytics
  *
- * nik - Display real purchase analytics from PostgreSQL.
+ * Display real purchase analytics from PostgreSQL.
  * Filter monthly/yearly data and compare the last three years.
  */
 
@@ -43,16 +42,10 @@ import {
   YAxis,
 } from "recharts";
 
-import {
-  getDashboardAnalytics,
-  type DashboardAnalyticsData,
-} from "../../services/dashboardApi";
+import { getDashboardAnalytics } from "../../services/dashboardApi";
+import { type DashboardAnalyticsData } from "../../models/dashboard";
 
-// -----------------------------------------------------
-// 1. FORMATTING HELPERS
-// -----------------------------------------------------
-
-// nik - Format amounts using Indian rupees.
+// Format amounts using Indian rupees.
 function money(value: number): string {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -61,7 +54,7 @@ function money(value: number): string {
   }).format(value);
 }
 
-// nik - Recharts tooltips may provide numbers,
+// Recharts tooltips may provide numbers,
 // strings, arrays or undefined values.
 function tooltipMoney(value: unknown): string {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -70,36 +63,16 @@ function tooltipMoney(value: unknown): string {
   return money(Number.isFinite(amount) ? amount : 0);
 }
 
-const months = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const chartColors = [
-  "#2563eb",
-  "#14b8a6",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ef4444",
-  "#06b6d4",
-];
+const chartColors = ["#2563eb", "#14b8a6", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4"];
 
 type Period = "monthly" | "yearly";
 type ChartKind = "bar" | "line" | "pie";
 
 type YearRange = "last3" | "last5" | "all" | "custom";
 
-// nik - Both monthly and yearly charts use the same shape.
+// Both monthly and yearly charts use the same shape.
 // This avoids Recharts TypeScript data errors.
 type ChartRow = {
   label: string;
@@ -108,24 +81,9 @@ type ChartRow = {
   comparison: number;
 };
 
-// -----------------------------------------------------
-// 2. REUSABLE STATISTICS CARD
-// -----------------------------------------------------
-
-function StatCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
+function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <Card
-      variant="outlined"
-      sx={{ borderRadius: 3, height: "100%" }}
-    >
+    <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
       <CardContent>
         <Typography variant="body2" color="text.secondary">
           {label}
@@ -150,38 +108,26 @@ function StatCard({
   );
 }
 
-// -----------------------------------------------------
-// 3. DASHBOARD COMPONENT
-// -----------------------------------------------------
-
 export default function DashboardAnalytics() {
-  const [data, setData] =
-    useState<DashboardAnalyticsData | null>(null);
+  const [data, setData] = useState<DashboardAnalyticsData | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // nik - Changing these filters does not call the API again.
+  // Changing these filters does not call the API again.
   const [period, setPeriod] = useState<Period>("monthly");
-  const [chartKind, setChartKind] =
-    useState<ChartKind>("bar");
+  const [chartKind, setChartKind] = useState<ChartKind>("bar");
 
-  const [selectedYear, setSelectedYear] =
-    useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
-  const [comparisonYear, setComparisonYear] =
-    useState<number | null>(null);
+  const [comparisonYear, setComparisonYear] = useState<number | null>(null);
   const [compare, setCompare] = useState(false);
 
-  // nik - Display the latest three years by default, or explore more.
+  // Display the latest three years by default, or explore more.
   const [yearRange, setYearRange] = useState<YearRange>("last3");
   const [startYear, setStartYear] = useState<number | null>(null);
   const [endYear, setEndYear] = useState<number | null>(null);
-
-  // ---------------------------------------------------
-  // 4. LOAD REAL ANALYTICS DATA
-  // ---------------------------------------------------
 
   useEffect(() => {
     const controller = new AbortController();
@@ -193,24 +139,17 @@ export default function DashboardAnalytics() {
         setData(result);
         setError("");
 
-        // nik - Default to the current year.
+        // Default to the current year.
         setSelectedYear((previous) =>
-          previous !== null &&
-          result.years.some(
-            (item) => item.year === previous
-          )
+          previous !== null && result.years.some((item) => item.year === previous)
             ? previous
-            : result.currentYear
+            : result.currentYear,
         );
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
 
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load analytics."
-        );
+        setError(err instanceof Error ? err.message : "Unable to load analytics.");
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -221,36 +160,21 @@ export default function DashboardAnalytics() {
     return () => controller.abort();
   }, [refreshKey]);
 
-  // ---------------------------------------------------
-  // 5. PREPARE CHART DATA
-  // ---------------------------------------------------
-
   const years = data?.years ?? [];
 
-  const activeYear =
-    selectedYear ??
-    data?.currentYear ??
-    new Date().getFullYear();
+  const activeYear = selectedYear ?? data?.currentYear ?? new Date().getFullYear();
 
-  const current = years.find(
-    (item) => item.year === activeYear
-  );
+  const current = years.find((item) => item.year === activeYear);
 
-  const otherYears = years.filter(
-    (item) => item.year !== activeYear
-  );
+  const otherYears = years.filter((item) => item.year !== activeYear);
 
-  // nik - Prefer the previous year for comparison.
+  // Prefer the previous year for comparison.
   const otherYear =
-    otherYears.find(
-      (item) => item.year === comparisonYear
-    ) ??
-    otherYears.find(
-      (item) => item.year === activeYear - 1
-    ) ??
+    otherYears.find((item) => item.year === comparisonYear) ??
+    otherYears.find((item) => item.year === activeYear - 1) ??
     otherYears[0];
 
-  // nik - Use identical object properties for all charts.
+  // Use identical object properties for all charts.
   const yearlyChart: ChartRow[] = years.map((year) => ({
     label: String(year.year),
     value: year.value,
@@ -258,16 +182,14 @@ export default function DashboardAnalytics() {
     comparison: 0,
   }));
 
-  const monthlyChart: ChartRow[] = months.map(
-    (month, index) => ({
-      label: month,
-      value: current?.months[index]?.value ?? 0,
-      purchases: current?.months[index]?.purchases ?? 0,
-      comparison: otherYear?.months[index]?.value ?? 0,
-    })
-  );
+  const monthlyChart: ChartRow[] = months.map((month, index) => ({
+    label: month,
+    value: current?.months[index]?.value ?? 0,
+    purchases: current?.months[index]?.purchases ?? 0,
+    comparison: otherYear?.months[index]?.value ?? 0,
+  }));
 
-  // nik - Yearly chart range follows the calendar automatically.
+  // Yearly chart range follows the calendar automatically.
   // All historical years remain selectable in the year dropdown.
   const availableYears = years.map((item) => item.year);
   const earliestYear = availableYears[0] ?? activeYear;
@@ -292,57 +214,38 @@ export default function DashboardAnalytics() {
     return year >= rangeStart && year <= rangeEnd;
   });
 
-  const chartData: ChartRow[] =
-    period === "yearly" ? filteredYearlyChart : monthlyChart;
+  const chartData: ChartRow[] = period === "yearly" ? filteredYearlyChart : monthlyChart;
 
-  // nik - Pie charts show purchase value by product type.
-  const pieData = (current?.categories ?? []).filter(
-    (category) => category.value > 0
-  );
+  // Pie charts show purchase value by product type.
+  const pieData = (current?.categories ?? []).filter((category) => category.value > 0);
 
-  const previousYear = years.find(
-    (item) => item.year === activeYear - 1
-  );
+  const previousYear = years.find((item) => item.year === activeYear - 1);
 
-  // nik - Compare the same elapsed months for the
+  // Compare the same elapsed months for the
   // current year, rather than a partial year against
   // the previous year's full total.
-  const isCurrentYear =
-    activeYear === data?.currentYear;
+  const isCurrentYear = activeYear === data?.currentYear;
 
   const elapsedMonth = new Date().getUTCMonth();
 
   const comparableCurrentValue = isCurrentYear
-    ? current?.months
-        .slice(0, elapsedMonth + 1)
-        .reduce((sum, month) => sum + month.value, 0) ?? 0
-    : current?.value ?? 0;
+    ? (current?.months.slice(0, elapsedMonth + 1).reduce((sum, month) => sum + month.value, 0) ?? 0)
+    : (current?.value ?? 0);
 
   const comparablePreviousValue = isCurrentYear
-    ? previousYear?.months
+    ? (previousYear?.months
         .slice(0, elapsedMonth + 1)
-        .reduce((sum, month) => sum + month.value, 0) ?? 0
-    : previousYear?.value ?? 0;
+        .reduce((sum, month) => sum + month.value, 0) ?? 0)
+    : (previousYear?.value ?? 0);
 
   const yearChange =
     previousYear && comparablePreviousValue > 0
-      ? ((comparableCurrentValue -
-          comparablePreviousValue) /
-          comparablePreviousValue) *
-        100
+      ? ((comparableCurrentValue - comparablePreviousValue) / comparablePreviousValue) * 100
       : null;
-
-  // ---------------------------------------------------
-  // 6. LOADING AND ERROR STATES
-  // ---------------------------------------------------
 
   if (loading && !data) {
     return (
-      <Stack
-        direction="row"
-        spacing={2}
-        sx={{ py: 5, alignItems: "center" }}
-      >
+      <Stack direction="row" spacing={2} sx={{ py: 5, alignItems: "center" }}>
         <CircularProgress size={24} />
         <Typography>Loading analytics...</Typography>
       </Stack>
@@ -370,13 +273,9 @@ export default function DashboardAnalytics() {
     );
   }
 
-  // ---------------------------------------------------
-  // 7. DASHBOARD USER INTERFACE
-  // ---------------------------------------------------
-
   return (
     <Stack spacing={3}>
-      {/* nik - Analytics heading and refresh button. */}
+      {/* Analytics heading and refresh button. */}
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={2}
@@ -390,10 +289,7 @@ export default function DashboardAnalytics() {
             Business Analytics
           </Typography>
 
-          <Typography
-            variant="body2"
-            color="text.secondary"
-          >
+          <Typography variant="body2" color="text.secondary">
             Explore real purchase data across your recorded history.
           </Typography>
         </Box>
@@ -410,9 +306,7 @@ export default function DashboardAnalytics() {
         </Button>
       </Stack>
 
-      {error && (
-        <Alert severity="warning">{error}</Alert>
-      )}
+      {error && <Alert severity="warning">{error}</Alert>}
 
       {/* -----------------------------------------------
           8. INTERACTIVE FILTERS
@@ -421,10 +315,7 @@ export default function DashboardAnalytics() {
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
         <CardContent sx={{ p: 2.5 }}>
           <Stack spacing={2}>
-            <Typography
-              variant="subtitle1"
-              sx={{ fontWeight: 700 }}
-            >
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
               Analytics Explorer
             </Typography>
 
@@ -439,13 +330,9 @@ export default function DashboardAnalytics() {
                     if (next) setPeriod(next);
                   }}
                 >
-                  <ToggleButton value="monthly">
-                    Monthly
-                  </ToggleButton>
+                  <ToggleButton value="monthly">Monthly</ToggleButton>
 
-                  <ToggleButton value="yearly">
-                    Yearly
-                  </ToggleButton>
+                  <ToggleButton value="yearly">Yearly</ToggleButton>
                 </ToggleButtonGroup>
               </Grid>
 
@@ -456,17 +343,10 @@ export default function DashboardAnalytics() {
                   size="small"
                   label="Select Year"
                   value={activeYear}
-                  onChange={(event) =>
-                    setSelectedYear(
-                      Number(event.target.value)
-                    )
-                  }
+                  onChange={(event) => setSelectedYear(Number(event.target.value))}
                 >
                   {years.map((year) => (
-                    <MenuItem
-                      key={year.year}
-                      value={year.year}
-                    >
+                    <MenuItem key={year.year} value={year.year}>
                       {year.year}
                     </MenuItem>
                   ))}
@@ -480,11 +360,7 @@ export default function DashboardAnalytics() {
                   size="small"
                   label="Chart Type"
                   value={chartKind}
-                  onChange={(event) =>
-                    setChartKind(
-                      event.target.value as ChartKind
-                    )
-                  }
+                  onChange={(event) => setChartKind(event.target.value as ChartKind)}
                 >
                   <MenuItem value="bar">Bar Chart</MenuItem>
                   <MenuItem value="line">Line Chart</MenuItem>
@@ -493,7 +369,7 @@ export default function DashboardAnalytics() {
               </Grid>
             </Grid>
 
-            {/* nik - Filter the years shown in the yearly bar/line chart. */}
+            {/* Filter the years shown in the yearly bar/line chart. */}
             {period === "yearly" && chartKind !== "pie" && (
               <Stack spacing={2}>
                 <TextField
@@ -502,9 +378,7 @@ export default function DashboardAnalytics() {
                   size="small"
                   label="Historical Date Range"
                   value={yearRange}
-                  onChange={(event) =>
-                    setYearRange(event.target.value as YearRange)
-                  }
+                  onChange={(event) => setYearRange(event.target.value as YearRange)}
                 >
                   <MenuItem value="last3">Last 3 Years</MenuItem>
                   <MenuItem value="last5">Last 5 Years</MenuItem>
@@ -521,9 +395,7 @@ export default function DashboardAnalytics() {
                         size="small"
                         label="From Year"
                         value={startYear ?? earliestYear}
-                        onChange={(event) =>
-                          setStartYear(Number(event.target.value))
-                        }
+                        onChange={(event) => setStartYear(Number(event.target.value))}
                       >
                         {availableYears.map((year) => (
                           <MenuItem key={year} value={year}>
@@ -540,9 +412,7 @@ export default function DashboardAnalytics() {
                         size="small"
                         label="To Year"
                         value={endYear ?? latestYear}
-                        onChange={(event) =>
-                          setEndYear(Number(event.target.value))
-                        }
+                        onChange={(event) => setEndYear(Number(event.target.value))}
                       >
                         {availableYears.map((year) => (
                           <MenuItem key={year} value={year}>
@@ -556,51 +426,38 @@ export default function DashboardAnalytics() {
               </Stack>
             )}
 
-            {/* nik - Compare months from two different years. */}
-            {period === "monthly" &&
-              chartKind !== "pie" && (
-                <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={2}
-                  sx={{ alignItems: { sm: "center" } }}
-                >
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={compare}
-                        onChange={(_, checked) =>
-                          setCompare(checked)
-                        }
-                      />
-                    }
-                    label="Compare with another year"
-                  />
+            {/* Compare months from two different years. */}
+            {period === "monthly" && chartKind !== "pie" && (
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={2}
+                sx={{ alignItems: { sm: "center" } }}
+              >
+                <FormControlLabel
+                  control={
+                    <Switch checked={compare} onChange={(_, checked) => setCompare(checked)} />
+                  }
+                  label="Compare with another year"
+                />
 
-                  {compare && otherYear && (
-                    <TextField
-                      select
-                      size="small"
-                      label="Comparison Year"
-                      value={otherYear.year}
-                      onChange={(event) =>
-                        setComparisonYear(
-                          Number(event.target.value)
-                        )
-                      }
-                      sx={{ minWidth: 160 }}
-                    >
-                      {otherYears.map((year) => (
-                        <MenuItem
-                          key={year.year}
-                          value={year.year}
-                        >
-                          {year.year}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                </Stack>
-              )}
+                {compare && otherYear && (
+                  <TextField
+                    select
+                    size="small"
+                    label="Comparison Year"
+                    value={otherYear.year}
+                    onChange={(event) => setComparisonYear(Number(event.target.value))}
+                    sx={{ minWidth: 160 }}
+                  >
+                    {otherYears.map((year) => (
+                      <MenuItem key={year.year} value={year.year}>
+                        {year.year}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              </Stack>
+            )}
           </Stack>
         </CardContent>
       </Card>
@@ -613,9 +470,7 @@ export default function DashboardAnalytics() {
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard
             label="Active Customers"
-            value={data.totalCustomers.toLocaleString(
-              "en-IN"
-            )}
+            value={data.totalCustomers.toLocaleString("en-IN")}
             detail="Current active customer profiles"
           />
         </Grid>
@@ -623,9 +478,7 @@ export default function DashboardAnalytics() {
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard
             label={`Purchases in ${activeYear}`}
-            value={current.purchases.toLocaleString(
-              "en-IN"
-            )}
+            value={current.purchases.toLocaleString("en-IN")}
             detail="Purchases with a recorded date"
           />
         </Grid>
@@ -642,9 +495,7 @@ export default function DashboardAnalytics() {
           <StatCard
             label="Year-on-Year Change"
             value={
-              yearChange === null
-                ? "N/A"
-                : `${yearChange >= 0 ? "+" : ""}${yearChange.toFixed(1)}%`
+              yearChange === null ? "N/A" : `${yearChange >= 0 ? "+" : ""}${yearChange.toFixed(1)}%`
             }
             detail={
               previousYear
@@ -663,10 +514,7 @@ export default function DashboardAnalytics() {
 
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
         <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 700 }}
-          >
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
             {chartKind === "pie"
               ? `${activeYear} Purchase Breakdown`
               : period === "yearly"
@@ -674,11 +522,7 @@ export default function DashboardAnalytics() {
                 : `Monthly Purchase Value — ${activeYear}`}
           </Typography>
 
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mb: 3 }}
-          >
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             {chartKind === "pie"
               ? "Purchase value grouped by product type."
               : "Purchase value based on saved purchase dates."}
@@ -692,14 +536,9 @@ export default function DashboardAnalytics() {
           >
             {chartKind === "pie" ? (
               pieData.length === 0 ? (
-                <Alert severity="info">
-                  No dated purchases for this year.
-                </Alert>
+                <Alert severity="info">No dated purchases for this year.</Alert>
               ) : (
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                >
+                <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={pieData}
@@ -712,32 +551,18 @@ export default function DashboardAnalytics() {
                       paddingAngle={2}
                     >
                       {pieData.map((entry, index) => (
-                        <Cell
-                          key={entry.name}
-                          fill={
-                            chartColors[
-                              index % chartColors.length
-                            ]
-                          }
-                        />
+                        <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
                       ))}
                     </Pie>
 
-                    <Tooltip
-                      formatter={(value) =>
-                        tooltipMoney(value)
-                      }
-                    />
+                    <Tooltip formatter={(value) => tooltipMoney(value)} />
 
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               )
             ) : chartKind === "bar" ? (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData}
                   margin={{
@@ -747,56 +572,38 @@ export default function DashboardAnalytics() {
                     bottom: 10,
                   }}
                 >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
 
                   <XAxis dataKey="label" />
 
                   <YAxis
                     width={70}
-                    tickFormatter={(value: number) =>
-                      `₹${Math.round(value / 1000)}k`
-                    }
+                    tickFormatter={(value: number) => `₹${Math.round(value / 1000)}k`}
                   />
 
-                  <Tooltip
-                    formatter={(value) =>
-                      tooltipMoney(value)
-                    }
-                  />
+                  <Tooltip formatter={(value) => tooltipMoney(value)} />
 
                   <Legend />
 
                   <Bar
                     dataKey="value"
-                    name={
-                      period === "yearly"
-                        ? "Purchase Value"
-                        : String(activeYear)
-                    }
+                    name={period === "yearly" ? "Purchase Value" : String(activeYear)}
                     fill={chartColors[0]}
                     radius={[5, 5, 0, 0]}
                   />
 
-                  {period === "monthly" &&
-                    compare &&
-                    otherYear && (
-                      <Bar
-                        dataKey="comparison"
-                        name={String(otherYear.year)}
-                        fill={chartColors[1]}
-                        radius={[5, 5, 0, 0]}
-                      />
-                    )}
+                  {period === "monthly" && compare && otherYear && (
+                    <Bar
+                      dataKey="comparison"
+                      name={String(otherYear.year)}
+                      fill={chartColors[1]}
+                      radius={[5, 5, 0, 0]}
+                    />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
+              <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
                   margin={{
@@ -806,66 +613,46 @@ export default function DashboardAnalytics() {
                     bottom: 10,
                   }}
                 >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
 
                   <XAxis dataKey="label" />
 
                   <YAxis
                     width={70}
-                    tickFormatter={(value: number) =>
-                      `₹${Math.round(value / 1000)}k`
-                    }
+                    tickFormatter={(value: number) => `₹${Math.round(value / 1000)}k`}
                   />
 
-                  <Tooltip
-                    formatter={(value) =>
-                      tooltipMoney(value)
-                    }
-                  />
+                  <Tooltip formatter={(value) => tooltipMoney(value)} />
 
                   <Legend />
 
                   <Line
                     type="monotone"
                     dataKey="value"
-                    name={
-                      period === "yearly"
-                        ? "Purchase Value"
-                        : String(activeYear)
-                    }
+                    name={period === "yearly" ? "Purchase Value" : String(activeYear)}
                     stroke={chartColors[0]}
                     strokeWidth={3}
                     dot={{ r: 4 }}
                   />
 
-                  {period === "monthly" &&
-                    compare &&
-                    otherYear && (
-                      <Line
-                        type="monotone"
-                        dataKey="comparison"
-                        name={String(otherYear.year)}
-                        stroke={chartColors[1]}
-                        strokeWidth={3}
-                        dot={{ r: 4 }}
-                      />
-                    )}
+                  {period === "monthly" && compare && otherYear && (
+                    <Line
+                      type="monotone"
+                      dataKey="comparison"
+                      name={String(otherYear.year)}
+                      stroke={chartColors[1]}
+                      strokeWidth={3}
+                      dot={{ r: 4 }}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             )}
           </Box>
 
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "block", mt: 2 }}
-          >
-            Purchase Value is saved MRP, not actual
-            payment collection or profit. Purchases
-            without dates are excluded from these charts.
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
+            Purchase Value is saved MRP, not actual payment collection or profit. Purchases without
+            dates are excluded from these charts.
           </Typography>
         </CardContent>
       </Card>
@@ -876,17 +663,12 @@ export default function DashboardAnalytics() {
 
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
         <CardContent sx={{ p: 3 }}>
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 700, mb: 2 }}
-          >
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
             Recently Recorded Purchases
           </Typography>
 
           {data.recent.length === 0 ? (
-            <Alert severity="info">
-              No purchase records available.
-            </Alert>
+            <Alert severity="info">No purchase records available.</Alert>
           ) : (
             <Stack spacing={1.5}>
               {data.recent.map((record) => (
@@ -914,22 +696,13 @@ export default function DashboardAnalytics() {
                       {record.customerName}
                     </Button>
 
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                    >
-                      {[record.frame, record.lens]
-                        .filter(Boolean)
-                        .join(" + ") ||
+                    <Typography variant="body2" color="text.secondary">
+                      {[record.frame, record.lens].filter(Boolean).join(" + ") ||
                         "Products not specified"}
                     </Typography>
                   </Box>
 
-                  <Typography
-                    sx={{ fontWeight: 700 }}
-                  >
-                    {money(record.value)}
-                  </Typography>
+                  <Typography sx={{ fontWeight: 700 }}>{money(record.value)}</Typography>
                 </Stack>
               ))}
             </Stack>

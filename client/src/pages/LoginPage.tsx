@@ -1,13 +1,12 @@
-
 /**
  * Optical CRM — Admin Login
  *
- * nik - Simple login page for the single Admin account.
+ * Simple login page for the single Admin account.
  * The backend verifies the password and manages sessions.
  */
 
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import {
   Alert,
@@ -31,8 +30,9 @@ import { loginAdmin } from "../services/authApi";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // nik - Keep credentials only in the form while logging in.
+  // Keep credentials only in the form while logging in.
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -40,7 +40,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // nik - Ask the backend to create a secure login session.
+  // Ask the backend to create a secure login session.
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -57,14 +57,16 @@ export default function LoginPage() {
     try {
       await loginAdmin(username.trim(), password);
 
-      // nik - Return to the CRM after successful login.
-      navigate("/dashboard", { replace: true });
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Unable to log in. Please try again."
+      // Return to the CRM after successful login.
+      const from: unknown = location.state?.from;
+      navigate(
+        typeof from === "string" && from.startsWith("/") && !from.startsWith("//")
+          ? from
+          : "/dashboard",
+        { replace: true },
       );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to log in. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -117,18 +119,11 @@ export default function LoginPage() {
                 <LockOutlined sx={{ fontSize: 30 }} />
               </Box>
 
-              <Typography
-                variant="h5"
-                sx={{ fontWeight: 800, mt: 1 }}
-              >
+              <Typography variant="h5" sx={{ fontWeight: 800, mt: 1 }}>
                 Optical CRM
               </Typography>
 
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ textAlign: "center" }}
-              >
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
                 Sign in to manage your optical store
               </Typography>
             </Stack>
@@ -167,17 +162,11 @@ export default function LoginPage() {
                         <InputAdornment position="end">
                           <IconButton
                             edge="end"
-                            aria-label={
-                              showPassword ? "Hide password" : "Show password"
-                            }
+                            aria-label={showPassword ? "Hide password" : "Show password"}
                             onClick={() => setShowPassword((value) => !value)}
                             disabled={loading}
                           >
-                            {showPassword ? (
-                              <VisibilityOffOutlined />
-                            ) : (
-                              <VisibilityOutlined />
-                            )}
+                            {showPassword ? <VisibilityOffOutlined /> : <VisibilityOutlined />}
                           </IconButton>
                         </InputAdornment>
                       ),
@@ -197,11 +186,7 @@ export default function LoginPage() {
                     fontWeight: 700,
                   }}
                   startIcon={
-                    loading ? (
-                      <CircularProgress size={18} color="inherit" />
-                    ) : (
-                      <LockOutlined />
-                    )
+                    loading ? <CircularProgress size={18} color="inherit" /> : <LockOutlined />
                   }
                 >
                   {loading ? "Signing in..." : "Sign In"}
@@ -209,11 +194,7 @@ export default function LoginPage() {
               </Stack>
             </Box>
 
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ textAlign: "center" }}
-            >
+            <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
               Authorized Admin access only
             </Typography>
           </Stack>

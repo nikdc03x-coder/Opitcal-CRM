@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 
 import {
@@ -10,7 +9,7 @@ import {
   editLens,
 } from "../controllers/catalogController";
 
-// nik - Local development catalog management API.
+// Local development catalog management API.
 const router = Router();
 
 // Frame catalog.

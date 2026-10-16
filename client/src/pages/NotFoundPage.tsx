@@ -1,21 +1,13 @@
-
 /**
  * Optical CRM — 404 Not Found Page
  *
- * nik - Display a friendly error when a user opens
+ * Display a friendly error when a user opens
  * a route that does not exist.
  *
  * Help shop staff quickly return to their work.
  */
 
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Box, Button, Card, CardContent, Stack, Typography } from "@mui/material";
 
 import HomeOutlined from "@mui/icons-material/HomeOutlined";
 import PeopleOutlineOutlined from "@mui/icons-material/PeopleOutlineOutlined";
@@ -23,10 +15,6 @@ import SearchOffOutlined from "@mui/icons-material/SearchOffOutlined";
 import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
 
 import { Link } from "react-router";
-
-// -----------------------------------------------------
-// 1. NOT FOUND PAGE
-// -----------------------------------------------------
 
 export default function NotFoundPage() {
   return (
@@ -85,10 +73,7 @@ export default function NotFoundPage() {
               404
             </Typography>
 
-            <Typography
-              variant="h5"
-              sx={{ fontWeight: 700 }}
-            >
+            <Typography variant="h5" sx={{ fontWeight: 700 }}>
               Page Not Found
             </Typography>
 
@@ -100,10 +85,8 @@ export default function NotFoundPage() {
                 lineHeight: 1.7,
               }}
             >
-              The page you're looking for doesn't exist,
-              or its address may have changed.
-              You can return to your dashboard or
-              continue managing customers.
+              The page you're looking for doesn't exist, or its address may have changed. You can
+              return to your dashboard or continue managing customers.
             </Typography>
 
             {/* Navigation actions */}

@@ -1,4 +1,3 @@
-
 import type { Request, Response } from "express";
 
 import {
@@ -19,12 +18,10 @@ import {
   updateLens,
 } from "../services/catalogService";
 
-// nik - Keep response formatting consistent with
+// Keep response formatting consistent with
 // the existing customer controllers.
 
-// -----------------------------------------------------
 // FRAMES
-// -----------------------------------------------------
 
 export async function getFrames(req: Request, res: Response) {
   const parsed = catalogListSchema.safeParse(req.query);
@@ -106,9 +103,7 @@ export async function editFrame(req: Request, res: Response) {
   });
 }
 
-// -----------------------------------------------------
 // LENSES
-// -----------------------------------------------------
 
 export async function getLenses(req: Request, res: Response) {
   const parsed = catalogListSchema.safeParse(req.query);

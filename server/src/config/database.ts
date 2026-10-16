@@ -1,18 +1,11 @@
-
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client";
+import { databasePoolConfig } from "./databaseConfig";
 
-// Get the database URL from environment variables.
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error("DATABASE_URL is missing from .env");
-}
-
-// Prisma 7 uses a PostgreSQL driver adapter.
-// This provides the connection between Prisma and Neon.
-const adapter = new PrismaPg({ connectionString });
-
-// Export one shared database client for our services.
+// One lazy pool for the process, shared by API services and maintenance scripts.
+// Prisma owns this adapter's pool and closes it on $disconnect().
+const adapter = new PrismaPg(databasePoolConfig(), {
+  onPoolError: () => console.error("The Neon connection pool reported an idle connection error."),
+});
 export const prisma = new PrismaClient({ adapter });

@@ -1,135 +1,62 @@
-
 import { prisma } from "../config/database";
+import { getShopId } from "./shopService";
+import { shopToday } from "../utils/date";
 
-// nik - Use the same shop as the existing CRM modules.
-const SHOP_CODE = "DEMO_SHOP";
-
-// nik - Show at least the current year and two previous years.
-// Keep older years available whenever purchase history exists.
 const DEFAULT_HISTORY_YEARS = 3;
-
-type Month = {
+type PurchaseType = "Frame Only" | "Lens Only" | "Frame + Lens" | "Not Specified";
+type Aggregate = {
+  year: number;
   month: number;
-  purchases: number;
-  value: number;
+  category: PurchaseType;
+  purchases: bigint;
+  value: unknown;
 };
-
-type PurchaseType =
-  | "Frame Only"
-  | "Lens Only"
-  | "Frame + Lens"
-  | "Not Specified";
-
 type YearAnalytics = {
   year: number;
   purchases: number;
   value: number;
-  months: Month[];
+  months: { month: number; purchases: number; value: number }[];
   categories: Record<PurchaseType, number>;
 };
 
-// nik - Group purchases by their recorded product selection.
-function purchaseType(
-  frame: string | null,
-  lens: string | null
-): PurchaseType {
-  if (frame && lens) return "Frame + Lens";
-  if (frame) return "Frame Only";
-  if (lens) return "Lens Only";
-  return "Not Specified";
-}
-
-// nik - Round calculated money values to two decimal places.
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-// nik - Create an empty year containing all 12 months.
-// Empty years and months should display zero, not disappear.
-function createEmptyYear(year: number): YearAnalytics {
+function emptyYear(year: number): YearAnalytics {
   return {
     year,
     purchases: 0,
     value: 0,
-
-    months: Array.from(
-      { length: 12 },
-      (_, index): Month => ({
-        month: index + 1,
-        purchases: 0,
-        value: 0,
-      })
-    ),
-
-    categories: {
-      "Frame Only": 0,
-      "Lens Only": 0,
-      "Frame + Lens": 0,
-      "Not Specified": 0,
-    },
+    months: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, purchases: 0, value: 0 })),
+    categories: { "Frame Only": 0, "Lens Only": 0, "Frame + Lens": 0, "Not Specified": 0 },
   };
 }
+const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-// nik - Return real purchase analytics for all historical years.
-// The latest three years always remain available for comparison.
+// PostgreSQL returns monthly/category aggregates instead of every purchase row.
+// All values in this query are bound parameters; no identifiers come from input.
 export async function getDashboardAnalytics() {
-  const shop = await prisma.shop.findUnique({
-    where: { code: SHOP_CODE },
-    select: { id: true },
-  });
-
-  if (!shop) {
-    throw new Error("CRM shop not found.");
-  }
-
-  const now = new Date();
-  const currentYear = now.getUTCFullYear();
-
-  // nik - The default reporting window moves automatically.
-  // Example: 2026 -> 2024-2026; 2027 -> 2025-2027.
-  const defaultFirstYear =
-    currentYear - DEFAULT_HISTORY_YEARS + 1;
-
-  // nik - Read current and historical purchases.
-  // Future-dated purchases are excluded until their date arrives.
-  const [
-    totalCustomers,
-    records,
-    recentRecords,
-  ] = await Promise.all([
-    prisma.customer.count({
-      where: {
-        shopId: shop.id,
-        isActive: true,
-      },
-    }),
-
+  const shopId = await getShopId();
+  const today = shopToday();
+  const currentYear = today.getUTCFullYear();
+  const defaultFirstYear = currentYear - DEFAULT_HISTORY_YEARS + 1;
+  const [totalCustomers, groups, recentRecords] = await Promise.all([
+    prisma.customer.count({ where: { shopId, isActive: true } }),
+    prisma.$queryRaw<Aggregate[]>`
+      SELECT EXTRACT(YEAR FROM r."purchaseDate")::int AS year,
+             EXTRACT(MONTH FROM r."purchaseDate")::int AS month,
+             CASE
+               WHEN NULLIF(r."specsType", '') IS NOT NULL AND NULLIF(r."lensType", '') IS NOT NULL THEN 'Frame + Lens'
+               WHEN NULLIF(r."specsType", '') IS NOT NULL THEN 'Frame Only'
+               WHEN NULLIF(r."lensType", '') IS NOT NULL THEN 'Lens Only'
+               ELSE 'Not Specified'
+             END AS category,
+             COUNT(*)::bigint AS purchases, SUM(r.mrp) AS value
+      FROM "CustomerRecord" AS r
+      JOIN "Customer" AS c ON c.id = r."customerId"
+      WHERE c."shopId" = ${shopId} AND r."purchaseDate" <= ${today}
+      GROUP BY 1, 2, 3 ORDER BY 1, 2
+    `,
     prisma.customerRecord.findMany({
-      where: {
-        customer: {
-          shopId: shop.id,
-        },
-        purchaseDate: {
-          lte: now,
-        },
-      },
-      select: {
-        purchaseDate: true,
-        mrp: true,
-        specsType: true,
-        lensType: true,
-      },
-    }),
-
-    prisma.customerRecord.findMany({
-      where: {
-        customer: {
-          shopId: shop.id,
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
+      where: { customer: { shopId } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 5,
       select: {
         id: true,
@@ -137,123 +64,42 @@ export async function getDashboardAnalytics() {
         purchaseDate: true,
         specsType: true,
         lensType: true,
-        customer: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        customer: { select: { id: true, name: true } },
       },
     }),
   ]);
-
-  // nik - Find the earliest available purchase year.
-  // If no purchase exists, start with the default three years.
-  let firstYear = defaultFirstYear;
-
-  for (const record of records) {
-    if (!record.purchaseDate) continue;
-
-    const purchaseYear =
-      record.purchaseDate.getUTCFullYear();
-
-    if (purchaseYear < firstYear) {
-      firstYear = purchaseYear;
-    }
-  }
-
-  // nik - Build every year between the earliest purchase
-  // and the current year. Do not lose historical years.
-  const years: YearAnalytics[] = [];
-
-  for (
-    let year = firstYear;
-    year <= currentYear;
-    year++
-  ) {
-    years.push(createEmptyYear(year));
-  }
-
-  // nik - Find a year quickly while grouping records.
-  const yearMap = new Map<number, YearAnalytics>();
-
-  for (const year of years) {
-    yearMap.set(year.year, year);
-  }
-
-  // nik - Calculate monthly totals, annual totals
-  // and the product-category breakdown.
-  for (const record of records) {
-    const purchaseDate = record.purchaseDate;
-
-    if (!purchaseDate) continue;
-
-    const purchaseYear =
-      purchaseDate.getUTCFullYear();
-
-    const purchaseMonth =
-      purchaseDate.getUTCMonth();
-
-    const year = yearMap.get(purchaseYear);
-
-    if (!year) continue;
-
-    const month = year.months[purchaseMonth];
-
-    const value = Number(record.mrp);
-
-    // nik - Ignore invalid amount values in calculations.
-    if (!Number.isFinite(value)) continue;
-
-    year.purchases += 1;
+  const firstYear = groups.reduce((first, group) => Math.min(first, group.year), defaultFirstYear);
+  const years = Array.from({ length: currentYear - firstYear + 1 }, (_, i) =>
+    emptyYear(firstYear + i),
+  );
+  const byYear = new Map(years.map((year) => [year.year, year]));
+  for (const group of groups) {
+    const year = byYear.get(group.year);
+    if (!year || group.month < 1 || group.month > 12) continue;
+    const value = Number(group.value);
+    const purchases = Number(group.purchases);
+    const month = year.months[group.month - 1];
+    year.purchases += purchases;
     year.value += value;
-
-    month.purchases += 1;
+    month.purchases += purchases;
     month.value += value;
-
-    const category = purchaseType(
-      record.specsType,
-      record.lensType
-    );
-
-    year.categories[category] += value;
+    year.categories[group.category] += value;
   }
-
-  // nik - Convert calculated values into API-friendly data.
-  const formattedYears = years.map((year) => ({
-    year: year.year,
-    purchases: year.purchases,
-    value: roundMoney(year.value),
-
-    months: year.months.map((month) => ({
-      month: month.month,
-      purchases: month.purchases,
-      value: roundMoney(month.value),
-    })),
-
-    categories: Object.entries(
-      year.categories
-    ).map(([name, value]) => ({
-      name,
-      value: roundMoney(value),
-    })),
-  }));
-
-  // nik - Send only the information needed by the dashboard.
   return {
     currentYear,
-
-    // nik - The frontend can use these to show the latest
-    // three years by default without hiding older history.
     defaultFirstYear,
     defaultHistoryYears: DEFAULT_HISTORY_YEARS,
-
     totalCustomers,
-
-    // nik - All historical years, ordered oldest to newest.
-    years: formattedYears,
-
-    // nik - Keep the existing recent-purchase display.
+    years: years.map((year) => ({
+      year: year.year,
+      purchases: year.purchases,
+      value: money(year.value),
+      months: year.months.map((month) => ({ ...month, value: money(month.value) })),
+      categories: Object.entries(year.categories).map(([name, value]) => ({
+        name,
+        value: money(value),
+      })),
+    })),
     recent: recentRecords.map((record) => ({
       id: record.id,
       customerId: record.customer.id,

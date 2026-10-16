@@ -1,46 +1,23 @@
-
 import { prisma } from "../config/database";
+import { getShopId } from "./shopService";
 
 import { calculatePricing } from "../utils/pricing";
 import { mapPrescription } from "../utils/prescription";
 
-import {
-  resolveCatalogSelection,
-} from "./catalogSelection";
+import { resolveCatalogSelection } from "./catalogSelection";
 
-import type {
-  PurchaseUpdateInput,
-  PrescriptionUpdateInput,
-} from "../validators/historyValidator";
+import type { PurchaseUpdateInput, PrescriptionUpdateInput } from "../validators/historyValidator";
 
-// nik - Edit only the selected historical record.
+// Edit only the selected historical record.
 // Other customers and purchases must remain unchanged.
-const DEMO_SHOP_CODE = "DEMO_SHOP";
-
-// --------------------------------------------------
-// 1. VERIFY CUSTOMER AND SHOP
-// --------------------------------------------------
 
 async function getAllowedCustomer(customerId: string) {
-  const shop = await prisma.shop.findUnique({
-    where: {
-      code: DEMO_SHOP_CODE,
-    },
-    select: {
-      id: true,
-    },
-  });
-
-  if (!shop) {
-    throw new Error(
-      "Demo shop not found. Run the database seed first."
-    );
-  }
+  const shopId = await getShopId();
 
   return prisma.customer.findFirst({
     where: {
       id: customerId,
-      shopId: shop.id,
+      shopId,
       isActive: true,
     },
     select: {
@@ -50,14 +27,10 @@ async function getAllowedCustomer(customerId: string) {
   });
 }
 
-// --------------------------------------------------
-// 2. UPDATE ONE HISTORICAL PURCHASE
-// --------------------------------------------------
-
 export async function updateCustomerPurchase(
   customerId: string,
   recordId: string,
-  input: PurchaseUpdateInput
+  input: PurchaseUpdateInput,
 ) {
   const customer = await getAllowedCustomer(customerId);
 
@@ -66,17 +39,6 @@ export async function updateCustomerPurchase(
   }
 
   const pricing = calculatePricing(input.record);
-
-  const rates =
-    input.record.pricingMode === "SPLIT"
-      ? {
-          frameRate: input.record.frameRate,
-          lensRate: input.record.lensRate,
-        }
-      : {
-          frameRate: null,
-          lensRate: null,
-        };
 
   // Validate the purchase and its catalog selections
   // inside one transaction.
@@ -100,12 +62,7 @@ export async function updateCustomerPurchase(
       return null;
     }
 
-    const catalog = await resolveCatalogSelection(
-      tx,
-      customer.shopId,
-      input.record,
-      existing
-    );
+    const catalog = await resolveCatalogSelection(tx, customer.shopId, input.record, existing);
 
     // Update exactly the selected historical purchase.
     return tx.customerRecord.update({
@@ -117,26 +74,17 @@ export async function updateCustomerPurchase(
         ...catalog,
 
         ...pricing,
-        ...rates,
 
-        purchaseDate: input.purchaseDate
-          ? new Date(
-              `${input.purchaseDate}T00:00:00.000Z`
-            )
-          : null,
+        purchaseDate: input.purchaseDate ? new Date(`${input.purchaseDate}T00:00:00.000Z`) : null,
       },
     });
   });
 }
 
-// --------------------------------------------------
-// 3. UPDATE ONE HISTORICAL PRESCRIPTION
-// --------------------------------------------------
-
 export async function updateCustomerPrescription(
   customerId: string,
   prescriptionId: string,
-  input: PrescriptionUpdateInput
+  input: PrescriptionUpdateInput,
 ) {
   const customer = await getAllowedCustomer(customerId);
 

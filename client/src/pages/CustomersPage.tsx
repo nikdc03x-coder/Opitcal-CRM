@@ -1,8 +1,7 @@
-
 /**
  * Optical CRM — Customers Page
  *
- * nik - Search customer records quickly and open
+ * Search customer records quickly and open
  * the correct customer, even when mobile numbers repeat.
  *
  * Improvements:
@@ -48,16 +47,10 @@ import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
 
 import { Link, useSearchParams } from "react-router";
 
-import {
-  searchCustomers,
-  type CustomerSummary,
-} from "../services/customerApi";
+import { searchCustomers } from "../services/customerApi";
+import { type CustomerSummary } from "../models/customer";
 
-// -----------------------------------------------------
-// 1. DISPLAY HELPERS
-// -----------------------------------------------------
-
-// nik - Display customer registration dates consistently.
+// Display customer registration dates consistently.
 function formatDate(value: string): string {
   const date = new Date(value);
 
@@ -84,15 +77,8 @@ function getInitials(name: string): string {
     return parts[0].slice(0, 2).toUpperCase();
   }
 
-  return (
-    parts[0].charAt(0) +
-    parts[parts.length - 1].charAt(0)
-  ).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
-
-// -----------------------------------------------------
-// 2. LOADING PLACEHOLDER
-// -----------------------------------------------------
 
 function CustomerListSkeleton() {
   return (
@@ -102,8 +88,9 @@ function CustomerListSkeleton() {
           key={item}
           direction="row"
           spacing={2}
-          
-          sx={{ alignItems: "center", 
+
+          sx={{
+            alignItems: "center",
             px: { xs: 2, sm: 3 },
             py: 2,
             borderBottom: "1px solid",
@@ -124,10 +111,6 @@ function CustomerListSkeleton() {
   );
 }
 
-// -----------------------------------------------------
-// 3. MAIN CUSTOMERS PAGE
-// -----------------------------------------------------
-
 export default function CustomersPage() {
   const [params, setParams] = useSearchParams();
 
@@ -139,44 +122,36 @@ export default function CustomersPage() {
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
 
-  // ---------------------------------------------------
-  // 4. FETCH CUSTOMERS
-  // ---------------------------------------------------
-
-  // nik - Wait briefly while staff are typing.
+  // Wait briefly while staff are typing.
   // Cancel older requests so slow responses cannot
   // overwrite results for newer search terms.
 
   useEffect(() => {
     const controller = new AbortController();
 
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setError("");
+    const timer = window.setTimeout(
+      async () => {
+        setLoading(true);
+        setError("");
 
-      try {
-        const results = await searchCustomers(
-          search,
-          controller.signal
-        );
+        try {
+          const results = await searchCustomers(search, controller.signal);
 
-        if (!controller.signal.aborted) {
-          setCustomers(results);
+          if (!controller.signal.aborted) {
+            setCustomers(results);
+          }
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            setError(err instanceof Error ? err.message : "Unable to load customers.");
+          }
+        } finally {
+          if (!controller.signal.aborted) {
+            setLoading(false);
+          }
         }
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load customers."
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }, search ? 300 : 0);
+      },
+      search ? 300 : 0,
+    );
 
     return () => {
       window.clearTimeout(timer);
@@ -184,19 +159,12 @@ export default function CustomersPage() {
     };
   }, [search, retryCount]);
 
-  // ---------------------------------------------------
-  // 5. SEARCH ACTIONS
-  // ---------------------------------------------------
-
   function handleSearch(value: string) {
     const cleaned = value.slice(0, 150);
 
-    // nik - Don't restrict searching to 10 digits.
+    // Don't restrict searching to 10 digits.
     // Partial mobile numbers are useful at the counter.
-    setParams(
-      cleaned ? { search: cleaned } : {},
-      { replace: true }
-    );
+    setParams(cleaned ? { search: cleaned } : {}, { replace: true });
 
     // Immediately show loading feedback for new searches.
     setLoading(true);
@@ -213,16 +181,10 @@ export default function CustomersPage() {
 
   // Preserve the search when opening a customer.
   function customerUrl(customerId: string): string {
-    const query = search
-      ? `?search=${encodeURIComponent(search)}`
-      : "";
+    const query = search ? `?search=${encodeURIComponent(search)}` : "";
 
     return `/customers/${customerId}${query}`;
   }
-
-  // ---------------------------------------------------
-  // 6. MAIN PAGE
-  // ---------------------------------------------------
 
   return (
     <Box sx={{ maxWidth: 1180, mx: "auto", pb: 5 }}>
@@ -231,10 +193,10 @@ export default function CustomersPage() {
 
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          
-          
+
           spacing={2}
-         sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}>
+          sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
+        >
           <Box>
             <Typography
               variant="h4"
@@ -246,11 +208,7 @@ export default function CustomersPage() {
               Customers
             </Typography>
 
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ mt: 0.75 }}
-            >
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
               Find customers and manage their optical records.
             </Typography>
           </Box>
@@ -292,10 +250,7 @@ export default function CustomersPage() {
             }}
           >
             <Stack spacing={1.5}>
-              <Typography
-                variant="subtitle1"
-                sx={{ fontWeight: 700 }}
-              >
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                 Search Customer Records
               </Typography>
 
@@ -306,9 +261,7 @@ export default function CustomersPage() {
                 label="Customer Name or Mobile Number"
                 placeholder="Type a name or mobile number"
                 value={search}
-                onChange={(event) =>
-                  handleSearch(event.target.value)
-                }
+                onChange={(event) => handleSearch(event.target.value)}
                 slotProps={{
                   input: {
                     startAdornment: (
@@ -319,11 +272,7 @@ export default function CustomersPage() {
                     endAdornment: search ? (
                       <InputAdornment position="end">
                         <Tooltip title="Clear search">
-                          <IconButton
-                            size="small"
-                            aria-label="Clear search"
-                            onClick={clearSearch}
-                          >
+                          <IconButton size="small" aria-label="Clear search" onClick={clearSearch}>
                             <CloseOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -335,20 +284,15 @@ export default function CustomersPage() {
 
               <Stack
                 direction={{ xs: "column", sm: "row" }}
-                
+
                 spacing={0.5}
-               sx={{ justifyContent: "space-between" }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                sx={{ justifyContent: "space-between" }}
+              >
+                <Typography variant="caption" color="text.secondary">
                   Search by full name, partial name or mobile.
                 </Typography>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                <Typography variant="caption" color="text.secondary">
                   Each customer has a separate record.
                 </Typography>
               </Stack>
@@ -375,39 +319,28 @@ export default function CustomersPage() {
           >
             <Stack
               direction="row"
-              
-              
+
               spacing={1}
-             sx={{ justifyContent: "space-between", alignItems: "center" }}>
+              sx={{ justifyContent: "space-between", alignItems: "center" }}
+            >
               <Box>
-                <Typography
-                  variant="subtitle1"
-                  sx={{ fontWeight: 700 }}
-                >
-                  {search.trim()
-                    ? "Search Results"
-                    : "Customer Records"}
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  {search.trim() ? "Search Results" : "Customer Records"}
                 </Typography>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                <Typography variant="caption" color="text.secondary">
                   Select a customer to view their details.
                 </Typography>
               </Box>
 
               <Stack
                 direction="row"
-                
+
                 spacing={1}
-               sx={{ alignItems: "center" }}>
+                sx={{ alignItems: "center" }}
+              >
                 {!loading && !error && (
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    label={`${customers.length} shown`}
-                  />
+                  <Chip size="small" variant="outlined" label={`${customers.length} shown`} />
                 )}
 
                 <Tooltip title="Refresh customer list">
@@ -442,11 +375,7 @@ export default function CustomersPage() {
                 {error}
               </Alert>
 
-              <Button
-                variant="outlined"
-                startIcon={<RefreshOutlined />}
-                onClick={retrySearch}
-              >
+              <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={retrySearch}>
                 Try Again
               </Button>
             </Box>
@@ -477,13 +406,8 @@ export default function CustomersPage() {
                 <PeopleOutlineOutlined fontSize="large" />
               </Box>
 
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 700 }}
-              >
-                {search.trim()
-                  ? "No Matching Customers"
-                  : "No Customers Available"}
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                {search.trim() ? "No Matching Customers" : "No Customers Available"}
               </Typography>
 
               <Typography
@@ -504,13 +428,11 @@ export default function CustomersPage() {
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 spacing={1}
-                
-               sx={{ justifyContent: "center" }}>
+
+                sx={{ justifyContent: "center" }}
+              >
                 {search.trim() && (
-                  <Button
-                    variant="outlined"
-                    onClick={clearSearch}
-                  >
+                  <Button variant="outlined" onClick={clearSearch}>
                     Clear Search
                   </Button>
                 )}
@@ -586,8 +508,9 @@ export default function CustomersPage() {
                     secondary={
                       <Stack
                         direction="row"
-                        
-                        sx={{ alignItems: "center", 
+
+                        sx={{
+                          alignItems: "center",
                           flexWrap: "wrap",
                           columnGap: 1.5,
                           rowGap: 0.5,
@@ -596,26 +519,18 @@ export default function CustomersPage() {
                       >
                         <Stack
                           direction="row"
-                          
-                          spacing={0.5}
-                         sx={{ alignItems: "center" }}>
-                          <PhoneOutlined
-                            sx={{ fontSize: 15 }}
-                          />
 
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                          >
-                            {customer.mobNumber ||
-                              "No mobile number"}
+                          spacing={0.5}
+                          sx={{ alignItems: "center" }}
+                        >
+                          <PhoneOutlined sx={{ fontSize: 15 }} />
+
+                          <Typography variant="body2" color="text.secondary">
+                            {customer.mobNumber || "No mobile number"}
                           </Typography>
                         </Stack>
 
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                        >
+                        <Typography variant="caption" color="text.secondary">
                           Added {formatDate(customer.createdAt)}
                         </Typography>
                       </Stack>
@@ -624,10 +539,7 @@ export default function CustomersPage() {
 
                   {/* OPEN CUSTOMER */}
 
-                  <ArrowForwardOutlined
-                    color="action"
-                    fontSize="small"
-                  />
+                  <ArrowForwardOutlined color="action" fontSize="small" />
                 </ListItemButton>
               ))}
             </List>
@@ -636,13 +548,8 @@ export default function CustomersPage() {
 
         {/* SMALL WORKFLOW TIP */}
 
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ textAlign: "center" }}
-        >
-          Tip: Search before adding a customer to check
-          for existing records.
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+          Tip: Search before adding a customer to check for existing records.
         </Typography>
       </Stack>
     </Box>

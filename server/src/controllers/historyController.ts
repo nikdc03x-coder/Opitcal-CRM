@@ -1,16 +1,8 @@
-
-import type {
-  Request,
-  Response,
-  NextFunction,
-} from "express";
+import type { Request, Response, NextFunction } from "express";
 
 import { z } from "zod";
 
-import {
-  purchaseUpdateSchema,
-  prescriptionUpdateSchema,
-} from "../validators/historyValidator";
+import { purchaseUpdateSchema, prescriptionUpdateSchema } from "../validators/historyValidator";
 
 import {
   updateCustomerPurchase,
@@ -25,11 +17,7 @@ const paramsSchema = z.object({
 });
 
 // Update one selected purchase record.
-export async function editPurchase(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export async function editPurchase(req: Request, res: Response, next: NextFunction) {
   try {
     const params = paramsSchema.safeParse(req.params);
     const body = purchaseUpdateSchema.safeParse(req.body);
@@ -43,11 +31,7 @@ export async function editPurchase(
       return;
     }
 
-    const record = await updateCustomerPurchase(
-      params.data.id,
-      params.data.recordId,
-      body.data
-    );
+    const record = await updateCustomerPurchase(params.data.id, params.data.recordId, body.data);
 
     if (!record) {
       res.status(404).json({
@@ -68,20 +52,12 @@ export async function editPurchase(
 }
 
 // Update one selected prescription.
-export async function editPrescription(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export async function editPrescription(req: Request, res: Response, next: NextFunction) {
   try {
     const params = paramsSchema.safeParse(req.params);
     const body = prescriptionUpdateSchema.safeParse(req.body);
 
-    if (
-      !params.success ||
-      !params.data.prescriptionId ||
-      !body.success
-    ) {
+    if (!params.success || !params.data.prescriptionId || !body.success) {
       res.status(400).json({
         success: false,
         message: "Invalid prescription ID or measurements.",
@@ -93,7 +69,7 @@ export async function editPrescription(
     const prescription = await updateCustomerPrescription(
       params.data.id,
       params.data.prescriptionId,
-      body.data
+      body.data,
     );
 
     if (!prescription) {

@@ -1,5 +1,5 @@
-
 import { prisma } from "../config/database";
+import { getShopId } from "./shopService";
 
 import type {
   CreateCustomerInput,
@@ -9,46 +9,10 @@ import type {
 import { calculatePricing } from "../utils/pricing";
 import { mapPrescription } from "../utils/prescription";
 
-import {
-  resolveCatalogSelection,
-} from "./catalogSelection";
+import { resolveCatalogSelection } from "./catalogSelection";
 
-// nik - All customer operations belong to the
-// demo shop until authentication is implemented.
-const DEMO_SHOP_CODE = "DEMO_SHOP";
-
-// --------------------------------------------------
-// 1. FIND SHOP
-// --------------------------------------------------
-
-async function getDemoShopId(): Promise<string> {
-  const shop = await prisma.shop.findUnique({
-    where: {
-      code: DEMO_SHOP_CODE,
-    },
-    select: {
-      id: true,
-    },
-  });
-
-  if (!shop) {
-    throw new Error(
-      "Demo shop not found. Run the database seed first."
-    );
-  }
-
-  return shop.id;
-}
-
-// --------------------------------------------------
-// 2. SEARCH CUSTOMERS
-// --------------------------------------------------
-
-export async function searchCustomers(
-  phone?: string,
-  name?: string
-) {
-  const shopId = await getDemoShopId();
+export async function searchCustomers(phone?: string, name?: string) {
+  const shopId = await getShopId();
 
   return prisma.customer.findMany({
     where: {
@@ -89,12 +53,8 @@ export async function searchCustomers(
   });
 }
 
-// --------------------------------------------------
-// 3. GET CUSTOMER DETAILS
-// --------------------------------------------------
-
 export async function getCustomerById(id: string) {
-  const shopId = await getDemoShopId();
+  const shopId = await getShopId();
 
   return prisma.customer.findFirst({
     where: {
@@ -119,31 +79,19 @@ export async function getCustomerById(id: string) {
   });
 }
 
-// --------------------------------------------------
-// 4. CREATE CUSTOMER
-// --------------------------------------------------
-
-export async function createCustomer(
-  data: CreateCustomerInput
-) {
-  const shopId = await getDemoShopId();
+export async function createCustomer(data: CreateCustomerInput) {
+  const shopId = await getShopId();
 
   const pricing = calculatePricing(data.record);
 
-  const purchaseDate = data.purchaseDate
-    ? new Date(`${data.purchaseDate}T00:00:00.000Z`)
-    : null;
+  const purchaseDate = data.purchaseDate ? new Date(`${data.purchaseDate}T00:00:00.000Z`) : null;
 
   // Customer, prescription, and purchase are saved
   // together or not at all.
   return prisma.$transaction(async (tx) => {
     // Validate catalog selections before creating
     // any customer information.
-    const catalog = await resolveCatalogSelection(
-      tx,
-      shopId,
-      data.record
-    );
+    const catalog = await resolveCatalogSelection(tx, shopId, data.record);
 
     const customer = await tx.customer.create({
       data: {
@@ -151,6 +99,9 @@ export async function createCustomer(
         name: data.name,
         mobNumber: data.mobNumber,
         gender: data.gender,
+        // nik - Only the server sets the date of a newly recorded age.
+        ageAtRecording: data.ageAtRecording ?? null,
+        ageRecordedAt: data.ageAtRecording == null ? null : new Date(),
         reference: data.reference,
         notes: data.notes,
       },
@@ -192,17 +143,10 @@ export async function createCustomer(
   });
 }
 
-// --------------------------------------------------
-// 5. UPDATE CUSTOMER
-// --------------------------------------------------
-
 // Historical purchase editing also has a separate
 // endpoint. Keep this existing method compatible.
-export async function updateCustomer(
-  id: string,
-  data: UpdateCustomerInput
-) {
-  const shopId = await getDemoShopId();
+export async function updateCustomer(id: string, data: UpdateCustomerInput) {
+  const shopId = await getShopId();
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.customer.findFirst({
@@ -248,9 +192,18 @@ export async function updateCustomer(
                 specsType: latestRecord.specsType,
                 lensType: latestRecord.lensType,
               }
-            : undefined
+            : undefined,
         )
       : null;
+
+    // nik - Preserve the observation date unless age changes; clearing age clears its date too.
+    const ageUpdate =
+      data.ageAtRecording === undefined || data.ageAtRecording === existing.ageAtRecording
+        ? {}
+        : {
+            ageAtRecording: data.ageAtRecording,
+            ageRecordedAt: data.ageAtRecording === null ? null : new Date(),
+          };
 
     await tx.customer.update({
       where: {
@@ -261,6 +214,7 @@ export async function updateCustomer(
         name: data.name,
         mobNumber: data.mobNumber,
         gender: data.gender,
+        ...ageUpdate,
         reference: data.reference,
         notes: data.notes,
       },
@@ -268,12 +222,9 @@ export async function updateCustomer(
 
     // Preserve prescription update behavior.
     if (data.prescription) {
-      const measurements = mapPrescription(
-        data.prescription
-      );
+      const measurements = mapPrescription(data.prescription);
 
-      const latestPrescription =
-        existing.prescriptions[0];
+      const latestPrescription = existing.prescriptions[0];
 
       if (latestPrescription) {
         await tx.prescription.update({
@@ -284,18 +235,14 @@ export async function updateCustomer(
           data: measurements,
         });
       } else {
-        const newPrescription =
-          await tx.prescription.create({
-            data: {
-              customerId: id,
-              ...measurements,
-            },
-          });
+        const newPrescription = await tx.prescription.create({
+          data: {
+            customerId: id,
+            ...measurements,
+          },
+        });
 
-        if (
-          latestRecord &&
-          !latestRecord.prescriptionId
-        ) {
+        if (latestRecord && !latestRecord.prescriptionId) {
           await tx.customerRecord.update({
             where: {
               id: latestRecord.id,
@@ -313,17 +260,6 @@ export async function updateCustomer(
     if (data.record && catalog) {
       const pricing = calculatePricing(data.record);
 
-      const rates =
-        data.record.pricingMode === "SPLIT"
-          ? {
-              frameRate: data.record.frameRate,
-              lensRate: data.record.lensRate,
-            }
-          : {
-              frameRate: null,
-              lensRate: null,
-            };
-
       if (latestRecord) {
         await tx.customerRecord.update({
           where: {
@@ -333,30 +269,26 @@ export async function updateCustomer(
           data: {
             ...catalog,
             ...pricing,
-            ...rates,
           },
         });
       } else {
-        const latestPrescription =
-          await tx.prescription.findFirst({
-            where: {
-              customerId: id,
-            },
+        const latestPrescription = await tx.prescription.findFirst({
+          where: {
+            customerId: id,
+          },
 
-            orderBy: {
-              createdAt: "desc",
-            },
-          });
+          orderBy: {
+            createdAt: "desc",
+          },
+        });
 
         await tx.customerRecord.create({
           data: {
             customerId: id,
-            prescriptionId:
-              latestPrescription?.id ?? null,
+            prescriptionId: latestPrescription?.id ?? null,
 
             ...catalog,
             ...pricing,
-            ...rates,
 
             purchaseDate: null,
           },

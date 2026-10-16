@@ -1,14 +1,39 @@
-
 import { useEffect, useRef, useState } from "react";
 
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert,
-  Avatar, Box, Button, Card, CardContent, Checkbox,
-  Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, FormControlLabel,
-  Grid, IconButton, Paper, Skeleton, Stack, Tab, Tabs,
-  Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Tooltip, Typography,
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  Paper,
+  Skeleton,
+  Stack,
+  Tab,
+  Tabs,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 
 import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
@@ -27,12 +52,8 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 
 import { Link, useParams, useSearchParams } from "react-router";
 
-import {
-  getCustomer,
-  type CustomerDetails,
-  type CustomerRecord,
-  type Prescription,
-} from "../services/customerApi";
+import { getCustomer } from "../services/customerApi";
+import { type CustomerDetails, type CustomerRecord, type Prescription } from "../models/customer";
 
 import {
   receiptHtml,
@@ -42,66 +63,11 @@ import {
   openCustomerWhatsApp,
 } from "../utils/customerDocuments";
 
-// -----------------------------------------------------
-// 1. CUSTOMER CACHE
-// -----------------------------------------------------
-
-// nik - Show recently viewed data while fetching a fresh copy.
-const CACHE_TIME_MS = 30_000;
-const MAX_CACHE_ITEMS = 20;
-
-type CachedCustomer = {
-  data: CustomerDetails;
-  savedAt: number;
-};
-
-const customerCache = new Map<string, CachedCustomer>();
-
-function readCachedCustomer(id: string): CustomerDetails | null {
-  const saved = customerCache.get(id);
-
-  if (!saved) return null;
-
-  if (Date.now() - saved.savedAt > CACHE_TIME_MS) {
-    customerCache.delete(id);
-    return null;
-  }
-
-  return saved.data;
+function display(value: string | number | null | undefined): string {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
-function saveCachedCustomer(
-  id: string,
-  data: CustomerDetails
-): void {
-  customerCache.delete(id);
-
-  customerCache.set(id, {
-    data,
-    savedAt: Date.now(),
-  });
-
-  if (customerCache.size > MAX_CACHE_ITEMS) {
-    const oldest = customerCache.keys().next().value;
-    if (oldest) customerCache.delete(oldest);
-  }
-}
-
-// -----------------------------------------------------
-// 2. FORMAT HELPERS
-// -----------------------------------------------------
-
-function display(
-  value: string | number | null | undefined
-): string {
-  return value === null || value === undefined || value === ""
-    ? "—"
-    : String(value);
-}
-
-function formatMoney(
-  value: string | number | null | undefined
-): string {
+function formatMoney(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
@@ -118,7 +84,7 @@ function formatMoney(
   }).format(number);
 }
 
-// nik - Keep calendar dates stable across timezones.
+// Keep calendar dates stable across timezones.
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Not recorded";
 
@@ -147,9 +113,7 @@ function formatDate(value: string | null | undefined): string {
   });
 }
 
-function formatPower(
-  value: string | number | null | undefined
-): string {
+function formatPower(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
@@ -161,17 +125,9 @@ function formatPower(
   return `${safe > 0 ? "+" : ""}${safe.toFixed(2)}`;
 }
 
-// -----------------------------------------------------
-// 3. PURCHASE TYPES
-// -----------------------------------------------------
+type PurchaseFlag = "FRAME_ONLY" | "LENS_ONLY" | "FRAME_AND_LENS" | "NOT_SPECIFIED";
 
-type PurchaseFlag =
-  | "FRAME_ONLY"
-  | "LENS_ONLY"
-  | "FRAME_AND_LENS"
-  | "NOT_SPECIFIED";
-
-// nik - Determine product type from saved product names.
+// Determine product type from saved product names.
 function getPurchaseFlag(record: CustomerRecord): PurchaseFlag {
   const frame = Boolean(record.specsType?.trim());
   const lens = Boolean(record.lensType?.trim());
@@ -196,10 +152,6 @@ const purchaseFlagInfo: Record<
   NOT_SPECIFIED: { label: "Not Specified", color: "default" },
 };
 
-// -----------------------------------------------------
-// 4. REUSABLE COMPONENTS
-// -----------------------------------------------------
-
 function DetailItem({
   label,
   value,
@@ -213,21 +165,15 @@ function DetailItem({
         {label}
       </Typography>
 
-      <Typography
-        sx={{ mt: 0.5, fontWeight: 600, overflowWrap: "anywhere" }}
-      >
+      <Typography sx={{ mt: 0.5, fontWeight: 600, overflowWrap: "anywhere" }}>
         {display(value)}
       </Typography>
     </Box>
   );
 }
 
-function PrescriptionTable({
-  prescription,
-}: {
-  prescription: Prescription;
-}) {
-  // nik - The required order is RE DIST, RE NEAR, LE DIST, LE NEAR.
+function PrescriptionTable({ prescription }: { prescription: Prescription }) {
+  // The required order is RE DIST, RE NEAR, LE DIST, LE NEAR.
   const rows = [
     {
       label: "RE DIST",
@@ -291,14 +237,9 @@ function PrescriptionTable({
           {rows.map((row) => (
             <TableRow key={row.label}>
               <TableCell>
-                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>
-                  {row.label}
-                </Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{row.label}</Typography>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                <Typography variant="caption" color="text.secondary">
                   {row.description}
                 </Typography>
               </TableCell>
@@ -340,10 +281,6 @@ function CustomerDetailsSkeleton() {
   );
 }
 
-// -----------------------------------------------------
-// 5. RECEIPT PREVIEW DIALOG
-// -----------------------------------------------------
-
 type PdfKind = "receipt" | "prescription";
 
 type ReceiptDialogProps = {
@@ -352,18 +289,11 @@ type ReceiptDialogProps = {
   busy: boolean;
   onClose: () => void;
   onPrint: (content: string, title: string) => void;
-  onPdf: (
-    content: string,
-    filename: string,
-    type: PdfKind
-  ) => Promise<void>;
-  onWhatsAppPdf: (
-    content: string,
-    filename: string
-  ) => Promise<void>;
+  onPdf: (content: string, filename: string, type: PdfKind) => Promise<void>;
+  onWhatsAppPdf: (content: string, filename: string) => Promise<void>;
 };
 
-// nik - Staff review the PDF contents before sharing it.
+// Staff review the PDF contents before sharing it.
 function ReceiptPreviewDialog({
   customer,
   record,
@@ -373,23 +303,15 @@ function ReceiptPreviewDialog({
   onPdf,
   onWhatsAppPdf,
 }: ReceiptDialogProps) {
-  const [includePrescription, setIncludePrescription] =
-    useState(false);
+  const [includePrescription, setIncludePrescription] = useState(false);
 
-  // nik - Only use the prescription linked to this purchase.
+  // Only use the prescription linked to this purchase.
   const linkedPrescription =
-    customer.prescriptions.find(
-      (item) => item.id === record.prescriptionId
-    ) ?? null;
+    customer.prescriptions.find((item) => item.id === record.prescriptionId) ?? null;
 
-  const selectedPrescription =
-    includePrescription ? linkedPrescription : null;
+  const selectedPrescription = includePrescription ? linkedPrescription : null;
 
-  const documentContent = receiptHtml(
-    customer,
-    record,
-    selectedPrescription
-  );
+  const documentContent = receiptHtml(customer, record, selectedPrescription);
 
   const filename = `receipt-${record.id}.pdf`;
 
@@ -405,19 +327,11 @@ function ReceiptPreviewDialog({
       }}
     >
       <DialogTitle id="receipt-preview-title">
-        <Typography
-          component="div"
-          variant="h5"
-          sx={{ fontWeight: 800 }}
-        >
+        <Typography component="div" variant="h5" sx={{ fontWeight: 800 }}>
           Prepare Customer Receipt
         </Typography>
 
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ mt: 0.5 }}
-        >
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
           Review the selected purchase and choose how to share it.
         </Typography>
       </DialogTitle>
@@ -434,20 +348,12 @@ function ReceiptPreviewDialog({
               bgcolor: "action.hover",
             }}
           >
-            <Typography sx={{ fontWeight: 800, mb: 1 }}>
-              Receipt Contents
-            </Typography>
+            <Typography sx={{ fontWeight: 800, mb: 1 }}>Receipt Contents</Typography>
 
             <Stack spacing={0.75}>
-              <Typography variant="body2">
-                ✓ Customer information
-              </Typography>
-              <Typography variant="body2">
-                ✓ Purchased products and prices
-              </Typography>
-              <Typography variant="body2">
-                ✓ Purchase date and total MRP
-              </Typography>
+              <Typography variant="body2">✓ Customer information</Typography>
+              <Typography variant="body2">✓ Purchased products and prices</Typography>
+              <Typography variant="body2">✓ Purchase date and total MRP</Typography>
             </Stack>
 
             <Divider sx={{ my: 2 }} />
@@ -458,9 +364,7 @@ function ReceiptPreviewDialog({
                   <Checkbox
                     size="small"
                     checked={includePrescription}
-                    onChange={(_, checked) =>
-                      setIncludePrescription(checked)
-                    }
+                    onChange={(_, checked) => setIncludePrescription(checked)}
                   />
                 }
                 label="Include linked optical prescription"
@@ -473,24 +377,16 @@ function ReceiptPreviewDialog({
           </Paper>
 
           <Box>
-            <Typography sx={{ fontWeight: 800, mb: 1.5 }}>
-              Customer Information
-            </Typography>
+            <Typography sx={{ fontWeight: 800, mb: 1.5 }}>Customer Information</Typography>
 
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 800, mb: 2 }}
-              >
+              <Typography variant="h6" sx={{ fontWeight: 800, mb: 2 }}>
                 {customer.name}
               </Typography>
 
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Mobile Number"
-                    value={customer.mobNumber}
-                  />
+                  <DetailItem label="Mobile Number" value={customer.mobNumber} />
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
@@ -498,41 +394,27 @@ function ReceiptPreviewDialog({
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Reference"
-                    value={customer.reference}
-                  />
+                  <DetailItem label="Reference" value={customer.reference} />
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Registered"
-                    value={formatDate(customer.createdAt)}
-                  />
+                  <DetailItem label="Registered" value={formatDate(customer.createdAt)} />
                 </Grid>
               </Grid>
             </Paper>
           </Box>
 
           <Box>
-            <Typography sx={{ fontWeight: 800, mb: 1.5 }}>
-              Purchase Summary
-            </Typography>
+            <Typography sx={{ fontWeight: 800, mb: 1.5 }}>Purchase Summary</Typography>
 
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Purchase Date"
-                    value={formatDate(record.purchaseDate)}
-                  />
+                  <DetailItem label="Purchase Date" value={formatDate(record.purchaseDate)} />
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Frame / Spectacle"
-                    value={record.specsType}
-                  />
+                  <DetailItem label="Frame / Spectacle" value={record.specsType} />
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
@@ -542,17 +424,11 @@ function ReceiptPreviewDialog({
                 {record.pricingMode === "SPLIT" && (
                   <>
                     <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailItem
-                        label="Frame Rate"
-                        value={formatMoney(record.frameRate)}
-                      />
+                      <DetailItem label="Frame Rate" value={formatMoney(record.frameRate)} />
                     </Grid>
 
                     <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailItem
-                        label="Lens Rate"
-                        value={formatMoney(record.lensRate)}
-                      />
+                      <DetailItem label="Lens Rate" value={formatMoney(record.lensRate)} />
                     </Grid>
                   </>
                 )}
@@ -568,9 +444,7 @@ function ReceiptPreviewDialog({
                   gap: 2,
                 }}
               >
-                <Typography sx={{ fontWeight: 700 }}>
-                  Total MRP
-                </Typography>
+                <Typography sx={{ fontWeight: 700 }}>Total MRP</Typography>
 
                 <Typography variant="h5" sx={{ fontWeight: 800 }}>
                   {formatMoney(record.mrp)}
@@ -590,24 +464,20 @@ function ReceiptPreviewDialog({
                   justifyContent: "space-between",
                 }}
               >
-                <Typography sx={{ fontWeight: 800 }}>
-                  Optical Prescription
-                </Typography>
+                <Typography sx={{ fontWeight: 800 }}>Optical Prescription</Typography>
 
                 <Typography variant="body2" color="text.secondary">
                   {formatDate(selectedPrescription.createdAt)}
                 </Typography>
               </Stack>
 
-              <PrescriptionTable
-                prescription={selectedPrescription}
-              />
+              <PrescriptionTable prescription={selectedPrescription} />
             </Box>
           )}
 
           <Alert severity="info">
-            The document shows recorded MRP, not verified payment.
-            Staff-only notes are not included.
+            The document shows recorded MRP, not verified payment. Staff-only notes are not
+            included.
           </Alert>
         </Stack>
       </DialogContent>
@@ -622,11 +492,7 @@ function ReceiptPreviewDialog({
           justifyContent: "flex-end",
         }}
       >
-        <Button
-          color="inherit"
-          disabled={busy}
-          onClick={onClose}
-        >
+        <Button color="inherit" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
 
@@ -634,9 +500,7 @@ function ReceiptPreviewDialog({
           variant="outlined"
           disabled={busy}
           startIcon={<PrintOutlined />}
-          onClick={() =>
-            onPrint(documentContent, "Purchase Receipt")
-          }
+          onClick={() => onPrint(documentContent, "Purchase Receipt")}
         >
           Print
         </Button>
@@ -652,17 +516,13 @@ function ReceiptPreviewDialog({
           Share / Save PDF
         </Button>
 
-        {/* nik - Send the actual PDF through device sharing.
+        {/* Send the actual PDF through device sharing.
             Desktop fallback downloads the PDF and opens WhatsApp. */}
         <Button
           variant="contained"
           color="success"
           disabled={busy || !customer.mobNumber}
-          startIcon={
-            busy
-              ? <CircularProgress size={18} color="inherit" />
-              : <WhatsAppIcon />
-          }
+          startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <WhatsAppIcon />}
           onClick={() => {
             void onWhatsAppPdf(documentContent, filename);
           }}
@@ -674,17 +534,12 @@ function ReceiptPreviewDialog({
   );
 }
 
-// -----------------------------------------------------
-// 6. CUSTOMER DETAILS PAGE
-// -----------------------------------------------------
-
-// nik - A customer is identified by database ID, not mobile number.
+// A customer is identified by database ID, not mobile number.
 export default function CustomerDetailPage() {
   const { id } = useParams();
   const [params] = useSearchParams();
 
-  const [customer, setCustomer] =
-    useState<CustomerDetails | null>(null);
+  const [customer, setCustomer] = useState<CustomerDetails | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -695,23 +550,20 @@ export default function CustomerDetailPage() {
   const [documentMessage, setDocumentMessage] = useState("");
   const [documentBusy, setDocumentBusy] = useState(false);
 
-  const [selectedRecord, setSelectedRecord] =
-    useState<CustomerRecord | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<CustomerRecord | null>(null);
 
   const requestRef = useRef<AbortController | null>(null);
 
   const previousSearch = params.get("search") ?? "";
 
-  const searchQuery = previousSearch
-    ? `?search=${encodeURIComponent(previousSearch)}`
-    : "";
+  const searchQuery = previousSearch ? `?search=${encodeURIComponent(previousSearch)}` : "";
 
   const backUrl = `/customers${searchQuery}`;
 
-  // nik - Reload the customer whenever the ID changes.
+  // Reload the customer whenever the ID changes.
   useEffect(() => {
     if (!id) {
-      // nik - Schedule route-related updates after the effect starts.
+      // Schedule route-related updates after the effect starts.
       void Promise.resolve().then(() => {
         setCustomer(null);
         setLoading(false);
@@ -725,51 +577,33 @@ export default function CustomerDetailPage() {
     const controller = new AbortController();
     requestRef.current = controller;
 
-    const cached = readCachedCustomer(id);
-
-    // nik - Reset the view asynchronously so React avoids cascading renders.
+    // Reset the view asynchronously so React avoids cascading renders.
     void Promise.resolve().then(() => {
       if (controller.signal.aborted) return;
-      setCustomer(cached);
-      setLoading(!cached);
-      setRefreshing(Boolean(cached));
+      setCustomer(null);
+      setLoading(true);
+      setRefreshing(false);
       setError("");
       setSelectedRecord(null);
     });
 
     getCustomer(id, controller.signal)
       .then((result) => {
-        if (
-          controller.signal.aborted ||
-          requestRef.current !== controller ||
-          result.id !== id
-        ) {
+        if (controller.signal.aborted || requestRef.current !== controller || result.id !== id) {
           return;
         }
-
-        saveCachedCustomer(id, result);
         setCustomer(result);
         setError("");
       })
       .catch((err) => {
-        if (
-          controller.signal.aborted ||
-          requestRef.current !== controller
-        ) {
+        if (controller.signal.aborted || requestRef.current !== controller) {
           return;
         }
 
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load customer details."
-        );
+        setError(err instanceof Error ? err.message : "Unable to load customer details.");
       })
       .finally(() => {
-        if (
-          !controller.signal.aborted &&
-          requestRef.current === controller
-        ) {
+        if (!controller.signal.aborted && requestRef.current === controller) {
           setLoading(false);
           setRefreshing(false);
         }
@@ -799,29 +633,16 @@ export default function CustomerDetailPage() {
     try {
       const result = await getCustomer(id, controller.signal);
 
-      if (
-        controller.signal.aborted ||
-        requestRef.current !== controller ||
-        result.id !== id
-      ) {
+      if (controller.signal.aborted || requestRef.current !== controller || result.id !== id) {
         return;
       }
-
-      saveCachedCustomer(id, result);
       setCustomer(result);
     } catch (err) {
-      if (
-        controller.signal.aborted ||
-        requestRef.current !== controller
-      ) {
+      if (controller.signal.aborted || requestRef.current !== controller) {
         return;
       }
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to refresh customer details."
-      );
+      setError(err instanceof Error ? err.message : "Unable to refresh customer details.");
     } finally {
       if (requestRef.current === controller) {
         requestRef.current = null;
@@ -845,92 +666,69 @@ export default function CustomerDetailPage() {
     try {
       printDocument(content, title);
     } catch (err) {
-      setDocumentMessage(
-        err instanceof Error ? err.message : "Unable to print."
-      );
+      setDocumentMessage(err instanceof Error ? err.message : "Unable to print.");
     }
   }
 
-  // nik - Existing normal PDF action.
-  async function handlePdf(
-    content: string,
-    filename: string,
-    type: PdfKind
-  ): Promise<void> {
+  // Existing normal PDF action.
+  async function handlePdf(content: string, filename: string, type: PdfKind): Promise<void> {
     if (documentBusy) return;
 
     setDocumentBusy(true);
     setDocumentMessage("");
 
     try {
-      const result = await shareOrDownloadPdf(
-        content,
-        filename,
-        type
-      );
+      const result = await shareOrDownloadPdf(content, filename, type);
 
       setDocumentMessage(
         result === "shared"
           ? "Device share menu completed. Check the recipient and confirm the PDF was sent."
-          : "PDF downloaded successfully."
+          : "PDF downloaded successfully.",
       );
     } catch (err) {
-      setDocumentMessage(
-        err instanceof Error
-          ? err.message
-          : "Unable to prepare the PDF."
-      );
+      setDocumentMessage(err instanceof Error ? err.message : "Unable to prepare the PDF.");
     } finally {
       setDocumentBusy(false);
     }
   }
 
-  // nik - New WhatsApp PDF action.
+  // New WhatsApp PDF action.
   // It uses native file sharing wherever available.
   // Desktop fallback downloads the PDF, then opens chat.
-  async function handleWhatsAppPdf(
-    content: string,
-    filename: string
-  ): Promise<void> {
+  async function handleWhatsAppPdf(content: string, filename: string): Promise<void> {
     if (!customer || documentBusy) return;
 
     setDocumentBusy(true);
     setDocumentMessage("");
 
     try {
-      const result = await shareOrDownloadPdf(
-        content,
-        filename,
-        "receipt"
-      );
+      const result = await shareOrDownloadPdf(content, filename, "receipt");
 
       if (result === "shared") {
         setDocumentMessage(
-          "PDF handed to the device share menu. Choose WhatsApp, select the correct customer and press Send."
+          "PDF handed to the device share menu. Choose WhatsApp, select the correct customer and press Send.",
         );
         return;
       }
 
-      // nik - PDF was downloaded because direct file sharing
+      // PDF was downloaded because direct file sharing
       // is not supported. Open the saved customer's chat.
       try {
         openCustomerWhatsApp(customer.mobNumber, "");
 
         setDocumentMessage(
-          "Receipt PDF downloaded. In the customer's WhatsApp chat, click Attach → Document, select the downloaded PDF and press Send. If the chat did not open, open WhatsApp Web manually."
+          "Receipt PDF downloaded. In the customer's WhatsApp chat, click Attach → Document, select the downloaded PDF and press Send. If the chat did not open, open WhatsApp Web manually.",
         );
       } catch (chatError) {
         setDocumentMessage(
           chatError instanceof Error
             ? `PDF downloaded, but WhatsApp could not open: ${chatError.message}`
-            : "PDF downloaded. Open WhatsApp manually and attach it."
+            : "PDF downloaded. Open WhatsApp manually and attach it.",
         );
       }
     } catch (err) {
       setDocumentMessage(
-        err instanceof Error
-          ? err.message
-          : "Could not prepare the WhatsApp PDF."
+        err instanceof Error ? err.message : "Could not prepare the WhatsApp PDF.",
       );
     } finally {
       setDocumentBusy(false);
@@ -944,23 +742,16 @@ export default function CustomerDetailPage() {
   if (!customer) {
     return (
       <Stack spacing={2}>
-        <Alert severity="error">
-          {error || "Customer not found."}
-        </Alert>
+        <Alert severity="error">{error || "Customer not found."}</Alert>
 
-        <Button
-          component={Link}
-          to={backUrl}
-          startIcon={<ArrowBackOutlined />}
-        >
+        <Button component={Link} to={backUrl} startIcon={<ArrowBackOutlined />}>
           Back to Customers
         </Button>
       </Stack>
     );
   }
 
-  const editUrl =
-    `/customers/${customer.id}/edit${searchQuery}`;
+  const editUrl = `/customers/${customer.id}/edit${searchQuery}`;
 
   const latestRecord = customer.records[0];
 
@@ -973,19 +764,14 @@ export default function CustomerDetailPage() {
 
   const totalPurchaseValue = customer.records.reduce(
     (sum, item) => sum + (Number(item.mrp) || 0),
-    0
+    0,
   );
 
   return (
     <Box sx={{ maxWidth: 1250, mx: "auto", pb: 6 }}>
       <Stack spacing={2.5}>
         <Box>
-          <Button
-            component={Link}
-            to={backUrl}
-            size="small"
-            startIcon={<ArrowBackOutlined />}
-          >
+          <Button component={Link} to={backUrl} size="small" startIcon={<ArrowBackOutlined />}>
             Back to Customers
           </Button>
         </Box>
@@ -1001,11 +787,7 @@ export default function CustomerDetailPage() {
                 justifyContent: "space-between",
               }}
             >
-              <Stack
-                direction="row"
-                spacing={2}
-                sx={{ alignItems: "center", minWidth: 0 }}
-              >
+              <Stack direction="row" spacing={2} sx={{ alignItems: "center", minWidth: 0 }}>
                 <Avatar
                   sx={{
                     width: 62,
@@ -1040,10 +822,7 @@ export default function CustomerDetailPage() {
                       gap: 0.5,
                     }}
                   >
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                    >
+                    <Typography variant="body2" color="text.secondary">
                       {customer.mobNumber || "No mobile number"}
                     </Typography>
 
@@ -1062,11 +841,7 @@ export default function CustomerDetailPage() {
                 </Box>
               </Stack>
 
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ flexWrap: "wrap", gap: 0.5 }}
-              >
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
                 {customer.mobNumber && (
                   <Button
                     component="a"
@@ -1084,11 +859,7 @@ export default function CustomerDetailPage() {
                   onClick={() => {
                     void handleRefresh();
                   }}
-                  startIcon={
-                    refreshing
-                      ? <CircularProgress size={17} />
-                      : <RefreshOutlined />
-                  }
+                  startIcon={refreshing ? <CircularProgress size={17} /> : <RefreshOutlined />}
                 >
                   {refreshing ? "Refreshing" : "Refresh"}
                 </Button>
@@ -1107,29 +878,19 @@ export default function CustomerDetailPage() {
         </Card>
 
         {error && (
-          <Alert
-            severity="warning"
-            onClose={() => setError("")}
-          >
-            Unable to refresh: {error}. Showing the last
-            available information.
+          <Alert severity="warning" onClose={() => setError("")}>
+            Unable to refresh: {error}. Showing the last available information.
           </Alert>
         )}
 
         {copyMessage && (
-          <Alert
-            severity="info"
-            onClose={() => setCopyMessage("")}
-          >
+          <Alert severity="info" onClose={() => setCopyMessage("")}>
             {copyMessage}
           </Alert>
         )}
 
         {documentMessage && (
-          <Alert
-            severity="info"
-            onClose={() => setDocumentMessage("")}
-          >
+          <Alert severity="info" onClose={() => setDocumentMessage("")}>
             {documentMessage}
           </Alert>
         )}
@@ -1137,29 +898,17 @@ export default function CustomerDetailPage() {
         {/* Summary cards */}
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 4 }}>
-            <Card
-              variant="outlined"
-              sx={{ borderRadius: 3, height: "100%" }}
-            >
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
               <CardContent>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                >
+                <Typography variant="body2" color="text.secondary">
                   Purchase Records
                 </Typography>
 
-                <Typography
-                  variant="h4"
-                  sx={{ fontWeight: 800, mt: 0.5 }}
-                >
+                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>
                   {customer.records.length}
                 </Typography>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                <Typography variant="caption" color="text.secondary">
                   {latestRecord
                     ? `Latest: ${formatDate(latestRecord.purchaseDate)}`
                     : "No purchases recorded"}
@@ -1169,29 +918,17 @@ export default function CustomerDetailPage() {
           </Grid>
 
           <Grid size={{ xs: 12, sm: 4 }}>
-            <Card
-              variant="outlined"
-              sx={{ borderRadius: 3, height: "100%" }}
-            >
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
               <CardContent>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                >
+                <Typography variant="body2" color="text.secondary">
                   Total Purchase Value
                 </Typography>
 
-                <Typography
-                  variant="h5"
-                  sx={{ fontWeight: 800, mt: 1 }}
-                >
+                <Typography variant="h5" sx={{ fontWeight: 800, mt: 1 }}>
                   {formatMoney(totalPurchaseValue)}
                 </Typography>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                <Typography variant="caption" color="text.secondary">
                   Sum of saved purchase MRP amounts
                 </Typography>
               </CardContent>
@@ -1199,29 +936,17 @@ export default function CustomerDetailPage() {
           </Grid>
 
           <Grid size={{ xs: 12, sm: 4 }}>
-            <Card
-              variant="outlined"
-              sx={{ borderRadius: 3, height: "100%" }}
-            >
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
               <CardContent>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                >
+                <Typography variant="body2" color="text.secondary">
                   Prescription Records
                 </Typography>
 
-                <Typography
-                  variant="h4"
-                  sx={{ fontWeight: 800, mt: 0.5 }}
-                >
+                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>
                   {customer.prescriptions.length}
                 </Typography>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
+                <Typography variant="caption" color="text.secondary">
                   Saved optical prescriptions
                 </Typography>
               </CardContent>
@@ -1232,11 +957,7 @@ export default function CustomerDetailPage() {
         {/* Personal information */}
         <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{ alignItems: "center", mb: 2 }}
-            >
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 2 }}>
               <PersonOutlined color="primary" />
 
               <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -1246,55 +967,47 @@ export default function CustomerDetailPage() {
 
             <Grid container spacing={2.5}>
               <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem
-                  label="Customer Name"
-                  value={customer.name}
-                />
+                <DetailItem label="Customer Name" value={customer.name} />
               </Grid>
 
               <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem
-                  label="Mobile Number"
-                  value={customer.mobNumber}
-                />
+                <DetailItem label="Mobile Number" value={customer.mobNumber} />
               </Grid>
 
               <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem
-                  label="Gender"
-                  value={customer.gender}
-                />
+                <DetailItem label="Gender" value={customer.gender} />
               </Grid>
 
               <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem
-                  label="Reference"
-                  value={customer.reference}
-                />
+                <DetailItem label="Reference" value={customer.reference} />
               </Grid>
 
               <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem
-                  label="Registered"
-                  value={formatDate(customer.createdAt)}
-                />
+                <DetailItem label="Registered" value={formatDate(customer.createdAt)} />
               </Grid>
 
               <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                <DetailItem label="Updated" value={formatDate(customer.updatedAt)} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <DetailItem
-                  label="Updated"
-                  value={formatDate(customer.updatedAt)}
+                  label="Age at recording"
+                  value={
+                    customer.ageAtRecording == null
+                      ? "Not recorded"
+                      : `${customer.ageAtRecording} years${
+                          customer.ageRecordedAt
+                            ? ` (recorded ${formatDate(customer.ageRecordedAt)})`
+                            : ""
+                        }`
+                  }
                 />
               </Grid>
             </Grid>
 
             <Divider sx={{ my: 2 }} />
 
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{ alignItems: "center", flexWrap: "wrap" }}
-            >
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
               <Typography
                 variant="caption"
                 color="text.secondary"
@@ -1319,10 +1032,7 @@ export default function CustomerDetailPage() {
         </Card>
 
         {/* Purchase and prescription history */}
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3, overflow: "hidden" }}
-        >
+        <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
           <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
             <Tabs
               value={activeTab}
@@ -1341,32 +1051,22 @@ export default function CustomerDetailPage() {
                 iconPosition="start"
                 label={`Prescriptions (${customer.prescriptions.length})`}
               />
-              <Tab
-                icon={<LockOutlined />}
-                iconPosition="start"
-                label="Staff Notes"
-              />
+              <Tab icon={<LockOutlined />} iconPosition="start" label="Staff Notes" />
             </Tabs>
           </Box>
 
-          <CardContent
-            sx={{ p: { xs: 1.5, md: 3 }, minHeight: 240 }}
-          >
+          <CardContent sx={{ p: { xs: 1.5, md: 3 }, minHeight: 240 }}>
             {activeTab === 0 && (
               <Stack spacing={1.5}>
                 <Typography variant="body2" color="text.secondary">
-                  Open a purchase to review its details and
-                  prepare a receipt PDF.
+                  Open a purchase to review its details and prepare a receipt PDF.
                 </Typography>
 
                 {customer.records.length === 0 ? (
-                  <Alert severity="info">
-                    No purchase records available.
-                  </Alert>
+                  <Alert severity="info">No purchase records available.</Alert>
                 ) : (
                   customer.records.map((record, index) => {
-                    const flag =
-                      purchaseFlagInfo[getPurchaseFlag(record)];
+                    const flag = purchaseFlagInfo[getPurchaseFlag(record)];
 
                     return (
                       <Accordion
@@ -1396,15 +1096,11 @@ export default function CustomerDetailPage() {
                           >
                             <Box>
                               <Typography sx={{ fontWeight: 700 }}>
-                                Purchase{" "}
-                                {customer.records.length - index}
+                                Purchase {customer.records.length - index}
                                 {index === 0 ? " · Latest" : ""}
                               </Typography>
 
-                              <Typography
-                                variant="body2"
-                                color="text.secondary"
-                              >
+                              <Typography variant="body2" color="text.secondary">
                                 {formatDate(record.purchaseDate)}
                               </Typography>
                             </Box>
@@ -1414,11 +1110,7 @@ export default function CustomerDetailPage() {
                               spacing={1}
                               sx={{ alignItems: "center", flexWrap: "wrap" }}
                             >
-                              <Chip
-                                label={flag.label}
-                                color={flag.color}
-                                size="small"
-                              />
+                              <Chip label={flag.label} color={flag.color} size="small" />
                               <Typography sx={{ fontWeight: 800 }}>
                                 {formatMoney(record.mrp)}
                               </Typography>
@@ -1447,16 +1139,10 @@ export default function CustomerDetailPage() {
 
                           <Grid container spacing={2.5}>
                             <Grid size={{ xs: 12, sm: 6 }}>
-                              <DetailItem
-                                label="Frame / Spectacle"
-                                value={record.specsType}
-                              />
+                              <DetailItem label="Frame / Spectacle" value={record.specsType} />
                             </Grid>
                             <Grid size={{ xs: 12, sm: 6 }}>
-                              <DetailItem
-                                label="Lens"
-                                value={record.lensType}
-                              />
+                              <DetailItem label="Lens" value={record.lensType} />
                             </Grid>
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <DetailItem
@@ -1505,13 +1191,8 @@ export default function CustomerDetailPage() {
                                 justifyContent: "space-between",
                               }}
                             >
-                              <Typography sx={{ fontWeight: 700 }}>
-                                Total MRP
-                              </Typography>
-                              <Typography
-                                variant="h6"
-                                sx={{ fontWeight: 800 }}
-                              >
+                              <Typography sx={{ fontWeight: 700 }}>Total MRP</Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 800 }}>
                                 {formatMoney(record.mrp)}
                               </Typography>
                             </Stack>
@@ -1540,9 +1221,7 @@ export default function CustomerDetailPage() {
                 </Typography>
 
                 {customer.prescriptions.length === 0 ? (
-                  <Alert severity="info">
-                    No optical prescription recorded.
-                  </Alert>
+                  <Alert severity="info">No optical prescription recorded.</Alert>
                 ) : (
                   customer.prescriptions.map((prescription, index) => (
                     <Accordion
@@ -1556,17 +1235,13 @@ export default function CustomerDetailPage() {
                         "&:before": { display: "none" },
                       }}
                     >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreOutlined />}
-                      >
+                      <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
                         <Stack
                           direction="row"
                           spacing={1.5}
                           sx={{ alignItems: "center", flexWrap: "wrap" }}
                         >
-                          <Typography sx={{ fontWeight: 700 }}>
-                            Prescription {index + 1}
-                          </Typography>
+                          <Typography sx={{ fontWeight: 700 }}>Prescription {index + 1}</Typography>
 
                           <Chip
                             size="small"
@@ -1574,13 +1249,7 @@ export default function CustomerDetailPage() {
                             label={formatDate(prescription.createdAt)}
                           />
 
-                          {index === 0 && (
-                            <Chip
-                              size="small"
-                              color="primary"
-                              label="Latest"
-                            />
-                          )}
+                          {index === 0 && <Chip size="small" color="primary" label="Latest" />}
                         </Stack>
                       </AccordionSummary>
 
@@ -1591,22 +1260,16 @@ export default function CustomerDetailPage() {
                           p: { xs: 1, md: 2 },
                         }}
                       >
-                        <PrescriptionTable
-                          prescription={prescription}
-                        />
+                        <PrescriptionTable prescription={prescription} />
 
-                        <Stack
-                          direction="row"
-                          spacing={1}
-                          sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}
-                        >
+                        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
                           <Button
                             variant="outlined"
                             startIcon={<PrintOutlined />}
                             onClick={() =>
                               handlePrint(
                                 prescriptionHtml(customer, prescription),
-                                "Optical Prescription"
+                                "Optical Prescription",
                               )
                             }
                           >
@@ -1621,7 +1284,7 @@ export default function CustomerDetailPage() {
                               void handlePdf(
                                 prescriptionHtml(customer, prescription),
                                 `prescription-${prescription.id}.pdf`,
-                                "prescription"
+                                "prescription",
                               );
                             }}
                           >
@@ -1638,14 +1301,11 @@ export default function CustomerDetailPage() {
             {activeTab === 2 && (
               <Stack spacing={2}>
                 <Alert severity="info" icon={<LockOutlined />}>
-                  Staff-only information. Never include these notes
-                  in customer PDFs or WhatsApp messages.
+                  Staff-only information. Never include these notes in customer PDFs or WhatsApp
+                  messages.
                 </Alert>
 
-                <Paper
-                  variant="outlined"
-                  sx={{ p: 2.5, borderRadius: 2, minHeight: 100 }}
-                >
+                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, minHeight: 100 }}>
                   <Typography
                     sx={{
                       whiteSpace: "pre-wrap",
@@ -1678,18 +1338,13 @@ export default function CustomerDetailPage() {
             All Customers
           </Button>
 
-          <Button
-            component={Link}
-            to={editUrl}
-            variant="contained"
-            startIcon={<EditOutlined />}
-          >
+          <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>
             Edit Customer
           </Button>
         </Stack>
       </Stack>
 
-      {/* nik - A separate dialog for the selected purchase. */}
+      {/* A separate dialog for the selected purchase. */}
       {selectedRecord && (
         <ReceiptPreviewDialog
           key={selectedRecord.id}
