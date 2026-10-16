@@ -836,17 +836,29 @@ export function printDocument(
 // 10. GENERATE PDF
 // -----------------------------------------------------
 
-export async function createPdf(
-  content: string
-): Promise<Blob> {
+
+/**
+ * nik - Generate a clean multipage A4 PDF.
+ *
+ * This version:
+ * - Keeps 12 mm margins on every page.
+ * - Tries to keep document sections together.
+ * - Prevents long documents from overflowing A4.
+ * - Preserves the existing receipt and prescription design.
+ * - Runs entirely in the browser.
+ */
+export async function createPdf(content: string): Promise<Blob> {
+  // nik - Build the document off-screen without changing the CRM page.
   const wrapper = document.createElement("div");
 
-  wrapper.style.position = "fixed";
-  wrapper.style.left = "-10000px";
-  wrapper.style.top = "0";
-  wrapper.style.width = "794px";
-  wrapper.style.background = "#ffffff";
-  wrapper.style.pointerEvents = "none";
+  Object.assign(wrapper.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: "794px",
+    background: "#ffffff",
+    pointerEvents: "none",
+  });
 
   const style = document.createElement("style");
   style.textContent = documentCss;
@@ -859,71 +871,202 @@ export async function createPdf(
   document.body.appendChild(wrapper);
 
   try {
+    // nik - Wait until available fonts finish loading.
     await document.fonts.ready;
 
-    const canvas = await html2canvas(sheet, {
+    const documentElement = sheet.querySelector<HTMLElement>(
+      ".customer-document"
+    );
+
+    if (!documentElement) {
+      throw new Error("Customer document could not be prepared.");
+    }
+
+    // nik - Capture the full document once.
+    const canvas = await html2canvas(documentElement, {
       scale: 2,
       backgroundColor: "#ffffff",
       useCORS: false,
       logging: false,
+      scrollX: 0,
+      scrollY: 0,
     });
 
-    if (canvas.width === 0 || canvas.height === 0) {
-      throw new Error("Unable to render the document.");
+    if (!canvas.width || !canvas.height) {
+      throw new Error("PDF rendering produced an empty document.");
     }
 
     const pdf = new jsPDF({
       orientation: "portrait",
       unit: "mm",
       format: "a4",
+      compress: true,
     });
+
+    // nik - Reserve equal margins on all A4 pages.
+    const margin = 12;
 
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
-    const imageWidth = pageWidth;
-    const imageHeight =
-      (canvas.height * imageWidth) / canvas.width;
+    const contentWidth = pageWidth - margin * 2;
+    const contentHeight = pageHeight - margin * 2;
 
-    const image = canvas.toDataURL("image/png");
-
-    let remainingHeight = imageHeight;
-    let imagePosition = 0;
-
-    // nik - First A4 page.
-    pdf.addImage(
-      image,
-      "PNG",
-      0,
-      imagePosition,
-      imageWidth,
-      imageHeight
+    // nik - Convert A4 page height to captured canvas pixels.
+    const pixelsPerMm = canvas.width / contentWidth;
+    const maxPagePixels = Math.floor(
+      contentHeight * pixelsPerMm
     );
 
-    remainingHeight -= pageHeight;
+    // nik - Find document section boundaries to avoid cutting them.
+    const documentRect = documentElement.getBoundingClientRect();
 
-    // nik - Add extra pages for longer documents.
-    while (remainingHeight > 0) {
-      imagePosition -= pageHeight;
-      pdf.addPage();
+    const scale = canvas.width / documentRect.width;
 
-      pdf.addImage(
-        image,
-        "PNG",
-        0,
-        imagePosition,
-        imageWidth,
-        imageHeight
+    const sections = Array.from(
+      documentElement.querySelectorAll<HTMLElement>(
+        ".document-header, .document-section, .document-footer"
+      )
+    );
+
+    const boundaries = sections
+      .map((section) => {
+        const rect = section.getBoundingClientRect();
+
+        return {
+          start: Math.max(
+            0,
+            Math.round(
+              (rect.top - documentRect.top) * scale
+            )
+          ),
+          end: Math.min(
+            canvas.height,
+            Math.round(
+              (rect.bottom - documentRect.top) * scale
+            )
+          ),
+        };
+      })
+      .filter((section) => section.end > section.start);
+
+    let currentY = 0;
+    let pageNumber = 0;
+
+    while (currentY < canvas.height) {
+      let nextY = Math.min(
+        currentY + maxPagePixels,
+        canvas.height
       );
 
-      remainingHeight -= pageHeight;
+      // nik - Move a page break before a section when possible.
+      if (nextY < canvas.height) {
+        const crossingSection = boundaries.find(
+          (section) =>
+            section.start < nextY &&
+            section.end > nextY
+        );
+
+        if (crossingSection) {
+          const sectionHeight =
+            crossingSection.end - crossingSection.start;
+
+          const heightBeforeSection =
+            crossingSection.start - currentY;
+
+          // Move the entire section to the next page only
+          // when the section fits and enough space was used.
+          if (
+            sectionHeight <= maxPagePixels &&
+            heightBeforeSection > maxPagePixels * 0.3
+          ) {
+            nextY = crossingSection.start;
+          }
+        }
+      }
+
+      // nik - Always make progress, including for oversized sections.
+      if (nextY <= currentY) {
+        nextY = Math.min(
+          currentY + maxPagePixels,
+          canvas.height
+        );
+      }
+
+      const sliceHeight = nextY - currentY;
+
+      // nik - Crop only the content belonging to this A4 page.
+      const pageCanvas = document.createElement("canvas");
+
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceHeight;
+
+      const context = pageCanvas.getContext("2d");
+
+      if (!context) {
+        throw new Error("Could not prepare the PDF page.");
+      }
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(
+        0,
+        0,
+        pageCanvas.width,
+        pageCanvas.height
+      );
+
+      context.drawImage(
+        canvas,
+        0,
+        currentY,
+        canvas.width,
+        sliceHeight,
+        0,
+        0,
+        canvas.width,
+        sliceHeight
+      );
+
+      const imageData = pageCanvas.toDataURL(
+        "image/png"
+      );
+
+      const imageHeightMm =
+        sliceHeight / pixelsPerMm;
+
+      if (pageNumber > 0) {
+        pdf.addPage();
+      }
+
+      pdf.addImage(
+        imageData,
+        "PNG",
+        margin,
+        margin,
+        contentWidth,
+        imageHeightMm
+      );
+
+      currentY = nextY;
+      pageNumber += 1;
     }
 
     return pdf.output("blob");
+  } catch (error) {
+    // nik - Make PDF failures understandable to staff.
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error(
+      "Unable to generate the PDF. Please try again."
+    );
   } finally {
+    // nik - Always remove the temporary document.
     wrapper.remove();
   }
 }
+
 
 // -----------------------------------------------------
 // 11. SAVE AND SHARE PDF
