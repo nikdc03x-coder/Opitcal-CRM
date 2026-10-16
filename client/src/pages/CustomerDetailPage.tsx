@@ -2,39 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Checkbox,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  FormControlLabel,
-  Grid,
-  IconButton,
-  Paper,
-  Skeleton,
-  Stack,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tabs,
-  Tooltip,
-  Typography,
+  Accordion, AccordionDetails, AccordionSummary, Alert,
+  Avatar, Box, Button, Card, CardContent, Checkbox,
+  Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, Divider, FormControlLabel,
+  Grid, IconButton, Paper, Skeleton, Stack, Tab, Tabs,
+  Table, TableBody, TableCell, TableContainer, TableHead,
+  TableRow, Tooltip, Typography,
 } from "@mui/material";
 
 import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
@@ -65,7 +39,6 @@ import {
   prescriptionHtml,
   printDocument,
   shareOrDownloadPdf,
-  whatsappReceiptMessage,
   openCustomerWhatsApp,
 } from "../utils/customerDocuments";
 
@@ -73,7 +46,7 @@ import {
 // 1. CUSTOMER CACHE
 // -----------------------------------------------------
 
-// nik - Store recently opened customers for quick navigation.
+// nik - Show recently viewed data while fetching a fresh copy.
 const CACHE_TIME_MS = 30_000;
 const MAX_CACHE_ITEMS = 20;
 
@@ -84,9 +57,7 @@ type CachedCustomer = {
 
 const customerCache = new Map<string, CachedCustomer>();
 
-function readCachedCustomer(
-  id: string
-): CustomerDetails | null {
+function readCachedCustomer(id: string): CustomerDetails | null {
   const saved = customerCache.get(id);
 
   if (!saved) return null;
@@ -112,61 +83,46 @@ function saveCachedCustomer(
 
   if (customerCache.size > MAX_CACHE_ITEMS) {
     const oldest = customerCache.keys().next().value;
-
     if (oldest) customerCache.delete(oldest);
   }
 }
 
 // -----------------------------------------------------
-// 2. DISPLAY HELPERS
+// 2. FORMAT HELPERS
 // -----------------------------------------------------
 
 function display(
   value: string | number | null | undefined
 ): string {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "—";
-  }
-
-  return String(value);
+  return value === null || value === undefined || value === ""
+    ? "—"
+    : String(value);
 }
 
-// nik - Format Indian currency.
 function formatMoney(
   value: string | number | null | undefined
 ): string {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
+  if (value === null || value === undefined || value === "") {
     return "—";
   }
 
-  const amount = Number(value);
+  const number = Number(value);
 
-  if (!Number.isFinite(amount)) return "—";
+  if (!Number.isFinite(number)) return "—";
 
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(number);
 }
 
-// nik - Avoid timezone-related changes to saved dates.
-function formatDate(
-  value: string | null | undefined
-): string {
+// nik - Keep calendar dates stable across timezones.
+function formatDate(value: string | null | undefined): string {
   if (!value) return "Not recorded";
 
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-
   if (!match) return "Unknown date";
 
   const year = Number(match[1]);
@@ -191,57 +147,38 @@ function formatDate(
   });
 }
 
-// nik - Show optical power with positive and negative signs.
 function formatPower(
   value: string | number | null | undefined
 ): string {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
+  if (value === null || value === undefined || value === "") {
     return "—";
   }
 
   const number = Number(value);
-
   if (!Number.isFinite(number)) return "—";
 
   const safe = Object.is(number, -0) ? 0 : number;
-
   return `${safe > 0 ? "+" : ""}${safe.toFixed(2)}`;
 }
 
 // -----------------------------------------------------
-// 3. PURCHASE TYPE HELPERS
+// 3. PURCHASE TYPES
 // -----------------------------------------------------
 
-// nik - These declarations fix both TS2304 build errors.
 type PurchaseFlag =
   | "FRAME_ONLY"
   | "LENS_ONLY"
   | "FRAME_AND_LENS"
   | "NOT_SPECIFIED";
 
-// nik - Purchase type depends on saved product names,
-// not whether prices are recorded separately.
-function getPurchaseFlag(
-  record: CustomerRecord
-): PurchaseFlag {
-  const hasFrame = Boolean(record.specsType?.trim());
-  const hasLens = Boolean(record.lensType?.trim());
+// nik - Determine product type from saved product names.
+function getPurchaseFlag(record: CustomerRecord): PurchaseFlag {
+  const frame = Boolean(record.specsType?.trim());
+  const lens = Boolean(record.lensType?.trim());
 
-  if (hasFrame && hasLens) {
-    return "FRAME_AND_LENS";
-  }
-
-  if (hasFrame) {
-    return "FRAME_ONLY";
-  }
-
-  if (hasLens) {
-    return "LENS_ONLY";
-  }
+  if (frame && lens) return "FRAME_AND_LENS";
+  if (frame) return "FRAME_ONLY";
+  if (lens) return "LENS_ONLY";
 
   return "NOT_SPECIFIED";
 }
@@ -253,26 +190,14 @@ const purchaseFlagInfo: Record<
     color: "primary" | "success" | "info" | "default";
   }
 > = {
-  FRAME_ONLY: {
-    label: "Frame Only",
-    color: "info",
-  },
-  LENS_ONLY: {
-    label: "Lens Only",
-    color: "success",
-  },
-  FRAME_AND_LENS: {
-    label: "Frame + Lens",
-    color: "primary",
-  },
-  NOT_SPECIFIED: {
-    label: "Not Specified",
-    color: "default",
-  },
+  FRAME_ONLY: { label: "Frame Only", color: "info" },
+  LENS_ONLY: { label: "Lens Only", color: "success" },
+  FRAME_AND_LENS: { label: "Frame + Lens", color: "primary" },
+  NOT_SPECIFIED: { label: "Not Specified", color: "default" },
 };
 
 // -----------------------------------------------------
-// 4. REUSABLE CUSTOMER DETAIL ITEM
+// 4. REUSABLE COMPONENTS
 // -----------------------------------------------------
 
 function DetailItem({
@@ -284,19 +209,12 @@ function DetailItem({
 }) {
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography
-        variant="body2"
-        color="text.secondary"
-      >
+      <Typography variant="body2" color="text.secondary">
         {label}
       </Typography>
 
       <Typography
-        sx={{
-          mt: 0.5,
-          fontWeight: 600,
-          overflowWrap: "anywhere",
-        }}
+        sx={{ mt: 0.5, fontWeight: 600, overflowWrap: "anywhere" }}
       >
         {display(value)}
       </Typography>
@@ -304,100 +222,56 @@ function DetailItem({
   );
 }
 
-// -----------------------------------------------------
-// 5. OPTICAL PRESCRIPTION TABLE
-// -----------------------------------------------------
-
-type PrescriptionRowProps = {
-  label: string;
-  description: string;
-  sph: string | number | null;
-  cyl: string | number | null;
-  axis: string | number | null;
-};
-
-function PrescriptionRow({
-  label,
-  description,
-  sph,
-  cyl,
-  axis,
-}: PrescriptionRowProps) {
-  return (
-    <TableRow>
-      <TableCell>
-        <Typography
-          sx={{
-            fontWeight: 700,
-            fontSize: 13,
-          }}
-        >
-          {label}
-        </Typography>
-
-        <Typography
-          variant="caption"
-          color="text.secondary"
-        >
-          {description}
-        </Typography>
-      </TableCell>
-
-      <TableCell
-        align="center"
-        sx={{
-          fontWeight: 700,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {formatPower(sph)}
-      </TableCell>
-
-      <TableCell
-        align="center"
-        sx={{
-          fontWeight: 700,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {formatPower(cyl)}
-      </TableCell>
-
-      <TableCell
-        align="center"
-        sx={{
-          fontWeight: 700,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {display(axis)}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-// nik - Preserve the optical shop's exact prescription order.
 function PrescriptionTable({
   prescription,
 }: {
   prescription: Prescription;
 }) {
+  // nik - The required order is RE DIST, RE NEAR, LE DIST, LE NEAR.
+  const rows = [
+    {
+      label: "RE DIST",
+      description: "Right Eye Distance",
+      sph: prescription.reDistSph,
+      cyl: prescription.reDistCyl,
+      axis: prescription.reDistAxis,
+    },
+    {
+      label: "RE NEAR",
+      description: "Right Eye Near",
+      sph: prescription.reNearSph,
+      cyl: prescription.reNearCyl,
+      axis: prescription.reNearAxis,
+    },
+    {
+      label: "LE DIST",
+      description: "Left Eye Distance",
+      sph: prescription.leDistSph,
+      cyl: prescription.leDistCyl,
+      axis: prescription.leDistAxis,
+    },
+    {
+      label: "LE NEAR",
+      description: "Left Eye Near",
+      sph: prescription.leNearSph,
+      cyl: prescription.leNearCyl,
+      axis: prescription.leNearAxis,
+    },
+  ];
+
   return (
     <TableContainer
       component={Paper}
       variant="outlined"
-      sx={{
-        borderRadius: 2,
-        overflowX: "auto",
-      }}
+      sx={{ borderRadius: 2, overflowX: "auto" }}
     >
       <Table
         size="small"
         sx={{
           minWidth: 460,
           "& th": {
-            fontWeight: 700,
             bgcolor: "action.hover",
+            fontWeight: 700,
           },
           "& td, & th": {
             py: 1.5,
@@ -414,62 +288,51 @@ function PrescriptionTable({
         </TableHead>
 
         <TableBody>
-          <PrescriptionRow
-            label="RE DIST"
-            description="Right Eye Distance"
-            sph={prescription.reDistSph}
-            cyl={prescription.reDistCyl}
-            axis={prescription.reDistAxis}
-          />
+          {rows.map((row) => (
+            <TableRow key={row.label}>
+              <TableCell>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>
+                  {row.label}
+                </Typography>
 
-          <PrescriptionRow
-            label="RE NEAR"
-            description="Right Eye Near"
-            sph={prescription.reNearSph}
-            cyl={prescription.reNearCyl}
-            axis={prescription.reNearAxis}
-          />
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                >
+                  {row.description}
+                </Typography>
+              </TableCell>
 
-          <PrescriptionRow
-            label="LE DIST"
-            description="Left Eye Distance"
-            sph={prescription.leDistSph}
-            cyl={prescription.leDistCyl}
-            axis={prescription.leDistAxis}
-          />
+              <TableCell align="center" sx={{ fontWeight: 700 }}>
+                {formatPower(row.sph)}
+              </TableCell>
 
-          <PrescriptionRow
-            label="LE NEAR"
-            description="Left Eye Near"
-            sph={prescription.leNearSph}
-            cyl={prescription.leNearCyl}
-            axis={prescription.leNearAxis}
-          />
+              <TableCell align="center" sx={{ fontWeight: 700 }}>
+                {formatPower(row.cyl)}
+              </TableCell>
+
+              <TableCell align="center" sx={{ fontWeight: 700 }}>
+                {display(row.axis)}
+              </TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </TableContainer>
   );
 }
 
-// -----------------------------------------------------
-// 6. LOADING SKELETON
-// -----------------------------------------------------
-
 function CustomerDetailsSkeleton() {
   return (
-    <Stack spacing={3} sx={{ pb: 4 }}>
-      <Box>
-        <Skeleton width={160} height={35} />
-        <Skeleton width="45%" height={50} />
-        <Skeleton width="65%" height={25} />
-      </Box>
+    <Stack spacing={3}>
+      <Skeleton width="40%" height={48} />
 
       {[1, 2, 3].map((item) => (
-        <Card key={item}>
-          <CardContent sx={{ p: 3 }}>
-            <Skeleton width="35%" height={35} />
-            <Skeleton height={28} />
-            <Skeleton height={28} />
+        <Card key={item} variant="outlined">
+          <CardContent>
+            <Skeleton height={36} />
+            <Skeleton height={24} />
+            <Skeleton height={24} />
           </CardContent>
         </Card>
       ))}
@@ -478,8 +341,10 @@ function CustomerDetailsSkeleton() {
 }
 
 // -----------------------------------------------------
-// 7. RECEIPT PREVIEW DIALOG
+// 5. RECEIPT PREVIEW DIALOG
 // -----------------------------------------------------
+
+type PdfKind = "receipt" | "prescription";
 
 type ReceiptDialogProps = {
   customer: CustomerDetails;
@@ -490,15 +355,15 @@ type ReceiptDialogProps = {
   onPdf: (
     content: string,
     filename: string,
-    type: "receipt" | "prescription"
+    type: PdfKind
   ) => Promise<void>;
-  onWhatsApp: (
-    record: CustomerRecord,
-    prescription: Prescription | null
-  ) => void;
+  onWhatsAppPdf: (
+    content: string,
+    filename: string
+  ) => Promise<void>;
 };
 
-// nik - Staff review exactly one purchase before sharing.
+// nik - Staff review the PDF contents before sharing it.
 function ReceiptPreviewDialog({
   customer,
   record,
@@ -506,13 +371,12 @@ function ReceiptPreviewDialog({
   onClose,
   onPrint,
   onPdf,
-  onWhatsApp,
+  onWhatsAppPdf,
 }: ReceiptDialogProps) {
-  // nik - Start with prescription sharing disabled.
   const [includePrescription, setIncludePrescription] =
     useState(false);
 
-  // nik - Never select an unrelated historical prescription.
+  // nik - Only use the prescription linked to this purchase.
   const linkedPrescription =
     customer.prescriptions.find(
       (item) => item.id === record.prescriptionId
@@ -527,25 +391,20 @@ function ReceiptPreviewDialog({
     selectedPrescription
   );
 
+  const filename = `receipt-${record.id}.pdf`;
+
   return (
     <Dialog
       open
-      onClose={() => {
-        if (!busy) onClose();
-      }}
       fullWidth
       maxWidth="md"
       scroll="paper"
       aria-labelledby="receipt-preview-title"
+      onClose={() => {
+        if (!busy) onClose();
+      }}
     >
-      <DialogTitle
-        id="receipt-preview-title"
-        sx={{
-          px: { xs: 2, sm: 3 },
-          pt: 3,
-          pb: 2,
-        }}
-      >
+      <DialogTitle id="receipt-preview-title">
         <Typography
           component="div"
           variant="h5"
@@ -559,34 +418,23 @@ function ReceiptPreviewDialog({
           color="text.secondary"
           sx={{ mt: 0.5 }}
         >
-          Review the selected purchase before printing or sharing.
+          Review the selected purchase and choose how to share it.
         </Typography>
       </DialogTitle>
 
       <Divider />
 
-      <DialogContent
-        sx={{
-          px: { xs: 2, sm: 3 },
-          py: 2.5,
-        }}
-      >
+      <DialogContent sx={{ py: 2.5 }}>
         <Stack spacing={3}>
-          {/* Receipt contents */}
           <Paper
             variant="outlined"
             sx={{
               p: 2.5,
-              borderRadius: 2.5,
+              borderRadius: 2,
               bgcolor: "action.hover",
             }}
           >
-            <Typography
-              sx={{
-                fontWeight: 800,
-                mb: 1,
-              }}
-            >
+            <Typography sx={{ fontWeight: 800, mb: 1 }}>
               Receipt Contents
             </Typography>
 
@@ -594,11 +442,9 @@ function ReceiptPreviewDialog({
               <Typography variant="body2">
                 ✓ Customer information
               </Typography>
-
               <Typography variant="body2">
                 ✓ Purchased products and prices
               </Typography>
-
               <Typography variant="body2">
                 ✓ Purchase date and total MRP
               </Typography>
@@ -610,51 +456,31 @@ function ReceiptPreviewDialog({
               <FormControlLabel
                 control={
                   <Checkbox
+                    size="small"
                     checked={includePrescription}
                     onChange={(_, checked) =>
                       setIncludePrescription(checked)
                     }
-                    size="small"
                   />
                 }
                 label="Include linked optical prescription"
               />
             ) : (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-              >
+              <Typography variant="body2" color="text.secondary">
                 No prescription is linked to this purchase.
-                The receipt will include customer and purchase
-                details only.
               </Typography>
             )}
           </Paper>
 
-          {/* Customer information */}
           <Box>
-            <Typography
-              sx={{
-                fontWeight: 800,
-                mb: 1.5,
-              }}
-            >
+            <Typography sx={{ fontWeight: 800, mb: 1.5 }}>
               Customer Information
             </Typography>
 
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2.5,
-                borderRadius: 2.5,
-              }}
-            >
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
               <Typography
                 variant="h6"
-                sx={{
-                  fontWeight: 800,
-                  mb: 2,
-                }}
+                sx={{ fontWeight: 800, mb: 2 }}
               >
                 {customer.name}
               </Typography>
@@ -668,10 +494,7 @@ function ReceiptPreviewDialog({
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Gender"
-                    value={customer.gender}
-                  />
+                  <DetailItem label="Gender" value={customer.gender} />
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
@@ -691,24 +514,12 @@ function ReceiptPreviewDialog({
             </Paper>
           </Box>
 
-          {/* Purchase information */}
           <Box>
-            <Typography
-              sx={{
-                fontWeight: 800,
-                mb: 1.5,
-              }}
-            >
+            <Typography sx={{ fontWeight: 800, mb: 1.5 }}>
               Purchase Summary
             </Typography>
 
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2.5,
-                borderRadius: 2.5,
-              }}
-            >
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6 }}>
                   <DetailItem
@@ -725,10 +536,7 @@ function ReceiptPreviewDialog({
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem
-                    label="Lens"
-                    value={record.lensType}
-                  />
+                  <DetailItem label="Lens" value={record.lensType} />
                 </Grid>
 
                 {record.pricingMode === "SPLIT" && (
@@ -755,8 +563,8 @@ function ReceiptPreviewDialog({
               <Stack
                 direction="row"
                 sx={{
-                  justifyContent: "space-between",
                   alignItems: "center",
+                  justifyContent: "space-between",
                   gap: 2,
                 }}
               >
@@ -764,17 +572,13 @@ function ReceiptPreviewDialog({
                   Total MRP
                 </Typography>
 
-                <Typography
-                  variant="h5"
-                  sx={{ fontWeight: 800 }}
-                >
+                <Typography variant="h5" sx={{ fontWeight: 800 }}>
                   {formatMoney(record.mrp)}
                 </Typography>
               </Stack>
             </Paper>
           </Box>
 
-          {/* Optional prescription */}
           {selectedPrescription && (
             <Box>
               <Stack
@@ -782,18 +586,15 @@ function ReceiptPreviewDialog({
                 spacing={1}
                 sx={{
                   mb: 1.5,
-                  justifyContent: "space-between",
                   alignItems: { sm: "center" },
+                  justifyContent: "space-between",
                 }}
               >
                 <Typography sx={{ fontWeight: 800 }}>
                   Optical Prescription
                 </Typography>
 
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                >
+                <Typography variant="body2" color="text.secondary">
                   {formatDate(selectedPrescription.createdAt)}
                 </Typography>
               </Stack>
@@ -805,8 +606,8 @@ function ReceiptPreviewDialog({
           )}
 
           <Alert severity="info">
-            This receipt displays recorded MRP, not verified
-            payment. Staff-only notes are excluded.
+            The document shows recorded MRP, not verified payment.
+            Staff-only notes are not included.
           </Alert>
         </Stack>
       </DialogContent>
@@ -815,7 +616,7 @@ function ReceiptPreviewDialog({
 
       <DialogActions
         sx={{
-          p: { xs: 2, sm: 3 },
+          p: 2,
           gap: 1,
           flexWrap: "wrap",
           justifyContent: "flex-end",
@@ -831,8 +632,8 @@ function ReceiptPreviewDialog({
 
         <Button
           variant="outlined"
-          startIcon={<PrintOutlined />}
           disabled={busy}
+          startIcon={<PrintOutlined />}
           onClick={() =>
             onPrint(documentContent, "Purchase Receipt")
           }
@@ -842,29 +643,31 @@ function ReceiptPreviewDialog({
 
         <Button
           variant="outlined"
-          startIcon={<PictureAsPdfOutlined />}
           disabled={busy}
+          startIcon={<PictureAsPdfOutlined />}
           onClick={() => {
-            void onPdf(
-              documentContent,
-              `receipt-${record.id}.pdf`,
-              "receipt"
-            );
+            void onPdf(documentContent, filename, "receipt");
           }}
         >
-          {busy ? "Preparing..." : "Share / Save PDF"}
+          Share / Save PDF
         </Button>
 
+        {/* nik - Send the actual PDF through device sharing.
+            Desktop fallback downloads the PDF and opens WhatsApp. */}
         <Button
           variant="contained"
           color="success"
-          startIcon={<WhatsAppIcon />}
           disabled={busy || !customer.mobNumber}
-          onClick={() =>
-            onWhatsApp(record, selectedPrescription)
+          startIcon={
+            busy
+              ? <CircularProgress size={18} color="inherit" />
+              : <WhatsAppIcon />
           }
+          onClick={() => {
+            void onWhatsAppPdf(documentContent, filename);
+          }}
         >
-          WhatsApp
+          {busy ? "Preparing PDF..." : "Share PDF via WhatsApp"}
         </Button>
       </DialogActions>
     </Dialog>
@@ -872,9 +675,10 @@ function ReceiptPreviewDialog({
 }
 
 // -----------------------------------------------------
-// 8. CUSTOMER DETAIL PAGE
+// 6. CUSTOMER DETAILS PAGE
 // -----------------------------------------------------
 
+// nik - A customer is identified by database ID, not mobile number.
 export default function CustomerDetailPage() {
   const { id } = useParams();
   const [params] = useSearchParams();
@@ -891,7 +695,6 @@ export default function CustomerDetailPage() {
   const [documentMessage, setDocumentMessage] = useState("");
   const [documentBusy, setDocumentBusy] = useState(false);
 
-  // nik - Open the preview for one selected purchase.
   const [selectedRecord, setSelectedRecord] =
     useState<CustomerRecord | null>(null);
 
@@ -905,7 +708,7 @@ export default function CustomerDetailPage() {
 
   const backUrl = `/customers${searchQuery}`;
 
-  // nik - Refresh saved customer details from the backend.
+  // nik - Reload the customer whenever the ID changes.
   useEffect(() => {
     if (!id) {
       setCustomer(null);
@@ -974,7 +777,6 @@ export default function CustomerDetailPage() {
     };
   }, [id]);
 
-  // nik - Refresh without hiding current customer data.
   async function handleRefresh() {
     if (!id || refreshing) return;
 
@@ -988,10 +790,7 @@ export default function CustomerDetailPage() {
     setError("");
 
     try {
-      const result = await getCustomer(
-        id,
-        controller.signal
-      );
+      const result = await getCustomer(id, controller.signal);
 
       if (
         controller.signal.aborted ||
@@ -1024,9 +823,7 @@ export default function CustomerDetailPage() {
     }
   }
 
-  async function copyCustomerId(
-    customerId: string
-  ) {
+  async function copyCustomerId(customerId: string) {
     try {
       await navigator.clipboard.writeText(customerId);
       setCopyMessage("Customer ID copied");
@@ -1035,30 +832,24 @@ export default function CustomerDetailPage() {
     }
   }
 
-  // nik - Print the selected customer document.
-  function handlePrint(
-    content: string,
-    title: string
-  ) {
+  function handlePrint(content: string, title: string) {
     setDocumentMessage("");
 
     try {
       printDocument(content, title);
     } catch (err) {
       setDocumentMessage(
-        err instanceof Error
-          ? err.message
-          : "Unable to print."
+        err instanceof Error ? err.message : "Unable to print."
       );
     }
   }
 
-  // nik - Share a PDF where supported, otherwise download it.
+  // nik - Existing normal PDF action.
   async function handlePdf(
     content: string,
     filename: string,
-    type: "receipt" | "prescription"
-  ) {
+    type: PdfKind
+  ): Promise<void> {
     if (documentBusy) return;
 
     setDocumentBusy(true);
@@ -1073,8 +864,8 @@ export default function CustomerDetailPage() {
 
       setDocumentMessage(
         result === "shared"
-          ? "Share menu completed. Verify the recipient and delivery."
-          : "PDF downloaded. Attach it manually in WhatsApp."
+          ? "Device share menu completed. Check the recipient and confirm the PDF was sent."
+          : "PDF downloaded successfully."
       );
     } catch (err) {
       setDocumentMessage(
@@ -1087,39 +878,62 @@ export default function CustomerDetailPage() {
     }
   }
 
-  // nik - Open the customer WhatsApp chat with prepared text.
-  function handleWhatsApp(
-    record: CustomerRecord,
-    prescription: Prescription | null
-  ) {
-    if (!customer) return;
+  // nik - New WhatsApp PDF action.
+  // It uses native file sharing wherever available.
+  // Desktop fallback downloads the PDF, then opens chat.
+  async function handleWhatsAppPdf(
+    content: string,
+    filename: string
+  ): Promise<void> {
+    if (!customer || documentBusy) return;
 
+    setDocumentBusy(true);
     setDocumentMessage("");
 
     try {
-      openCustomerWhatsApp(
-        customer.mobNumber,
-        whatsappReceiptMessage(
-          customer,
-          record,
-          prescription
-        )
+      const result = await shareOrDownloadPdf(
+        content,
+        filename,
+        "receipt"
       );
+
+      if (result === "shared") {
+        setDocumentMessage(
+          "PDF handed to the device share menu. Choose WhatsApp, select the correct customer and press Send."
+        );
+        return;
+      }
+
+      // nik - PDF was downloaded because direct file sharing
+      // is not supported. Open the saved customer's chat.
+      try {
+        openCustomerWhatsApp(customer.mobNumber, "");
+
+        setDocumentMessage(
+          "Receipt PDF downloaded. In the customer's WhatsApp chat, click Attach → Document, select the downloaded PDF and press Send. If the chat did not open, open WhatsApp Web manually."
+        );
+      } catch (chatError) {
+        setDocumentMessage(
+          chatError instanceof Error
+            ? `PDF downloaded, but WhatsApp could not open: ${chatError.message}`
+            : "PDF downloaded. Open WhatsApp manually and attach it."
+        );
+      }
     } catch (err) {
       setDocumentMessage(
         err instanceof Error
           ? err.message
-          : "Unable to open WhatsApp."
+          : "Could not prepare the WhatsApp PDF."
       );
+    } finally {
+      setDocumentBusy(false);
     }
   }
 
-  // Initial loading screen.
   if (loading && !customer) {
     return <CustomerDetailsSkeleton />;
   }
 
-  // Customer not found.
   if (!customer) {
     return (
       <Stack spacing={2}>
@@ -1150,7 +964,6 @@ export default function CustomerDetailPage() {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
-  // nik - This is total recorded MRP, not confirmed payment.
   const totalPurchaseValue = customer.records.reduce(
     (sum, item) => sum + (Number(item.mrp) || 0),
     0
@@ -1159,7 +972,6 @@ export default function CustomerDetailPage() {
   return (
     <Box sx={{ maxWidth: 1250, mx: "auto", pb: 6 }}>
       <Stack spacing={2.5}>
-        {/* Back navigation */}
         <Box>
           <Button
             component={Link}
@@ -1171,22 +983,9 @@ export default function CustomerDetailPage() {
           </Button>
         </Box>
 
-        {/* Customer heading */}
-        <Card
-          variant="outlined"
-          sx={{
-            borderRadius: 3,
-            overflow: "hidden",
-          }}
-        >
-          <CardContent
-            sx={{
-              p: { xs: 2, md: 3 },
-              "&:last-child": {
-                pb: { xs: 2, md: 3 },
-              },
-            }}
-          >
+        {/* Customer header */}
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
             <Stack
               direction={{ xs: "column", sm: "row" }}
               spacing={2.5}
@@ -1198,18 +997,15 @@ export default function CustomerDetailPage() {
               <Stack
                 direction="row"
                 spacing={2}
-                sx={{
-                  alignItems: "center",
-                  minWidth: 0,
-                }}
+                sx={{ alignItems: "center", minWidth: 0 }}
               >
                 <Avatar
                   sx={{
                     width: 62,
                     height: 62,
                     bgcolor: "primary.main",
-                    fontSize: 23,
                     fontWeight: 700,
+                    fontSize: 23,
                   }}
                 >
                   {initials || <PersonOutlined />}
@@ -1221,10 +1017,7 @@ export default function CustomerDetailPage() {
                     sx={{
                       fontWeight: 800,
                       overflowWrap: "anywhere",
-                      fontSize: {
-                        xs: "1.55rem",
-                        md: "2rem",
-                      },
+                      fontSize: { xs: "1.55rem", md: "2rem" },
                     }}
                   >
                     {customer.name}
@@ -1244,8 +1037,7 @@ export default function CustomerDetailPage() {
                       variant="body2"
                       color="text.secondary"
                     >
-                      {customer.mobNumber ||
-                        "No mobile number"}
+                      {customer.mobNumber || "No mobile number"}
                     </Typography>
 
                     <Chip
@@ -1266,10 +1058,7 @@ export default function CustomerDetailPage() {
               <Stack
                 direction="row"
                 spacing={1}
-                sx={{
-                  flexWrap: "wrap",
-                  gap: 0.5,
-                }}
+                sx={{ flexWrap: "wrap", gap: 0.5 }}
               >
                 {customer.mobNumber && (
                   <Button
@@ -1284,17 +1073,17 @@ export default function CustomerDetailPage() {
 
                 <Button
                   variant="outlined"
-                  onClick={handleRefresh}
                   disabled={refreshing}
+                  onClick={() => {
+                    void handleRefresh();
+                  }}
                   startIcon={
                     refreshing
                       ? <CircularProgress size={17} />
                       : <RefreshOutlined />
                   }
                 >
-                  {refreshing
-                    ? "Refreshing"
-                    : "Refresh"}
+                  {refreshing ? "Refreshing" : "Refresh"}
                 </Button>
 
                 <Button
@@ -1310,14 +1099,13 @@ export default function CustomerDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Feedback messages */}
         {error && (
           <Alert
             severity="warning"
             onClose={() => setError("")}
           >
-            Unable to refresh: {error}.
-            Showing the last available information.
+            Unable to refresh: {error}. Showing the last
+            available information.
           </Alert>
         )}
 
@@ -1339,15 +1127,12 @@ export default function CustomerDetailPage() {
           </Alert>
         )}
 
-        {/* Customer overview */}
+        {/* Summary cards */}
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 4 }}>
             <Card
               variant="outlined"
-              sx={{
-                borderRadius: 3,
-                height: "100%",
-              }}
+              sx={{ borderRadius: 3, height: "100%" }}
             >
               <CardContent>
                 <Typography
@@ -1359,10 +1144,7 @@ export default function CustomerDetailPage() {
 
                 <Typography
                   variant="h4"
-                  sx={{
-                    fontWeight: 800,
-                    mt: 0.5,
-                  }}
+                  sx={{ fontWeight: 800, mt: 0.5 }}
                 >
                   {customer.records.length}
                 </Typography>
@@ -1382,10 +1164,7 @@ export default function CustomerDetailPage() {
           <Grid size={{ xs: 12, sm: 4 }}>
             <Card
               variant="outlined"
-              sx={{
-                borderRadius: 3,
-                height: "100%",
-              }}
+              sx={{ borderRadius: 3, height: "100%" }}
             >
               <CardContent>
                 <Typography
@@ -1397,10 +1176,7 @@ export default function CustomerDetailPage() {
 
                 <Typography
                   variant="h5"
-                  sx={{
-                    fontWeight: 800,
-                    mt: 1,
-                  }}
+                  sx={{ fontWeight: 800, mt: 1 }}
                 >
                   {formatMoney(totalPurchaseValue)}
                 </Typography>
@@ -1409,7 +1185,7 @@ export default function CustomerDetailPage() {
                   variant="caption"
                   color="text.secondary"
                 >
-                  Sum of recorded MRP amounts
+                  Sum of saved purchase MRP amounts
                 </Typography>
               </CardContent>
             </Card>
@@ -1418,10 +1194,7 @@ export default function CustomerDetailPage() {
           <Grid size={{ xs: 12, sm: 4 }}>
             <Card
               variant="outlined"
-              sx={{
-                borderRadius: 3,
-                height: "100%",
-              }}
+              sx={{ borderRadius: 3, height: "100%" }}
             >
               <CardContent>
                 <Typography
@@ -1433,10 +1206,7 @@ export default function CustomerDetailPage() {
 
                 <Typography
                   variant="h4"
-                  sx={{
-                    fontWeight: 800,
-                    mt: 0.5,
-                  }}
+                  sx={{ fontWeight: 800, mt: 0.5 }}
                 >
                   {customer.prescriptions.length}
                 </Typography>
@@ -1453,27 +1223,16 @@ export default function CustomerDetailPage() {
         </Grid>
 
         {/* Personal information */}
-        <Card
-          variant="outlined"
-          sx={{ borderRadius: 3 }}
-        >
-          <CardContent
-            sx={{ p: { xs: 2, md: 3 } }}
-          >
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
             <Stack
               direction="row"
               spacing={1}
-              sx={{
-                alignItems: "center",
-                mb: 2,
-              }}
+              sx={{ alignItems: "center", mb: 2 }}
             >
               <PersonOutlined color="primary" />
 
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 700 }}
-              >
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
                 Personal Information
               </Typography>
             </Stack>
@@ -1527,10 +1286,7 @@ export default function CustomerDetailPage() {
             <Stack
               direction="row"
               spacing={1}
-              sx={{
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
+              sx={{ alignItems: "center", flexWrap: "wrap" }}
             >
               <Typography
                 variant="caption"
@@ -1555,41 +1311,29 @@ export default function CustomerDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Purchase, prescription and staff notes tabs */}
+        {/* Purchase and prescription history */}
         <Card
           variant="outlined"
-          sx={{
-            borderRadius: 3,
-            overflow: "hidden",
-          }}
+          sx={{ borderRadius: 3, overflow: "hidden" }}
         >
-          <Box
-            sx={{
-              borderBottom: 1,
-              borderColor: "divider",
-            }}
-          >
+          <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
             <Tabs
               value={activeTab}
-              onChange={(_, value: number) =>
-                setActiveTab(value)
-              }
+              onChange={(_, next: number) => setActiveTab(next)}
               variant="scrollable"
               scrollButtons="auto"
-              aria-label="Customer details sections"
+              aria-label="Customer detail sections"
             >
               <Tab
                 icon={<ReceiptLongOutlined />}
                 iconPosition="start"
                 label={`Purchases (${customer.records.length})`}
               />
-
               <Tab
                 icon={<VisibilityOutlined />}
                 iconPosition="start"
                 label={`Prescriptions (${customer.prescriptions.length})`}
               />
-
               <Tab
                 icon={<LockOutlined />}
                 iconPosition="start"
@@ -1599,20 +1343,13 @@ export default function CustomerDetailPage() {
           </Box>
 
           <CardContent
-            sx={{
-              p: { xs: 1.5, md: 3 },
-              minHeight: 240,
-            }}
+            sx={{ p: { xs: 1.5, md: 3 }, minHeight: 240 }}
           >
-            {/* PURCHASE HISTORY */}
             {activeTab === 0 && (
               <Stack spacing={1.5}>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                >
-                  Open a purchase to review its products
-                  and prepare a customer receipt.
+                <Typography variant="body2" color="text.secondary">
+                  Open a purchase to review its details and
+                  prepare a receipt PDF.
                 </Typography>
 
                 {customer.records.length === 0 ? (
@@ -1633,76 +1370,49 @@ export default function CustomerDetailPage() {
                         sx={{
                           borderRadius: "12px !important",
                           overflow: "hidden",
-                          "&:before": {
-                            display: "none",
-                          },
+                          "&:before": { display: "none" },
                         }}
                       >
                         <AccordionSummary
                           expandIcon={<ExpandMoreOutlined />}
-                          sx={{
-                            px: 2,
-                            py: 0.5,
-                          }}
+                          sx={{ px: 2, py: 0.5 }}
                         >
                           <Stack
-                            direction={{
-                              xs: "column",
-                              sm: "row",
-                            }}
+                            direction={{ xs: "column", sm: "row" }}
                             spacing={1.5}
                             sx={{
                               width: "100%",
-                              alignItems: {
-                                sm: "center",
-                              },
-                              justifyContent:
-                                "space-between",
                               pr: 1,
+                              alignItems: { sm: "center" },
+                              justifyContent: "space-between",
                             }}
                           >
                             <Box>
-                              <Typography
-                                sx={{ fontWeight: 700 }}
-                              >
+                              <Typography sx={{ fontWeight: 700 }}>
                                 Purchase{" "}
                                 {customer.records.length - index}
-
-                                {index === 0
-                                  ? " · Latest"
-                                  : ""}
+                                {index === 0 ? " · Latest" : ""}
                               </Typography>
 
                               <Typography
                                 variant="body2"
                                 color="text.secondary"
                               >
-                                {formatDate(
-                                  record.purchaseDate
-                                )}
+                                {formatDate(record.purchaseDate)}
                               </Typography>
                             </Box>
 
                             <Stack
                               direction="row"
                               spacing={1}
-                              sx={{
-                                alignItems: "center",
-                                flexWrap: "wrap",
-                                gap: 0.5,
-                              }}
+                              sx={{ alignItems: "center", flexWrap: "wrap" }}
                             >
                               <Chip
                                 label={flag.label}
                                 color={flag.color}
                                 size="small"
                               />
-
-                              <Typography
-                                sx={{
-                                  fontWeight: 800,
-                                }}
-                              >
+                              <Typography sx={{ fontWeight: 800 }}>
                                 {formatMoney(record.mrp)}
                               </Typography>
                             </Stack>
@@ -1735,59 +1445,37 @@ export default function CustomerDetailPage() {
                                 value={record.specsType}
                               />
                             </Grid>
-
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <DetailItem
                                 label="Lens"
                                 value={record.lensType}
                               />
                             </Grid>
-
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <DetailItem
                                 label="Date of Purchase"
-                                value={formatDate(
-                                  record.purchaseDate
-                                )}
+                                value={formatDate(record.purchaseDate)}
                               />
                             </Grid>
-
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <DetailItem
                                 label="Record Created"
-                                value={formatDate(
-                                  record.createdAt
-                                )}
+                                value={formatDate(record.createdAt)}
                               />
                             </Grid>
 
                             {record.pricingMode === "SPLIT" && (
                               <>
-                                <Grid
-                                  size={{
-                                    xs: 12,
-                                    sm: 6,
-                                  }}
-                                >
+                                <Grid size={{ xs: 12, sm: 6 }}>
                                   <DetailItem
                                     label="Frame Rate"
-                                    value={formatMoney(
-                                      record.frameRate
-                                    )}
+                                    value={formatMoney(record.frameRate)}
                                   />
                                 </Grid>
-
-                                <Grid
-                                  size={{
-                                    xs: 12,
-                                    sm: 6,
-                                  }}
-                                >
+                                <Grid size={{ xs: 12, sm: 6 }}>
                                   <DetailItem
                                     label="Lens Rate"
-                                    value={formatMoney(
-                                      record.lensRate
-                                    )}
+                                    value={formatMoney(record.lensRate)}
                                   />
                                 </Grid>
                               </>
@@ -1807,16 +1495,12 @@ export default function CustomerDetailPage() {
                               direction="row"
                               sx={{
                                 alignItems: "center",
-                                justifyContent:
-                                  "space-between",
+                                justifyContent: "space-between",
                               }}
                             >
-                              <Typography
-                                sx={{ fontWeight: 700 }}
-                              >
+                              <Typography sx={{ fontWeight: 700 }}>
                                 Total MRP
                               </Typography>
-
                               <Typography
                                 variant="h6"
                                 sx={{ fontWeight: 800 }}
@@ -1830,9 +1514,7 @@ export default function CustomerDetailPage() {
                             variant="contained"
                             startIcon={<ReceiptLongOutlined />}
                             sx={{ mt: 2 }}
-                            onClick={() =>
-                              setSelectedRecord(record)
-                            }
+                            onClick={() => setSelectedRecord(record)}
                           >
                             Prepare Receipt
                           </Button>
@@ -1844,15 +1526,10 @@ export default function CustomerDetailPage() {
               </Stack>
             )}
 
-            {/* PRESCRIPTION HISTORY */}
             {activeTab === 1 && (
               <Stack spacing={2}>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                >
-                  Saved optical prescriptions, most recent
-                  first. Values are read-only on this page.
+                <Typography variant="body2" color="text.secondary">
+                  Saved optical prescriptions, most recent first.
                 </Typography>
 
                 {customer.prescriptions.length === 0 ? (
@@ -1860,136 +1537,107 @@ export default function CustomerDetailPage() {
                     No optical prescription recorded.
                   </Alert>
                 ) : (
-                  customer.prescriptions.map(
-                    (prescription, index) => (
-                      <Accordion
-                        key={prescription.id}
-                        disableGutters
-                        defaultExpanded={index === 0}
-                        variant="outlined"
-                        sx={{
-                          borderRadius: "12px !important",
-                          overflow: "hidden",
-                          "&:before": {
-                            display: "none",
-                          },
-                        }}
+                  customer.prescriptions.map((prescription, index) => (
+                    <Accordion
+                      key={prescription.id}
+                      disableGutters
+                      defaultExpanded={index === 0}
+                      variant="outlined"
+                      sx={{
+                        borderRadius: "12px !important",
+                        overflow: "hidden",
+                        "&:before": { display: "none" },
+                      }}
+                    >
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreOutlined />}
                       >
-                        <AccordionSummary
-                          expandIcon={<ExpandMoreOutlined />}
+                        <Stack
+                          direction="row"
+                          spacing={1.5}
+                          sx={{ alignItems: "center", flexWrap: "wrap" }}
                         >
-                          <Stack
-                            direction="row"
-                            spacing={1.5}
-                            sx={{
-                              alignItems: "center",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <Typography
-                              sx={{ fontWeight: 700 }}
-                            >
-                              Prescription {index + 1}
-                            </Typography>
+                          <Typography sx={{ fontWeight: 700 }}>
+                            Prescription {index + 1}
+                          </Typography>
 
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              label={formatDate(
-                                prescription.createdAt
-                              )}
-                            />
-
-                            {index === 0 && (
-                              <Chip
-                                size="small"
-                                color="primary"
-                                label="Latest"
-                              />
-                            )}
-                          </Stack>
-                        </AccordionSummary>
-
-                        <AccordionDetails
-                          sx={{
-                            borderTop: 1,
-                            borderColor: "divider",
-                            p: { xs: 1, md: 2 },
-                          }}
-                        >
-                          <PrescriptionTable
-                            prescription={prescription}
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={formatDate(prescription.createdAt)}
                           />
 
-                          <Stack
-                            direction="row"
-                            spacing={1}
-                            sx={{
-                              mt: 2,
-                              flexWrap: "wrap",
-                              gap: 1,
+                          {index === 0 && (
+                            <Chip
+                              size="small"
+                              color="primary"
+                              label="Latest"
+                            />
+                          )}
+                        </Stack>
+                      </AccordionSummary>
+
+                      <AccordionDetails
+                        sx={{
+                          borderTop: 1,
+                          borderColor: "divider",
+                          p: { xs: 1, md: 2 },
+                        }}
+                      >
+                        <PrescriptionTable
+                          prescription={prescription}
+                        />
+
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}
+                        >
+                          <Button
+                            variant="outlined"
+                            startIcon={<PrintOutlined />}
+                            onClick={() =>
+                              handlePrint(
+                                prescriptionHtml(customer, prescription),
+                                "Optical Prescription"
+                              )
+                            }
+                          >
+                            Print Prescription
+                          </Button>
+
+                          <Button
+                            variant="outlined"
+                            disabled={documentBusy}
+                            startIcon={<PictureAsPdfOutlined />}
+                            onClick={() => {
+                              void handlePdf(
+                                prescriptionHtml(customer, prescription),
+                                `prescription-${prescription.id}.pdf`,
+                                "prescription"
+                              );
                             }}
                           >
-                            <Button
-                              variant="outlined"
-                              startIcon={<PrintOutlined />}
-                              onClick={() =>
-                                handlePrint(
-                                  prescriptionHtml(
-                                    customer,
-                                    prescription
-                                  ),
-                                  "Optical Prescription"
-                                )
-                              }
-                            >
-                              Print Prescription
-                            </Button>
-
-                            <Button
-                              variant="outlined"
-                              disabled={documentBusy}
-                              startIcon={<PictureAsPdfOutlined />}
-                              onClick={() => {
-                                void handlePdf(
-                                  prescriptionHtml(
-                                    customer,
-                                    prescription
-                                  ),
-                                  `prescription-${prescription.id}.pdf`,
-                                  "prescription"
-                                );
-                              }}
-                            >
-                              Share / Save PDF
-                            </Button>
-                          </Stack>
-                        </AccordionDetails>
-                      </Accordion>
-                    )
-                  )
+                            Share / Save PDF
+                          </Button>
+                        </Stack>
+                      </AccordionDetails>
+                    </Accordion>
+                  ))
                 )}
               </Stack>
             )}
 
-            {/* STAFF NOTES */}
             {activeTab === 2 && (
               <Stack spacing={2}>
-                <Alert
-                  severity="info"
-                  icon={<LockOutlined />}
-                >
-                  Staff-only information. Never include
-                  these notes in PDFs or WhatsApp messages.
+                <Alert severity="info" icon={<LockOutlined />}>
+                  Staff-only information. Never include these notes
+                  in customer PDFs or WhatsApp messages.
                 </Alert>
 
                 <Paper
                   variant="outlined"
-                  sx={{
-                    p: 2.5,
-                    borderRadius: 2,
-                    minHeight: 100,
-                  }}
+                  sx={{ p: 2.5, borderRadius: 2, minHeight: 100 }}
                 >
                   <Typography
                     sx={{
@@ -1997,8 +1645,7 @@ export default function CustomerDetailPage() {
                       overflowWrap: "anywhere",
                     }}
                   >
-                    {customer.notes ||
-                      "No internal notes added."}
+                    {customer.notes || "No internal notes added."}
                   </Typography>
                 </Paper>
               </Stack>
@@ -2006,12 +1653,11 @@ export default function CustomerDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Bottom navigation */}
         <Stack
           direction="row"
           sx={{
-            justifyContent: "space-between",
             alignItems: "center",
+            justifyContent: "space-between",
             flexWrap: "wrap",
             gap: 1,
           }}
@@ -2036,19 +1682,17 @@ export default function CustomerDetailPage() {
         </Stack>
       </Stack>
 
-      {/* Receipt preview for one selected purchase */}
+      {/* nik - A separate dialog for the selected purchase. */}
       {selectedRecord && (
         <ReceiptPreviewDialog
           key={selectedRecord.id}
           customer={customer}
           record={selectedRecord}
           busy={documentBusy}
-          onClose={() =>
-            setSelectedRecord(null)
-          }
+          onClose={() => setSelectedRecord(null)}
           onPrint={handlePrint}
           onPdf={handlePdf}
-          onWhatsApp={handleWhatsApp}
+          onWhatsAppPdf={handleWhatsAppPdf}
         />
       )}
     </Box>
