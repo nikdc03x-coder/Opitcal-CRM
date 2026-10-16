@@ -40,7 +40,7 @@ const fields = {
 export const analyticsQuerySchema = z
   .object({
     ...fields,
-    search: z.string().trim().max(100).default(""),
+    search: z.string().trim().max(150).default(""),
     page: integer(1000000).default(1),
     pageSize: integer(100).default(25),
     sort: z.enum(["date", "customer", "amount"]).default("date"),
@@ -51,9 +51,10 @@ export const analyticsQuerySchema = z
     company: scalar,
     vision: scalar,
     lensName: scalar,
-    coating: scalar,
-    frame: scalar,
-    lens: scalar,
+    // nik - Saved descriptions and catalog coatings may be longer than a brand/model name.
+    coating: z.string().trim().max(200).optional(),
+    frame: z.string().trim().max(1000).optional(),
+    lens: z.string().trim().max(1000).optional(),
     mix: z.enum(["Frame Only", "Lens Only", "Frame + Lens", "Unclassified"]).optional(),
     top: z.enum(["5", "10"]).transform(Number).default(5),
     comparePeriod: z.enum([...analyticsPresets, "previous"]).default("previous"),

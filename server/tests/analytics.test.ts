@@ -77,6 +77,10 @@ test("analytics input rejects impossible dates, reversed ranges, arrays, unsafe 
   ])
     assert.throws(() => parseAnalyticsQuery(query));
   assert.equal(parseAnalyticsQuery({ page: "50", pageSize: "100" }).page, 50);
+  assert.equal(
+    parseAnalyticsQuery({ coating: "x".repeat(200), frame: "x".repeat(301) }).coating?.length,
+    200,
+  );
 });
 
 test("report filters do not leak hidden date fields or overwrite explorer selections", () => {

@@ -131,6 +131,7 @@ export default function AnalyticsFilters({
                   <Chip
                     key={key}
                     label={`${key}: ${value[key]}`}
+                    sx={{ maxWidth: "100%" }}
                     onDelete={() => onChange({ ...value, [key]: undefined })}
                   />
                 ))}

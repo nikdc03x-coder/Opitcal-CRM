@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { prisma } from "../../src/config/database";
 import { Prisma } from "../../src/generated/prisma/client";
 import { getShopId } from "../../src/services/shopService";
+import { getDashboardAnalytics } from "../../src/services/dashboardService";
 import { parseAnalyticsQuery } from "../../src/validators/analyticsValidator";
 import * as analytics from "../../src/services/analyticsService";
 import { purchaseMixSql, summaryFor } from "../../src/services/analyticsQueries";
@@ -128,6 +129,18 @@ async function main() {
   );
   const historical = await analytics.getAnalyticsHistorical();
   assert.ok(historical.years.every((year) => year.months.length === 12));
+  const existing = await getDashboardAnalytics();
+  assert.equal(historical.totalCustomers, existing.totalCustomers);
+  for (const year of historical.years) {
+    const original = existing.years.find((row) => row.year === year.year)!;
+    assert.equal(year.purchases, original.purchases);
+    assert.ok(new Prisma.Decimal(year.value).equals(original.value));
+    for (const month of year.months) {
+      assert.equal(month.purchases, original.months[month.month - 1].purchases);
+      assert.ok(new Prisma.Decimal(month.value).equals(original.months[month.month - 1].value));
+    }
+  }
+  console.log(JSON.stringify({ originalExplorerKpiAndMonthlyValueParityVerified: true }));
   console.log(JSON.stringify({ productsCustomersMixComparisonAndHistoryVerified: true }));
   let lines = 0,
     footer = "";
