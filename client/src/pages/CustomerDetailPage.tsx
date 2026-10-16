@@ -7,6 +7,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  FormControlLabel,
+  Checkbox,
   Tabs,
   Tab,
   Tooltip,
@@ -41,6 +43,18 @@ import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
 import ExpandMoreOutlined from "@mui/icons-material/ExpandMoreOutlined";
 import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
 import ContentCopyOutlined from "@mui/icons-material/ContentCopyOutlined";
+import PrintOutlined from "@mui/icons-material/PrintOutlined";
+import PictureAsPdfOutlined from "@mui/icons-material/PictureAsPdfOutlined";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+
+import {
+  receiptHtml,
+  prescriptionHtml,
+  printDocument,
+  shareOrDownloadPdf,
+  whatsappReceiptMessage,
+  openCustomerWhatsApp,
+} from "../utils/customerDocuments";
 
 import {
   Link,
@@ -476,6 +490,11 @@ export default function CustomerDetailPage() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState(0);
   const [copyMessage, setCopyMessage] = useState("");
+  // nik - Track document generation and user feedback.
+  const [documentMessage, setDocumentMessage] = useState("");
+  const [documentBusy, setDocumentBusy] = useState(false);
+  // nik - Staff can omit prescription details from customer communications.
+  const [includePrescription, setIncludePrescription] = useState(true);
 
   // nik - Abort outdated customer requests when refreshing or switching customers.
   const requestRef = useRef<AbortController | null>(null);
@@ -605,6 +624,74 @@ await navigator.clipboard.writeText(customer.id);
       setCopyMessage("Could not copy Customer ID");
     }
   }
+  // nik - Print the exact customer document selected by staff.
+function handlePrint(
+  content: string,
+  title: string
+) {
+  try {
+    printDocument(content, title);
+  } catch (err) {
+    setDocumentMessage(
+      err instanceof Error ? err.message : "Unable to print."
+    );
+  }
+}
+
+// nik - Share a PDF where supported, otherwise save it.
+// On desktop staff can attach the downloaded file manually.
+async function handlePdf(
+  content: string,
+  filename: string,
+  type: "receipt" | "prescription"
+) {
+  if (documentBusy) return;
+
+  setDocumentBusy(true);
+  setDocumentMessage("");
+
+  try {
+    const result = await shareOrDownloadPdf(
+      content,
+      filename,
+      type
+    );
+
+    setDocumentMessage(
+      result === "shared"
+        ? "The device share menu was used. Confirm the recipient and send."
+        : "PDF downloaded. Open the customer's WhatsApp chat and attach the file manually."
+    );
+  } catch (err) {
+    setDocumentMessage(
+      err instanceof Error
+        ? err.message
+        : "Unable to prepare the PDF."
+    );
+  } finally {
+    setDocumentBusy(false);
+  }
+}
+
+// nik - Open WhatsApp with the selected purchase details.
+function handleWhatsApp(record: CustomerRecord, prescription: Prescription | null) {
+  if (!customer) return;
+
+  setDocumentMessage("");
+
+  try {
+    openCustomerWhatsApp(
+      customer.mobNumber,
+      whatsappReceiptMessage(customer, record, prescription)
+    );
+  } catch (err) {
+    setDocumentMessage(
+      err instanceof Error
+        ? err.message
+        : "Unable to open WhatsApp."
+    );
+  }
+}
 
   return (
     <Box sx={{ maxWidth: 1250, mx: "auto", pb: 6 }}>
@@ -654,7 +741,14 @@ await navigator.clipboard.writeText(customer.id);
 
         {error && <Alert severity="warning" onClose={() => setError("")}>Unable to refresh: {error}. Showing the last available information.</Alert>}
         {copyMessage && <Alert severity="info" onClose={() => setCopyMessage("")}>{copyMessage}</Alert>}
-
+{documentMessage && (
+  <Alert
+    severity="info"
+    onClose={() => setDocumentMessage("")}
+  >
+    {documentMessage}
+  </Alert>
+)}
         {/* Small, useful facts are easier to scan than repeated full-size cards. */}
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 4 }}>
@@ -760,6 +854,43 @@ await navigator.clipboard.writeText(customer.id);
                           <Typography variant="h6" sx={{ fontWeight: 800, color: "primary.main" }}>{formatMoney(record.mrp)}</Typography>
                         </Stack>
                       </Paper>
+                      {/* nik - Include only the prescription linked to this purchase. */}
+                      {record.prescriptionId && customer.prescriptions.some((p) => p.id === record.prescriptionId) && (
+                        <FormControlLabel
+                          control={<Checkbox size="small" checked={includePrescription} onChange={(_, checked) => setIncludePrescription(checked)} />}
+                          label="Include linked prescription in receipt, PDF and WhatsApp"
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+                      {/* nik - Actions apply to this specific purchase. */}
+                      <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<PrintOutlined />}
+                          onClick={() => handlePrint(receiptHtml(customer, record, includePrescription ? customer.prescriptions.find((p) => p.id === record.prescriptionId) ?? null : null), "Purchase Receipt")}
+                        >
+                          Print Full Receipt
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          disabled={documentBusy}
+                          startIcon={<PictureAsPdfOutlined />}
+                          onClick={() => {
+                            void handlePdf(receiptHtml(customer, record, includePrescription ? customer.prescriptions.find((p) => p.id === record.prescriptionId) ?? null : null), `receipt-${record.id}.pdf`, "receipt");
+                          }}
+                        >
+                          Share / Save PDF
+                        </Button>
+                        <Button
+                          variant="contained"
+                          color="success"
+                          disabled={!customer.mobNumber}
+                          startIcon={<WhatsAppIcon />}
+                          onClick={() => handleWhatsApp(record, includePrescription ? customer.prescriptions.find((p) => p.id === record.prescriptionId) ?? null : null)}
+                        >
+                          WhatsApp Full Receipt
+                        </Button>
+                      </Stack>
                     </AccordionDetails>
                   </Accordion>
                 ))}
@@ -779,6 +910,26 @@ await navigator.clipboard.writeText(customer.id);
                     </AccordionSummary>
                     <AccordionDetails sx={{ borderTop: 1, borderColor: "divider", p: { xs: 1, md: 2 } }}>
                       <PrescriptionTable prescription={prescription} />
+                      {/* nik - Print or share this exact optical prescription. */}
+                      <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<PrintOutlined />}
+                          onClick={() => handlePrint(prescriptionHtml(customer, prescription), "Optical Prescription")}
+                        >
+                          Print Prescription
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          disabled={documentBusy}
+                          startIcon={<PictureAsPdfOutlined />}
+                          onClick={() => {
+                            void handlePdf(prescriptionHtml(customer, prescription), `prescription-${prescription.id}.pdf`, "prescription");
+                          }}
+                        >
+                          Share / Save PDF
+                        </Button>
+                      </Stack>
                     </AccordionDetails>
                   </Accordion>
                 ))}
