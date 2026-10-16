@@ -116,6 +116,7 @@ export type AnalyticsHistoricalYear = {
   purchases: number;
   value: string;
   elapsedValue: string;
+  yearOnYear: number | null;
   months: { month: number; purchases: number; value: string }[];
   categories: { name: string; value: string }[];
 };

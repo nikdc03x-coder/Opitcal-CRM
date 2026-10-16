@@ -341,6 +341,25 @@ export async function getAnalyticsMix(query: AnalyticsQuery): Promise<AnalyticsM
   };
 }
 
+// nik - Derive historical growth with Decimal arithmetic, then send the finished percentage to the UI.
+export function calculateHistoricalChange(
+  years: AnalyticsHistoricalYear[],
+  selectedYear: number,
+  currentYear: number,
+): number | null {
+  const selected = years.find((row) => row.year === selectedYear),
+    previous = years.find((row) => row.year === selectedYear - 1);
+  if (!selected || !previous) return null;
+  const value = selectedYear === currentYear ? selected.elapsedValue : selected.value;
+  const before = selectedYear === currentYear ? previous.elapsedValue : previous.value;
+  if (new Prisma.Decimal(before).isZero()) return null;
+  return new Prisma.Decimal(value)
+    .minus(before)
+    .div(before)
+    .times(100)
+    .toDecimalPlaces(2)
+    .toNumber();
+}
 export async function getAnalyticsHistorical(): Promise<AnalyticsHistorical> {
   const shopId = await getShopId(),
     today = shopToday(),
@@ -389,6 +408,7 @@ export async function getAnalyticsHistorical(): Promise<AnalyticsHistorical> {
       purchases: 0,
       value: "0.00",
       elapsedValue: "0.00",
+      yearOnYear: null,
       months: Array.from({ length: 12 }, (_, index) => ({
         month: index + 1,
         purchases: 0,
@@ -414,6 +434,8 @@ export async function getAnalyticsHistorical(): Promise<AnalyticsHistorical> {
     const category = year.categories.find((item) => item.name === row.category);
     if (category) category.value = add(category.value, row.value);
   }
+  for (const year of years)
+    year.yearOnYear = calculateHistoricalChange(years, year.year, currentYear);
   return {
     today: today.toISOString().slice(0, 10),
     currentYear,
