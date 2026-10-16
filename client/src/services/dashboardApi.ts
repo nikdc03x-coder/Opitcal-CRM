@@ -1,18 +1,25 @@
 
-// nik - Keep dashboard API requests separate from customer APIs.
+// nik - Shared types for the interactive analytics dashboard.
 
-export type DashboardAnalyticsData = {
-  summary: {
-    totalCustomers: number;
-    totalPurchases: number;
-    totalPurchaseValue: number;
-    last30DaysPurchases: number;
-  };
-  monthly: {
-    month: string;
+export type AnalyticsYear = {
+  year: number;
+  purchases: number;
+  value: number;
+  months: {
+    month: number;
     purchases: number;
     value: number;
   }[];
+  categories: {
+    name: string;
+    value: number;
+  }[];
+};
+
+export type DashboardAnalyticsData = {
+  currentYear: number;
+  totalCustomers: number;
+  years: AnalyticsYear[];
   recent: {
     id: string;
     customerId: string;
@@ -21,14 +28,13 @@ export type DashboardAnalyticsData = {
     lens: string | null;
     value: number;
     purchaseDate: string | null;
-    createdAt: string;
   }[];
 };
 
+// nik - Fetch the full three-year dataset only once.
 export async function getDashboardAnalytics(
   signal?: AbortSignal
 ): Promise<DashboardAnalyticsData> {
-  // nik - Use the existing Vite proxy and Admin cookie.
   const response = await fetch("/api/dashboard", {
     credentials: "include",
     signal,
@@ -38,7 +44,8 @@ export async function getDashboardAnalytics(
 
   if (!response.ok || !result?.success) {
     throw new Error(
-      result?.message || `Dashboard request failed (${response.status}).`
+      result?.message ||
+        `Unable to load analytics (HTTP ${response.status}).`
     );
   }
 
