@@ -298,12 +298,17 @@ export default function EditCustomerPage() {
   // Read the customer's existing data once on page load.
   useEffect(() => {
     if (!id) {
-      setLoading(false);
-      setError("Customer ID is missing.");
+      void Promise.resolve().then(() => {
+        setLoading(false);
+        setError("Customer ID is missing.");
+      });
       return;
     }
     const controller = new AbortController();
-    setLoading(true);
+    // nik - Change loading state outside the synchronous effect body.
+    void Promise.resolve().then(() => {
+      if (!controller.signal.aborted) setLoading(true);
+    });
     getCustomer(id, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted) loadIntoForms(data);

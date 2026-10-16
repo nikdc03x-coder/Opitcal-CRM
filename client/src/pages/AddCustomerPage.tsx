@@ -820,7 +820,10 @@ export default function AddCustomerPage() {
     <Box
       component="form"
       noValidate
-      onSubmit={handleSubmit(onSubmit)}
+      onSubmit={(event) => {
+        // nik - Read the form only when the user submits it.
+        void handleSubmit(onSubmit)(event);
+      }}
       sx={{
         maxWidth: 1160,
         mx: "auto",

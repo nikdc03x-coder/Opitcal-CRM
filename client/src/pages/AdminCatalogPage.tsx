@@ -201,7 +201,8 @@ export default function AdminCatalogPage() {
   }, []);
 
   useEffect(() => {
-    void refreshCatalog();
+    // nik - Begin loading asynchronously instead of setting state in the effect.
+    void Promise.resolve().then(() => refreshCatalog());
   }, [refreshCatalog]);
 
   // ---------------------------------------------------

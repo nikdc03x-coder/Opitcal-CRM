@@ -1059,7 +1059,8 @@ export async function createPdf(content: string): Promise<Blob> {
     }
 
     throw new Error(
-      "Unable to generate the PDF. Please try again."
+      "Unable to generate the PDF. Please try again.",
+      { cause: error }
     );
   } finally {
     // nik - Always remove the temporary document.
@@ -1125,7 +1126,7 @@ export async function shareOrDownloadPdf(
         error instanceof DOMException &&
         error.name === "AbortError"
       ) {
-        throw new Error("Sharing cancelled.");
+        throw new Error("Sharing cancelled.", { cause: error });
       }
     }
   }

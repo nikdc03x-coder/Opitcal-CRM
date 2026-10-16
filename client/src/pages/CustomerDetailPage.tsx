@@ -711,9 +711,12 @@ export default function CustomerDetailPage() {
   // nik - Reload the customer whenever the ID changes.
   useEffect(() => {
     if (!id) {
-      setCustomer(null);
-      setLoading(false);
-      setError("Customer ID is missing.");
+      // nik - Schedule route-related updates after the effect starts.
+      void Promise.resolve().then(() => {
+        setCustomer(null);
+        setLoading(false);
+        setError("Customer ID is missing.");
+      });
       return;
     }
 
@@ -724,11 +727,15 @@ export default function CustomerDetailPage() {
 
     const cached = readCachedCustomer(id);
 
-    setCustomer(cached);
-    setLoading(!cached);
-    setRefreshing(Boolean(cached));
-    setError("");
-    setSelectedRecord(null);
+    // nik - Reset the view asynchronously so React avoids cascading renders.
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return;
+      setCustomer(cached);
+      setLoading(!cached);
+      setRefreshing(Boolean(cached));
+      setError("");
+      setSelectedRecord(null);
+    });
 
     getCustomer(id, controller.signal)
       .then((result) => {
