@@ -3,69 +3,42 @@ import express from "express";
 import cors from "cors";
 
 import healthRoutes from "./routes/healthRoutes";
+import authRoutes from "./routes/authRoutes";
 import customerRoutes from "./routes/customerRoutes";
 import catalogRoutes from "./routes/catalogRoutes";
 
+import { requireAdmin } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
-
-// nik - Only expose development data APIs locally
-// until real admin authentication is implemented.
+import dashboardRoutes from "./routes/dashboardRoutes";
+// nik - Create and configure the CRM application.
 const app = express();
 
+const clientUrl =
+  process.env.CLIENT_URL || "http://localhost:5173";
+
+// nik - Allow the frontend to send session cookies.
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: clientUrl,
+    credentials: true,
   })
 );
 
 app.use(express.json({ limit: "1mb" }));
 
-// Health checks can remain publicly reachable.
+// nik - Health checks don't require login.
 app.use("/api/health", healthRoutes);
 
-// These APIs must not be publicly deployed before
-// authentication and authorization are complete.
-if (process.env.NODE_ENV === "development") {
-  // Reject requests not connected from this computer.
-  // CORS alone does not protect backend write operations.
-  app.use("/api/customers", (req, res, next) => {
-    const address = req.socket.remoteAddress;
+// nik - Login, logout and current Admin session.
+app.use("/api/auth", authRoutes);
+// nik - Dashboard statistics require Admin access.
+app.use("/api/dashboard", requireAdmin, dashboardRoutes);
+// nik - These routes require Admin authentication.
+// Local development access is handled inside requireAdmin.
+app.use("/api/customers", requireAdmin, customerRoutes);
+app.use("/api/catalog", requireAdmin, catalogRoutes);
 
-    if (
-      address !== "127.0.0.1" &&
-      address !== "::1" &&
-      address !== "::ffff:127.0.0.1"
-    ) {
-      res.status(403).json({
-        success: false,
-        message: "Local development access only.",
-      });
-      return;
-    }
-
-    next();
-  }, customerRoutes);
-
-  app.use("/api/catalog", (req, res, next) => {
-    const address = req.socket.remoteAddress;
-
-    if (
-      address !== "127.0.0.1" &&
-      address !== "::1" &&
-      address !== "::ffff:127.0.0.1"
-    ) {
-      res.status(403).json({
-        success: false,
-        message: "Local development access only.",
-      });
-      return;
-    }
-
-    next();
-  }, catalogRoutes);
-}
-
-// Handle routes that do not exist.
+// nik - Handle unknown API routes.
 app.use((_req, res) => {
   res.status(404).json({
     success: false,
@@ -73,7 +46,7 @@ app.use((_req, res) => {
   });
 });
 
-// Keep unexpected error handling last.
+// nik - Keep error handling last.
 app.use(errorHandler);
 
 export default app;

@@ -10,7 +10,7 @@
  */
 
 import { useState, type FormEvent } from "react";
-
+import DashboardAnalytics from "../components/dashboard/DashboardAnalytics";
 import {
   Box,
   Button,
@@ -368,7 +368,6 @@ export default function DashboardPage() {
                 }
               />
             </Grid>
-
             {/* Manage catalog */}
             <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
               <ActionCard
@@ -388,6 +387,7 @@ export default function DashboardPage() {
             </Grid>
           </Grid>
         </Box>
+<DashboardAnalytics />
 
         {/* ------------------------------------------
             WORKFLOW GUIDANCE
