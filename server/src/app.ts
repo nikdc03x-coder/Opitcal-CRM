@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoutes";
 import customerRoutes from "./routes/customerRoutes";
 import catalogRoutes from "./routes/catalogRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
+import analyticsRoutes from "./routes/analyticsRoutes";
 
 // New manual spectacle order tracking endpoints.
 import orderRoutes from "./routes/orderRoutes";
@@ -48,6 +49,9 @@ app.use("/api/auth", authRoutes);
 
 // Dashboard statistics require Admin access.
 app.use("/api/dashboard", requireAdmin, dashboardRoutes);
+
+// nik - Analytics and CSV exports share the existing authenticated shop access.
+app.use("/api/analytics", requireAdmin, analyticsRoutes);
 
 // Customer information and purchase history.
 app.use("/api/customers", requireAdmin, customerRoutes);
