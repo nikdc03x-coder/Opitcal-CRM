@@ -1,0 +1,1347 @@
+
+========== server/prisma/schema.prisma ==========
+//
+// Optical CRM — PostgreSQL Database
+//
+// Stores customers, prescriptions, purchase history,
+// product catalogs, and admin authentication.
+//
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------
+// 1. PRICING MODE
+// -----------------------------------------------------
+
+enum PricingMode {
+  SPLIT
+  MRP_ONLY
+}
+
+// -----------------------------------------------------
+// 2. SHOP
+// -----------------------------------------------------
+
+// nik - Each shop has its own customers and products.
+model Shop {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customers    Customer[]
+  frameCatalog FrameCatalog[]
+  lensCatalog  LensCatalog[]
+}
+
+// -----------------------------------------------------
+// 3. CUSTOMER
+// -----------------------------------------------------
+
+// nik - Personal details and staff-only notes.
+model Customer {
+  id        String  @id @default(uuid())
+  shopId    String
+  name      String
+  mobNumber String?
+  gender    String?
+  reference String?
+  notes     String? @db.Text
+  isActive  Boolean @default(true)
+
+  // Preserve original MongoDB IDs.
+  legacyMongoId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop          Shop             @relation(fields: [shopId], references: [id])
+  prescriptions Prescription[]
+  records       CustomerRecord[]
+
+  @@unique([shopId, legacyMongoId])
+  // Multiple customers can share a phone number.
+  @@index([shopId, mobNumber])
+  @@index([shopId, name])
+}
+
+// -----------------------------------------------------
+// 4. PRESCRIPTION HISTORY
+// -----------------------------------------------------
+
+// nik - Each customer can have multiple prescriptions.
+model Prescription {
+  id         String   @id @default(uuid())
+  customerId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // RIGHT EYE — DISTANCE
+  reDistSph  Decimal? @db.Decimal(5, 2)
+  reDistCyl  Decimal? @db.Decimal(5, 2)
+  reDistAxis Int?
+
+  // RIGHT EYE — NEAR
+  reNearSph  Decimal? @db.Decimal(5, 2)
+  reNearCyl  Decimal? @db.Decimal(5, 2)
+  reNearAxis Int?
+
+  // LEFT EYE — DISTANCE
+  leDistSph  Decimal? @db.Decimal(5, 2)
+  leDistCyl  Decimal? @db.Decimal(5, 2)
+  leDistAxis Int?
+
+  // LEFT EYE — NEAR
+  leNearSph  Decimal? @db.Decimal(5, 2)
+  leNearCyl  Decimal? @db.Decimal(5, 2)
+  leNearAxis Int?
+
+  customer Customer         @relation(fields: [customerId], references: [id])
+  records  CustomerRecord[]
+
+  @@index([customerId, createdAt])
+}
+
+// -----------------------------------------------------
+// 5. FRAME CATALOG
+// -----------------------------------------------------
+
+// nik - Catalog changes never rewrite old purchases.
+model FrameCatalog {
+  id     String @id @default(uuid())
+  shopId String
+
+  brand      String  @db.VarChar(150)
+  model      String  @db.VarChar(150)
+  frameCode  String? @db.VarChar(100)
+  frameStyle String? @db.VarChar(100)
+
+  description String? @db.Text
+
+  // Inactive products stay in purchase history.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop    Shop             @relation(fields: [shopId], references: [id])
+  records CustomerRecord[]
+
+  @@index([shopId, isActive, brand])
+  @@index([shopId, model])
+}
+
+// -----------------------------------------------------
+// 6. LENS CATALOG
+// -----------------------------------------------------
+
+// nik - Store lens information independently.
+model LensCatalog {
+  id     String @id @default(uuid())
+  shopId String
+
+  company    String  @db.VarChar(150)
+  lensName   String  @db.VarChar(150)
+  visionType String  @db.VarChar(100)
+  coating    String? @db.VarChar(200)
+
+  lensCode    String? @db.VarChar(100)
+  description String? @db.Text
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop    Shop             @relation(fields: [shopId], references: [id])
+  records CustomerRecord[]
+
+  @@index([shopId, isActive, company])
+  @@index([shopId, lensName])
+  @@index([shopId, visionType])
+}
+
+// -----------------------------------------------------
+// 7. CUSTOMER PURCHASE HISTORY
+// -----------------------------------------------------
+
+// nik - Preserve purchase prices and product snapshots.
+model CustomerRecord {
+  id             String  @id @default(uuid())
+  customerId     String
+  prescriptionId String?
+
+  // Actual saved product descriptions.
+  specsType String?
+  lensType  String?
+
+  // Optional catalog references.
+  frameCatalogId String?
+  lensCatalogId  String?
+
+  // Split pricing or final MRP.
+  pricingMode PricingMode @default(MRP_ONLY)
+
+  frameRate Decimal? @db.Decimal(12, 2)
+  lensRate  Decimal? @db.Decimal(12, 2)
+  mrp       Decimal  @db.Decimal(12, 2)
+
+  // MongoDB migration compatibility.
+  legacyMongoId String?
+
+  // Actual date of purchase.
+  purchaseDate DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships.
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+
+  frameCatalog FrameCatalog? @relation(fields: [frameCatalogId], references: [id], onDelete: SetNull)
+  lensCatalog  LensCatalog?  @relation(fields: [lensCatalogId], references: [id], onDelete: SetNull)
+
+  @@unique([customerId, legacyMongoId])
+  @@index([customerId, createdAt])
+  @@index([frameCatalogId])
+  @@index([lensCatalogId])
+}
+
+// -----------------------------------------------------
+// 8. SINGLE ADMIN ACCOUNT
+// -----------------------------------------------------
+
+// nik - One admin account for the complete database.
+// The application will always use ID 1.
+// A database constraint will enforce this during migration.
+model Admin {
+  id           Int    @id @default(1)
+  username     String @unique
+  passwordHash String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions AdminSession[]
+
+  @@map("admins")
+}
+
+// -----------------------------------------------------
+// 9. ADMIN LOGIN SESSIONS
+// -----------------------------------------------------
+
+// nik - Remember active admin logins securely.
+// Only a hash of each session token is stored.
+model AdminSession {
+  id        String   @id @default(uuid())
+  adminId   Int
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([expiresAt])
+}
+
+========== server/src/routes/customerRoutes.ts ==========
+
+import { Router } from "express";
+
+import {
+  listCustomers,
+  showCustomer,
+  addCustomer,
+  editCustomer,
+} from "../controllers/customerController";
+
+import {
+  editPurchase,
+  editPrescription,
+} from "../controllers/historyController";
+
+// nik - Customer routes for the Optical CRM.
+const router = Router();
+
+// Search customers by name or mobile number.
+router.get("/", listCustomers);
+
+// Register a new customer.
+router.post("/", addCustomer);
+
+// View one customer using their unique ID.
+router.get("/:id", showCustomer);
+
+// Edit a customer's personal information.
+router.patch("/:id", editCustomer);
+
+// Edit one specific purchase, including its purchase date.
+router.patch("/:id/records/:recordId", editPurchase);
+
+// Edit one specific prescription from the customer's history.
+router.patch(
+  "/:id/prescriptions/:prescriptionId",
+  editPrescription
+);
+
+export default router;
+
+========== server/src/routes/catalogRoutes.ts ==========
+
+import { Router } from "express";
+
+import {
+  getFrames,
+  addFrame,
+  editFrame,
+  getLenses,
+  addLens,
+  editLens,
+} from "../controllers/catalogController";
+
+// nik - Local development catalog management API.
+const router = Router();
+
+// Frame catalog.
+router.get("/frames", getFrames);
+router.post("/frames", addFrame);
+router.patch("/frames/:id", editFrame);
+
+// Lens catalog.
+router.get("/lenses", getLenses);
+router.post("/lenses", addLens);
+router.patch("/lenses/:id", editLens);
+
+export default router;
+
+========== server/src/controllers/customerController.ts ==========
+
+import type { Request, Response } from "express";
+
+import {
+  searchCustomers,
+  getCustomerById,
+  createCustomer,
+  updateCustomer,
+} from "../services/customerService";
+
+import {
+  customerSearchSchema,
+  customerIdSchema,
+} from "../validators/customerValidator";
+
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+} from "../validators/customerWriteValidator";
+
+// GET /api/customers
+// Return all matching customers by name or phone.
+export async function listCustomers(
+  req: Request,
+  res: Response
+) {
+  const result = customerSearchSchema.safeParse(req.query);
+
+  if (!result.success) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid search parameters.",
+      errors: result.error.flatten(),
+    });
+    return;
+  }
+
+  const { phone, name } = result.data;
+  const customers = await searchCustomers(phone, name);
+
+  res.status(200).json({
+    success: true,
+    count: customers.length,
+    data: customers,
+  });
+}
+
+// GET /api/customers/:id
+// Return one customer with their complete details.
+export async function showCustomer(
+  req: Request,
+  res: Response
+) {
+  const id = customerIdSchema.safeParse(req.params.id);
+
+  if (!id.success) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid customer ID.",
+    });
+    return;
+  }
+
+  const customer = await getCustomerById(id.data);
+
+  if (!customer) {
+    res.status(404).json({
+      success: false,
+      message: "Customer not found.",
+    });
+    return;
+  }
+
+  res.status(200).json({
+    success: true,
+    data: customer,
+  });
+}
+
+// POST /api/customers
+// Validate and register the customer in PostgreSQL.
+export async function addCustomer(
+  req: Request,
+  res: Response
+) {
+  const result = createCustomerSchema.safeParse(req.body);
+
+  if (!result.success) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid customer information.",
+      errors: result.error.flatten(),
+    });
+    return;
+  }
+
+  const customer = await createCustomer(result.data);
+
+  res.status(201).json({
+    success: true,
+    message: "Customer created successfully.",
+    data: customer,
+  });
+}
+
+// PATCH /api/customers/:id
+// Update an existing customer and return the result.
+export async function editCustomer(
+  req: Request,
+  res: Response
+) {
+  const id = customerIdSchema.safeParse(req.params.id);
+
+  if (!id.success) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid customer ID.",
+    });
+    return;
+  }
+
+  const result = updateCustomerSchema.safeParse(req.body);
+
+  if (!result.success) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid update information.",
+      errors: result.error.flatten(),
+    });
+    return;
+  }
+
+  const customer = await updateCustomer(id.data, result.data);
+
+  if (!customer) {
+    res.status(404).json({
+      success: false,
+      message: "Customer not found.",
+    });
+    return;
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Customer updated successfully.",
+    data: customer,
+  });
+}
+
+========== server/src/controllers/historyController.ts ==========
+
+import type {
+  Request,
+  Response,
+  NextFunction,
+} from "express";
+
+import { z } from "zod";
+
+import {
+  purchaseUpdateSchema,
+  prescriptionUpdateSchema,
+} from "../validators/historyValidator";
+
+import {
+  updateCustomerPurchase,
+  updateCustomerPrescription,
+} from "../services/customerHistoryService";
+
+// Validate the IDs before querying PostgreSQL.
+const paramsSchema = z.object({
+  id: z.string().uuid(),
+  recordId: z.string().uuid().optional(),
+  prescriptionId: z.string().uuid().optional(),
+});
+
+// Update one selected purchase record.
+export async function editPurchase(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const params = paramsSchema.safeParse(req.params);
+    const body = purchaseUpdateSchema.safeParse(req.body);
+
+    if (!params.success || !params.data.recordId || !body.success) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid purchase ID or purchase details.",
+        errors: body.success ? undefined : body.error.flatten(),
+      });
+      return;
+    }
+
+    const record = await updateCustomerPurchase(
+      params.data.id,
+      params.data.recordId,
+      body.data
+    );
+
+    if (!record) {
+      res.status(404).json({
+        success: false,
+        message: "Purchase record not found.",
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: "Purchase updated successfully.",
+      data: record,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Update one selected prescription.
+export async function editPrescription(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const params = paramsSchema.safeParse(req.params);
+    const body = prescriptionUpdateSchema.safeParse(req.body);
+
+    if (
+      !params.success ||
+      !params.data.prescriptionId ||
+      !body.success
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid prescription ID or measurements.",
+        errors: body.success ? undefined : body.error.flatten(),
+      });
+      return;
+    }
+
+    const prescription = await updateCustomerPrescription(
+      params.data.id,
+      params.data.prescriptionId,
+      body.data
+    );
+
+    if (!prescription) {
+      res.status(404).json({
+        success: false,
+        message: "Prescription not found.",
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: "Prescription updated successfully.",
+      data: prescription,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+========== server/src/services/customerService.ts ==========
+
+import { prisma } from "../config/database";
+
+import type {
+  CreateCustomerInput,
+  UpdateCustomerInput,
+} from "../validators/customerWriteValidator";
+
+import { calculatePricing } from "../utils/pricing";
+import { mapPrescription } from "../utils/prescription";
+
+import {
+  resolveCatalogSelection,
+} from "./catalogSelection";
+
+// nik - All customer operations belong to the
+// demo shop until authentication is implemented.
+const DEMO_SHOP_CODE = "DEMO_SHOP";
+
+// --------------------------------------------------
+// 1. FIND SHOP
+// --------------------------------------------------
+
+async function getDemoShopId(): Promise<string> {
+  const shop = await prisma.shop.findUnique({
+    where: {
+      code: DEMO_SHOP_CODE,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!shop) {
+    throw new Error(
+      "Demo shop not found. Run the database seed first."
+    );
+  }
+
+  return shop.id;
+}
+
+// --------------------------------------------------
+// 2. SEARCH CUSTOMERS
+// --------------------------------------------------
+
+export async function searchCustomers(
+  phone?: string,
+  name?: string
+) {
+  const shopId = await getDemoShopId();
+
+  return prisma.customer.findMany({
+    where: {
+      shopId,
+      isActive: true,
+
+      ...(phone
+        ? {
+            mobNumber: {
+              contains: phone,
+            },
+          }
+        : {}),
+
+      ...(name
+        ? {
+            name: {
+              contains: name,
+              mode: "insensitive" as const,
+            },
+          }
+        : {}),
+    },
+
+    select: {
+      id: true,
+      name: true,
+      mobNumber: true,
+      gender: true,
+      createdAt: true,
+    },
+
+    orderBy: {
+      createdAt: "desc",
+    },
+
+    take: 50,
+  });
+}
+
+// --------------------------------------------------
+// 3. GET CUSTOMER DETAILS
+// --------------------------------------------------
+
+export async function getCustomerById(id: string) {
+  const shopId = await getDemoShopId();
+
+  return prisma.customer.findFirst({
+    where: {
+      id,
+      shopId,
+      isActive: true,
+    },
+
+    include: {
+      prescriptions: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
+
+      records: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
+    },
+  });
+}
+
+// --------------------------------------------------
+// 4. CREATE CUSTOMER
+// --------------------------------------------------
+
+export async function createCustomer(
+  data: CreateCustomerInput
+) {
+  const shopId = await getDemoShopId();
+
+  const pricing = calculatePricing(data.record);
+
+  const purchaseDate = data.purchaseDate
+    ? new Date(`${data.purchaseDate}T00:00:00.000Z`)
+    : null;
+
+  // Customer, prescription, and purchase are saved
+  // together or not at all.
+  return prisma.$transaction(async (tx) => {
+    // Validate catalog selections before creating
+    // any customer information.
+    const catalog = await resolveCatalogSelection(
+      tx,
+      shopId,
+      data.record
+    );
+
+    const customer = await tx.customer.create({
+      data: {
+        shopId,
+        name: data.name,
+        mobNumber: data.mobNumber,
+        gender: data.gender,
+        reference: data.reference,
+        notes: data.notes,
+      },
+    });
+
+    const prescription = data.prescription
+      ? await tx.prescription.create({
+          data: {
+            customerId: customer.id,
+            ...mapPrescription(data.prescription),
+          },
+        })
+      : null;
+
+    await tx.customerRecord.create({
+      data: {
+        customerId: customer.id,
+        prescriptionId: prescription?.id ?? null,
+
+        // Validated catalog IDs and historical names.
+        ...catalog,
+
+        ...pricing,
+
+        purchaseDate,
+      },
+    });
+
+    return tx.customer.findUniqueOrThrow({
+      where: {
+        id: customer.id,
+      },
+
+      include: {
+        prescriptions: true,
+        records: true,
+      },
+    });
+  });
+}
+
+// --------------------------------------------------
+// 5. UPDATE CUSTOMER
+// --------------------------------------------------
+
+// Historical purchase editing also has a separate
+// endpoint. Keep this existing method compatible.
+export async function updateCustomer(
+  id: string,
+  data: UpdateCustomerInput
+) {
+  const shopId = await getDemoShopId();
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.customer.findFirst({
+      where: {
+        id,
+        shopId,
+        isActive: true,
+      },
+
+      include: {
+        prescriptions: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 1,
+        },
+
+        records: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    // Resolve catalog selections before changing data.
+    const latestRecord = existing.records[0];
+
+    const catalog = data.record
+      ? await resolveCatalogSelection(
+          tx,
+          shopId,
+          data.record,
+          latestRecord
+            ? {
+                frameCatalogId: latestRecord.frameCatalogId,
+                lensCatalogId: latestRecord.lensCatalogId,
+                specsType: latestRecord.specsType,
+                lensType: latestRecord.lensType,
+              }
+            : undefined
+        )
+      : null;
+
+    await tx.customer.update({
+      where: {
+        id,
+      },
+
+      data: {
+        name: data.name,
+        mobNumber: data.mobNumber,
+        gender: data.gender,
+        reference: data.reference,
+        notes: data.notes,
+      },
+    });
+
+    // Preserve prescription update behavior.
+    if (data.prescription) {
+      const measurements = mapPrescription(
+        data.prescription
+      );
+
+      const latestPrescription =
+        existing.prescriptions[0];
+
+      if (latestPrescription) {
+        await tx.prescription.update({
+          where: {
+            id: latestPrescription.id,
+          },
+
+          data: measurements,
+        });
+      } else {
+        const newPrescription =
+          await tx.prescription.create({
+            data: {
+              customerId: id,
+              ...measurements,
+            },
+          });
+
+        if (
+          latestRecord &&
+          !latestRecord.prescriptionId
+        ) {
+          await tx.customerRecord.update({
+            where: {
+              id: latestRecord.id,
+            },
+
+            data: {
+              prescriptionId: newPrescription.id,
+            },
+          });
+        }
+      }
+    }
+
+    // Update only the latest purchase when requested.
+    if (data.record && catalog) {
+      const pricing = calculatePricing(data.record);
+
+      const rates =
+        data.record.pricingMode === "SPLIT"
+          ? {
+              frameRate: data.record.frameRate,
+              lensRate: data.record.lensRate,
+            }
+          : {
+              frameRate: null,
+              lensRate: null,
+            };
+
+      if (latestRecord) {
+        await tx.customerRecord.update({
+          where: {
+            id: latestRecord.id,
+          },
+
+          data: {
+            ...catalog,
+            ...pricing,
+            ...rates,
+          },
+        });
+      } else {
+        const latestPrescription =
+          await tx.prescription.findFirst({
+            where: {
+              customerId: id,
+            },
+
+            orderBy: {
+              createdAt: "desc",
+            },
+          });
+
+        await tx.customerRecord.create({
+          data: {
+            customerId: id,
+            prescriptionId:
+              latestPrescription?.id ?? null,
+
+            ...catalog,
+            ...pricing,
+            ...rates,
+
+            purchaseDate: null,
+          },
+        });
+      }
+    }
+
+    return tx.customer.findUniqueOrThrow({
+      where: {
+        id,
+      },
+
+      include: {
+        prescriptions: {
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+
+        records: {
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+      },
+    });
+  });
+}
+
+========== server/src/services/customerHistoryService.ts ==========
+
+import { prisma } from "../config/database";
+
+import { calculatePricing } from "../utils/pricing";
+import { mapPrescription } from "../utils/prescription";
+
+import {
+  resolveCatalogSelection,
+} from "./catalogSelection";
+
+import type {
+  PurchaseUpdateInput,
+  PrescriptionUpdateInput,
+} from "../validators/historyValidator";
+
+// nik - Edit only the selected historical record.
+// Other customers and purchases must remain unchanged.
+const DEMO_SHOP_CODE = "DEMO_SHOP";
+
+// --------------------------------------------------
+// 1. VERIFY CUSTOMER AND SHOP
+// --------------------------------------------------
+
+async function getAllowedCustomer(customerId: string) {
+  const shop = await prisma.shop.findUnique({
+    where: {
+      code: DEMO_SHOP_CODE,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!shop) {
+    throw new Error(
+      "Demo shop not found. Run the database seed first."
+    );
+  }
+
+  return prisma.customer.findFirst({
+    where: {
+      id: customerId,
+      shopId: shop.id,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      shopId: true,
+    },
+  });
+}
+
+// --------------------------------------------------
+// 2. UPDATE ONE HISTORICAL PURCHASE
+// --------------------------------------------------
+
+export async function updateCustomerPurchase(
+  customerId: string,
+  recordId: string,
+  input: PurchaseUpdateInput
+) {
+  const customer = await getAllowedCustomer(customerId);
+
+  if (!customer) {
+    return null;
+  }
+
+  const pricing = calculatePricing(input.record);
+
+  const rates =
+    input.record.pricingMode === "SPLIT"
+      ? {
+          frameRate: input.record.frameRate,
+          lensRate: input.record.lensRate,
+        }
+      : {
+          frameRate: null,
+          lensRate: null,
+        };
+
+  // Validate the purchase and its catalog selections
+  // inside one transaction.
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.customerRecord.findFirst({
+      where: {
+        id: recordId,
+        customerId: customer.id,
+      },
+
+      select: {
+        id: true,
+        frameCatalogId: true,
+        lensCatalogId: true,
+        specsType: true,
+        lensType: true,
+      },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    const catalog = await resolveCatalogSelection(
+      tx,
+      customer.shopId,
+      input.record,
+      existing
+    );
+
+    // Update exactly the selected historical purchase.
+    return tx.customerRecord.update({
+      where: {
+        id: existing.id,
+      },
+
+      data: {
+        ...catalog,
+
+        ...pricing,
+        ...rates,
+
+        purchaseDate: input.purchaseDate
+          ? new Date(
+              `${input.purchaseDate}T00:00:00.000Z`
+            )
+          : null,
+      },
+    });
+  });
+}
+
+// --------------------------------------------------
+// 3. UPDATE ONE HISTORICAL PRESCRIPTION
+// --------------------------------------------------
+
+export async function updateCustomerPrescription(
+  customerId: string,
+  prescriptionId: string,
+  input: PrescriptionUpdateInput
+) {
+  const customer = await getAllowedCustomer(customerId);
+
+  if (!customer) {
+    return null;
+  }
+
+  const existing = await prisma.prescription.findFirst({
+    where: {
+      id: prescriptionId,
+      customerId: customer.id,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existing) {
+    return null;
+  }
+
+  const measurements = mapPrescription(input);
+
+  return prisma.prescription.update({
+    where: {
+      id: existing.id,
+    },
+    data: measurements,
+  });
+}
+
+========== server/src/services/catalogService.ts ==========
+
+import { prisma } from "../config/database";
+
+import type {
+  CatalogListInput,
+  FrameCreateInput,
+  FrameUpdateInput,
+  LensCreateInput,
+  LensUpdateInput,
+} from "../validators/catalogValidator";
+
+// nik - Keep all catalog queries inside the current shop.
+const DEMO_SHOP_CODE = "DEMO_SHOP";
+
+async function getShopId() {
+  const shop = await prisma.shop.findUnique({
+    where: { code: DEMO_SHOP_CODE },
+    select: { id: true },
+  });
+
+  if (!shop) {
+    throw new Error("Demo shop not found. Run the database seed first.");
+  }
+
+  return shop.id;
+}
+
+// -----------------------------------------------------
+// FRAME CATALOG
+// -----------------------------------------------------
+
+export async function listFrames(filters: CatalogListInput) {
+  const shopId = await getShopId();
+  const search = filters.search;
+
+  return prisma.frameCatalog.findMany({
+    where: {
+      shopId,
+      ...(filters.includeInactive === "true"
+        ? {}
+        : { isActive: true }),
+
+      ...(search
+        ? {
+            OR: [
+              { brand: { contains: search, mode: "insensitive" } },
+              { model: { contains: search, mode: "insensitive" } },
+              { frameCode: { contains: search, mode: "insensitive" } },
+              { frameStyle: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ brand: "asc" }, { model: "asc" }],
+    take: 100,
+  });
+}
+
+export async function createFrame(input: FrameCreateInput) {
+  const shopId = await getShopId();
+
+  return prisma.frameCatalog.create({
+    data: {
+      shopId,
+      brand: input.brand,
+      model: input.model,
+      frameCode: input.frameCode,
+      frameStyle: input.frameStyle,
+      description: input.description,
+    },
+  });
+}
+
+export async function updateFrame(
+  id: string,
+  input: FrameUpdateInput
+) {
+  const shopId = await getShopId();
+
+  // Update only a frame that belongs to this shop.
+  const result = await prisma.frameCatalog.updateMany({
+    where: { id, shopId },
+    data: input,
+  });
+
+  if (result.count === 0) return null;
+
+  return prisma.frameCatalog.findFirst({
+    where: { id, shopId },
+  });
+}
+
+// -----------------------------------------------------
+// LENS CATALOG
+// -----------------------------------------------------
+
+export async function listLenses(filters: CatalogListInput) {
+  const shopId = await getShopId();
+  const search = filters.search;
+
+  return prisma.lensCatalog.findMany({
+    where: {
+      shopId,
+      ...(filters.includeInactive === "true"
+        ? {}
+        : { isActive: true }),
+
+      ...(search
+        ? {
+            OR: [
+              { company: { contains: search, mode: "insensitive" } },
+              { lensName: { contains: search, mode: "insensitive" } },
+              { visionType: { contains: search, mode: "insensitive" } },
+              { coating: { contains: search, mode: "insensitive" } },
+              { lensCode: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ company: "asc" }, { lensName: "asc" }],
+    take: 100,
+  });
+}
+
+export async function createLens(input: LensCreateInput) {
+  const shopId = await getShopId();
+
+  return prisma.lensCatalog.create({
+    data: {
+      shopId,
+      company: input.company,
+      lensName: input.lensName,
+      visionType: input.visionType,
+      coating: input.coating,
+      lensCode: input.lensCode,
+      description: input.description,
+    },
+  });
+}
+
+export async function updateLens(
+  id: string,
+  input: LensUpdateInput
+) {
+  const shopId = await getShopId();
+
+  const result = await prisma.lensCatalog.updateMany({
+    where: { id, shopId },
+    data: input,
+  });
+
+  if (result.count === 0) return null;
+
+  return prisma.lensCatalog.findFirst({
+    where: { id, shopId },
+  });
+}
+
+========== server/src/utils/pricing.ts ==========
+
+import type { RecordInput } from "../validators/customerWriteValidator";
+
+// Convert a rupee amount into a whole number of paise.
+function toPaise(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+// The backend always determines the final amount.
+// The frontend cannot override a split-price calculation.
+export function calculatePricing(record: RecordInput) {
+  if (record.pricingMode === "SPLIT") {
+    const totalPaise =
+      toPaise(record.frameRate) +
+      toPaise(record.lensRate);
+
+    return {
+      pricingMode: "SPLIT" as const,
+      frameRate: record.frameRate,
+      lensRate: record.lensRate,
+      mrp: totalPaise / 100,
+    };
+  }
+
+  return {
+    pricingMode: "MRP_ONLY" as const,
+    frameRate: null,
+    lensRate: null,
+    mrp: record.mrp,
+  };
+}

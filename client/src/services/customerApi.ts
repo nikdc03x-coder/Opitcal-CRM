@@ -95,6 +95,12 @@ async function readResponse<T>(
   return result.data as T;
 }
 
+// nik - Send the Admin session cookie with every customer request.
+// Keep this in one place instead of repeating it in each API function.
+function apiFetch(url: string, options: RequestInit = {}) {
+  return fetch(url, { ...options, credentials: "include" });
+}
+
 // -----------------------------------------------------
 // 3. CREATE CUSTOMER
 // -----------------------------------------------------
@@ -104,7 +110,7 @@ async function readResponse<T>(
 export async function createCustomer(
   payload: CustomerPayload
 ): Promise<CreatedCustomer> {
-  const response = await fetch("/api/customers", {
+  const response = await apiFetch("/api/customers", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -246,7 +252,7 @@ export async function searchCustomers(
 
   const query = params.toString();
 
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/customers${query ? `?${query}` : ""}`,
     {
       signal,
@@ -266,7 +272,7 @@ export async function getCustomer(
   id: string,
   signal?: AbortSignal
 ): Promise<CustomerDetails> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/customers/${encodeURIComponent(id)}`,
     {
       signal,
@@ -296,7 +302,7 @@ export async function updateCustomer(
   id: string,
   changes: CustomerPersonalUpdate
 ): Promise<CustomerDetails> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/customers/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
@@ -353,7 +359,7 @@ export async function updatePurchase(
   recordId: string,
   changes: EditablePurchase
 ): Promise<CustomerRecord> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/customers/${encodeURIComponent(customerId)}/records/${encodeURIComponent(recordId)}`,
     {
       method: "PATCH",
@@ -378,7 +384,7 @@ export async function updatePrescription(
   prescriptionId: string,
   changes: EditablePrescription
 ): Promise<Prescription> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/customers/${encodeURIComponent(customerId)}/prescriptions/${encodeURIComponent(prescriptionId)}`,
     {
       method: "PATCH",

@@ -1,11 +1,8 @@
 //
 // Optical CRM — PostgreSQL Database
 //
-// Stores customer information, optical prescriptions,
-// purchase history, and admin-managed product catalogs.
-//
-// nik - Keep catalogs independent of historical purchases
-// so changing a product never changes old customer records.
+// Stores customers, prescriptions, purchase history,
+// product catalogs, and admin authentication.
 //
 
 generator client {
@@ -23,8 +20,6 @@ datasource db {
 // 1. PRICING MODE
 // -----------------------------------------------------
 
-// The shop can enter frame and lens rates separately
-// or enter only the final MRP.
 enum PricingMode {
   SPLIT
   MRP_ONLY
@@ -34,9 +29,7 @@ enum PricingMode {
 // 2. SHOP
 // -----------------------------------------------------
 
-// Each shop has separate customers and catalogs.
-// Admin authentication and shop selection will be
-// implemented in a later phase.
+// nik - Each shop has its own customers and products.
 model Shop {
   id        String   @id @default(uuid())
   name      String
@@ -53,8 +46,7 @@ model Shop {
 // 3. CUSTOMER
 // -----------------------------------------------------
 
-// Stores customer personal information.
-// Purchase and prescription histories are separate.
+// nik - Personal details and staff-only notes.
 model Customer {
   id        String  @id @default(uuid())
   shopId    String
@@ -65,7 +57,7 @@ model Customer {
   notes     String? @db.Text
   isActive  Boolean @default(true)
 
-  // Preserve original MongoDB IDs for future migration.
+  // Preserve original MongoDB IDs.
   legacyMongoId String?
 
   createdAt DateTime @default(now())
@@ -76,7 +68,7 @@ model Customer {
   records       CustomerRecord[]
 
   @@unique([shopId, legacyMongoId])
-  // Multiple customers may share the same phone number.
+  // Multiple customers can share a phone number.
   @@index([shopId, mobNumber])
   @@index([shopId, name])
 }
@@ -85,7 +77,7 @@ model Customer {
 // 4. PRESCRIPTION HISTORY
 // -----------------------------------------------------
 
-// Every customer may have multiple prescriptions.
+// nik - Each customer can have multiple prescriptions.
 model Prescription {
   id         String   @id @default(uuid())
   customerId String
@@ -119,30 +111,22 @@ model Prescription {
 }
 
 // -----------------------------------------------------
-// 5. FRAME CATALOG — ADMIN MANAGED
+// 5. FRAME CATALOG
 // -----------------------------------------------------
 
-// Admins can add and edit frames through the webpage.
-// Each frame belongs to one shop.
+// nik - Catalog changes never rewrite old purchases.
 model FrameCatalog {
   id     String @id @default(uuid())
   shopId String
 
-  // Example:
-  // Brand: Titan Eye+
-  // Model: TF-204
-  // Code: TIT-TF204
-  // Style: Full Rim
   brand      String  @db.VarChar(150)
   model      String  @db.VarChar(150)
   frameCode  String? @db.VarChar(100)
   frameStyle String? @db.VarChar(100)
 
-  // Additional information about the product.
   description String? @db.Text
 
-  // Inactive frames cannot be selected for new purchases.
-  // Historical purchases remain unchanged.
+  // Inactive products stay in purchase history.
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -156,31 +140,22 @@ model FrameCatalog {
 }
 
 // -----------------------------------------------------
-// 6. LENS CATALOG — ADMIN MANAGED
+// 6. LENS CATALOG
 // -----------------------------------------------------
 
-// Admins can manage lens products without editing code.
+// nik - Store lens information independently.
 model LensCatalog {
   id     String @id @default(uuid())
   shopId String
 
-  // Example:
-  // Company: ZEISS
-  // Lens Name: SmartLife
-  // Vision Type: Progressive
-  // Coating: Anti-Reflective
   company    String  @db.VarChar(150)
   lensName   String  @db.VarChar(150)
   visionType String  @db.VarChar(100)
   coating    String? @db.VarChar(200)
 
-  // Optional product code.
-  lensCode String? @db.VarChar(100)
-
-  // Additional material, coating or product information.
+  lensCode    String? @db.VarChar(100)
   description String? @db.Text
 
-  // Deactivated lenses stay in historical purchases.
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -198,30 +173,21 @@ model LensCatalog {
 // 7. CUSTOMER PURCHASE HISTORY
 // -----------------------------------------------------
 
-// Customers can have multiple purchases.
-// Existing purchases are preserved during catalog setup.
+// nik - Preserve purchase prices and product snapshots.
 model CustomerRecord {
   id             String  @id @default(uuid())
   customerId     String
   prescriptionId String?
 
-  // Original product descriptions are retained.
-  //
-  // New purchases can store a snapshot of the selected
-  // catalog product's description here.
-  //
-  // Example:
-  // specsType = "Titan Eye+ — TF-204 (Full Rim)"
-  // lensType  = "ZEISS — SmartLife | Progressive | AR"
+  // Actual saved product descriptions.
   specsType String?
   lensType  String?
 
-  // Optional references to the selected catalog items.
-  // Existing customer purchases keep null values.
+  // Optional catalog references.
   frameCatalogId String?
   lensCatalogId  String?
 
-  // Pricing is saved separately for each purchase.
+  // Split pricing or final MRP.
   pricingMode PricingMode @default(MRP_ONLY)
 
   frameRate Decimal? @db.Decimal(12, 2)
@@ -231,33 +197,60 @@ model CustomerRecord {
   // MongoDB migration compatibility.
   legacyMongoId String?
 
-  // The actual date of purchase.
-  // Null means the date was not recorded.
+  // Actual date of purchase.
   purchaseDate DateTime? @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // ---------------------------------------------------
-  // RELATIONSHIPS
-  // ---------------------------------------------------
-
-  // Prisma relationship attributes must be written
-  // on one line to avoid P1012 syntax errors.
+  // Relationships.
   customer     Customer      @relation(fields: [customerId], references: [id])
   prescription Prescription? @relation(fields: [prescriptionId], references: [id])
 
-  // Optional product references do not force existing
-  // customer records to have catalog products.
   frameCatalog FrameCatalog? @relation(fields: [frameCatalogId], references: [id], onDelete: SetNull)
   lensCatalog  LensCatalog?  @relation(fields: [lensCatalogId], references: [id], onDelete: SetNull)
-
-  // ---------------------------------------------------
-  // INDEXES
-  // ---------------------------------------------------
 
   @@unique([customerId, legacyMongoId])
   @@index([customerId, createdAt])
   @@index([frameCatalogId])
   @@index([lensCatalogId])
+}
+
+// -----------------------------------------------------
+// 8. SINGLE ADMIN ACCOUNT
+// -----------------------------------------------------
+
+// nik - One admin account for the complete database.
+// The application will always use ID 1.
+// A database constraint will enforce this during migration.
+model Admin {
+  id           Int    @id @default(1)
+  username     String @unique
+  passwordHash String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions AdminSession[]
+
+  @@map("admins")
+}
+
+// -----------------------------------------------------
+// 9. ADMIN LOGIN SESSIONS
+// -----------------------------------------------------
+
+// nik - Remember active admin logins securely.
+// Only a hash of each session token is stored.
+model AdminSession {
+  id        String   @id @default(uuid())
+  adminId   Int
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([expiresAt])
 }

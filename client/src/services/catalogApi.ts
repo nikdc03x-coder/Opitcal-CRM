@@ -71,7 +71,7 @@ async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await apiFetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       ...(options?.body
@@ -161,4 +161,12 @@ export function editLens(
       body: JSON.stringify(changes),
     }
   );
+}
+
+// nik - Include the Admin session cookie in all catalog requests.
+function apiFetch(url: string, options: RequestInit = {}) {
+  return fetch(url, {
+    ...options,
+    credentials: "include",
+  });
 }

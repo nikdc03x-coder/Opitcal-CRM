@@ -13,7 +13,7 @@ export default defineConfig({
   },
 
   // Read database credentials from .env.
-  datasource: {
-    url: env("DATABASE_URL"),
-  },
+ datasource: {
+  url: env("DIRECT_URL"),
+},
 });

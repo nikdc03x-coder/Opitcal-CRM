@@ -1,0 +1,3265 @@
+========== server/src/validators/customerWriteValidator.ts ==========
+
+import { z } from "zod";
+
+// nik - Validate customer and catalog data before saving.
+
+// Mobile numbers are optional.
+const phoneSchema = z
+  .string()
+  .regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number")
+  .nullable()
+  .optional();
+
+function isValidCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
+export const purchaseDateSchema = z
+  .string()
+  .refine(
+    isValidCalendarDate,
+    "Enter a valid purchase date in YYYY-MM-DD format"
+  )
+  .nullable()
+  .optional();
+
+const eyeSchema = z
+  .object({
+    sph: z.number().finite().min(-30).max(30).nullable().optional(),
+    cyl: z.number().finite().min(-15).max(15).nullable().optional(),
+    axis: z.number().int().min(0).max(180).nullable().optional(),
+  })
+  .strict();
+
+export const prescriptionSchema = z
+  .object({
+    re_dist: eyeSchema.optional(),
+    re_near: eyeSchema.optional(),
+    le_dist: eyeSchema.optional(),
+    le_near: eyeSchema.optional(),
+  })
+  .strict();
+
+const amountSchema = z
+  .number()
+  .finite()
+  .nonnegative()
+  .max(9999999999.99)
+  .refine(
+    (value) =>
+      Math.abs(value * 100 - Math.round(value * 100)) <
+      0.000001,
+    "Amount must have at most two decimal places"
+  );
+
+// Catalog references are optional, so older customers
+// and manually entered purchase names remain supported.
+const catalogFields = {
+  specsType: z.string().trim().max(100).nullable().optional(),
+  lensType: z.string().trim().max(100).nullable().optional(),
+  frameCatalogId: z.string().uuid().nullable().optional(),
+  lensCatalogId: z.string().uuid().nullable().optional(),
+};
+
+// A purchase may use split pricing or total MRP.
+export const recordSchema = z.discriminatedUnion(
+  "pricingMode",
+  [
+    z
+      .object({
+        pricingMode: z.literal("SPLIT"),
+        ...catalogFields,
+        frameRate: amountSchema,
+        lensRate: amountSchema,
+      })
+      .strict(),
+
+    z
+      .object({
+        pricingMode: z.literal("MRP_ONLY"),
+        ...catalogFields,
+        mrp: amountSchema,
+      })
+      .strict(),
+  ]
+);
+
+const customerFields = z
+  .object({
+    name: z.string().trim().min(1).max(150),
+    mobNumber: phoneSchema,
+    gender: z
+      .enum(["Male", "Female", "Other"])
+      .nullable()
+      .optional(),
+    reference: z.string().trim().max(255).nullable().optional(),
+    notes: z.string().trim().max(5000).nullable().optional(),
+  })
+  .strict();
+
+// CREATE CUSTOMER:
+// Date remains separate from the purchase record.
+export const createCustomerSchema = customerFields.extend({
+  prescription: prescriptionSchema.optional(),
+  record: recordSchema,
+  purchaseDate: purchaseDateSchema,
+});
+
+// UPDATE CUSTOMER:
+// Existing personal, prescription and record updates
+// remain backward compatible.
+export const updateCustomerSchema = customerFields
+  .partial()
+  .extend({
+    prescription: prescriptionSchema.optional(),
+    record: recordSchema.optional(),
+  })
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    "Provide at least one field to update"
+  );
+
+export type CreateCustomerInput =
+  z.infer<typeof createCustomerSchema>;
+
+export type UpdateCustomerInput =
+  z.infer<typeof updateCustomerSchema>;
+
+export type PrescriptionInput =
+  z.infer<typeof prescriptionSchema>;
+
+export type RecordInput =
+  z.infer<typeof recordSchema>;
+========== server/src/validators/historyValidator.ts ==========
+
+import { z } from "zod";
+
+import {
+  prescriptionSchema,
+  recordSchema,
+} from "./customerWriteValidator";
+
+// A date must be a real calendar date in YYYY-MM-DD format.
+const dateSchema = z.string().refine((value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}, "Enter a valid date in YYYY-MM-DD format");
+
+// Purchase dates may be unknown for imported records.
+export const purchaseUpdateSchema = z.object({
+  record: recordSchema,
+  purchaseDate: dateSchema.nullable(),
+}).strict();
+
+// All four eye groups use the existing prescription validation.
+export const prescriptionUpdateSchema = prescriptionSchema;
+
+export type PurchaseUpdateInput =
+  z.infer<typeof purchaseUpdateSchema>;
+
+export type PrescriptionUpdateInput =
+  z.infer<typeof prescriptionUpdateSchema>;
+========== server/src/services/catalogSelection.ts ==========
+
+import type { Prisma } from "../generated/prisma/client";
+
+import type {
+  RecordInput,
+} from "../validators/customerWriteValidator";
+
+// nik - Save a product's name as it appeared
+// when the customer made the purchase.
+
+type DatabaseClient =
+  Prisma.TransactionClient;
+
+type CatalogReference = {
+  frameCatalogId?: string | null;
+  lensCatalogId?: string | null;
+};
+
+type ExistingCatalogSelection = {
+  frameCatalogId: string | null;
+  lensCatalogId: string | null;
+  specsType: string | null;
+  lensType: string | null;
+};
+
+// This is a business validation failure, not a
+// database or server failure.
+export class CatalogSelectionError extends Error {
+  statusCode = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CatalogSelectionError";
+  }
+}
+
+function checkSnapshotLength(
+  name: string,
+  label: string
+): string {
+  if (name.length > 100) {
+    throw new CatalogSelectionError(
+      `${label} name is too long for a purchase record.`
+    );
+  }
+
+  return name;
+}
+
+// Resolve both catalog references within the same
+// transaction used to save the purchase.
+export async function resolveCatalogSelection(
+  tx: DatabaseClient,
+  shopId: string,
+  record: RecordInput,
+  existing?: ExistingCatalogSelection
+) {
+  let frameCatalogId =
+    record.frameCatalogId !== undefined
+      ? record.frameCatalogId
+      : existing?.frameCatalogId ?? null;
+
+  let lensCatalogId =
+    record.lensCatalogId !== undefined
+      ? record.lensCatalogId
+      : existing?.lensCatalogId ?? null;
+
+  let specsType =
+    record.specsType !== undefined
+      ? record.specsType
+      : existing?.specsType ?? null;
+
+  let lensType =
+    record.lensType !== undefined
+      ? record.lensType
+      : existing?.lensType ?? null;
+
+  // Newly chosen IDs must refer to active products
+  // in the same shop. Previously linked inactive items
+  // may remain attached to old purchases.
+  if (record.frameCatalogId) {
+    const frame = await tx.frameCatalog.findFirst({
+      where: {
+        id: record.frameCatalogId,
+        shopId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        brand: true,
+        model: true,
+      },
+    });
+
+    if (!frame) {
+      throw new CatalogSelectionError(
+        "Selected frame is unavailable or inactive."
+      );
+    }
+
+    frameCatalogId = frame.id;
+    specsType = checkSnapshotLength(
+      `${frame.brand} - ${frame.model}`,
+      "Frame"
+    );
+  }
+
+  if (record.lensCatalogId) {
+    const lens = await tx.lensCatalog.findFirst({
+      where: {
+        id: record.lensCatalogId,
+        shopId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        company: true,
+        lensName: true,
+        visionType: true,
+        coating: true,
+      },
+    });
+
+    if (!lens) {
+      throw new CatalogSelectionError(
+        "Selected lens is unavailable or inactive."
+      );
+    }
+
+    lensCatalogId = lens.id;
+
+    const coating = lens.coating
+      ? ` - ${lens.coating}`
+      : "";
+
+    lensType = checkSnapshotLength(
+      `${lens.company} - ${lens.lensName} - ${lens.visionType}${coating}`,
+      "Lens"
+    );
+  }
+
+  // An explicitly cleared catalog reference may use
+  // manual text supplied by the frontend instead.
+  return {
+    frameCatalogId,
+    lensCatalogId,
+    specsType,
+    lensType,
+  };
+}
+
+// Useful type for future customer form integration.
+export type CustomerCatalogReferences =
+  CatalogReference;
+========== client/src/pages/AddCustomerPage.tsx ==========
+
+/**
+ * Optical CRM — Add Customer
+ *
+ * nik - Register a customer, optical prescription,
+ * frame/lens products and the first purchase together.
+ *
+ * Staff can use catalog dropdowns or enter custom names.
+ * Pricing mode is separate from the products purchased.
+ */
+
+import { useEffect, useRef, useState } from "react";
+
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  Grid,
+  MenuItem,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+} from "@mui/material";
+
+import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
+import SaveOutlined from "@mui/icons-material/SaveOutlined";
+import PersonOutlineOutlined from "@mui/icons-material/PersonOutlineOutlined";
+import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
+import ShoppingBagOutlined from "@mui/icons-material/ShoppingBagOutlined";
+import InfoOutlined from "@mui/icons-material/InfoOutlined";
+import LockOutlined from "@mui/icons-material/LockOutlined";
+
+import {
+  Controller,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldErrors,
+} from "react-hook-form";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useNavigate } from "react-router";
+
+import {
+  createCustomer,
+  type CustomerPayload,
+  type EyeValues,
+} from "../services/customerApi";
+
+import {
+  getFrames,
+  getLenses,
+  type FrameProduct,
+  type LensProduct,
+} from "../services/catalogApi";
+
+// -----------------------------------------------------
+// 1. OPTICAL PRESCRIPTION CONFIGURATION
+// -----------------------------------------------------
+
+const eyes = [
+  {
+    prefix: "re_dist",
+    label: "RE DIST",
+    description: "Right Eye · Distance",
+  },
+  {
+    prefix: "re_near",
+    label: "RE NEAR",
+    description: "Right Eye · Near",
+  },
+  {
+    prefix: "le_dist",
+    label: "LE DIST",
+    description: "Left Eye · Distance",
+  },
+  {
+    prefix: "le_near",
+    label: "LE NEAR",
+    description: "Left Eye · Near",
+  },
+] as const;
+
+type EyePrefix = (typeof eyes)[number]["prefix"];
+type EyeMeasure = "sph" | "cyl" | "axis";
+type EyeFieldName = `${EyePrefix}_${EyeMeasure}`;
+
+// nik - Common optical powers are offered in 0.25 steps.
+// Manual values are also accepted and validated.
+
+function createPowerOptions(min: number, max: number) {
+  return Array.from(
+    { length: (max - min) * 4 + 1 },
+    (_, index) => {
+      const value = min + index / 4;
+
+      return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+    }
+  );
+}
+
+const sphOptions = createPowerOptions(-30, 30);
+const cylOptions = createPowerOptions(-15, 15);
+
+// -----------------------------------------------------
+// 2. DATE, PRICE AND PRODUCT HELPERS
+// -----------------------------------------------------
+
+// Use the shop computer's local calendar date.
+function todayLocalDate() {
+  const now = new Date();
+
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+// Validate real calendar dates, including leap years.
+function validDate(value: string) {
+  if (!value) return true;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
+function validMoney(value: string) {
+  return (
+    /^\d+(\.\d{1,2})?$/.test(value) &&
+    Number(value) <= 9999999999.99
+  );
+}
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function frameLabel(frame: FrameProduct) {
+  return `${frame.brand} - ${frame.model}`;
+}
+
+function lensLabel(lens: LensProduct) {
+  return [
+    lens.company,
+    lens.lensName,
+    lens.visionType,
+    lens.coating,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+// -----------------------------------------------------
+// 3. CUSTOMER FORM VALIDATION
+// -----------------------------------------------------
+
+const formSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "Customer name is required.")
+      .max(150),
+
+    mobNumber: z.string().refine(
+      (value) =>
+        value === "" || /^[6-9]\d{9}$/.test(value),
+      "Enter a valid 10-digit Indian mobile number."
+    ),
+
+    gender: z.enum(["", "Male", "Female", "Other"]),
+
+    reference: z.string().max(255),
+
+    notes: z.string().max(5000),
+
+    purchaseDate: z
+      .string()
+      .refine(validDate, "Enter a valid purchase date."),
+
+    specsType: z.string().max(
+      100,
+      "Frame name cannot exceed 100 characters."
+    ),
+
+    lensType: z.string().max(
+      100,
+      "Lens name cannot exceed 100 characters."
+    ),
+
+    frameCatalogId: z.string(),
+    lensCatalogId: z.string(),
+
+    pricingMode: z.enum(["SPLIT", "MRP_ONLY"]),
+
+    frameRate: z.string(),
+    lensRate: z.string(),
+    mrp: z.string(),
+
+    re_dist_sph: z.string(),
+    re_dist_cyl: z.string(),
+    re_dist_axis: z.string(),
+
+    re_near_sph: z.string(),
+    re_near_cyl: z.string(),
+    re_near_axis: z.string(),
+
+    le_dist_sph: z.string(),
+    le_dist_cyl: z.string(),
+    le_dist_axis: z.string(),
+
+    le_near_sph: z.string(),
+    le_near_cyl: z.string(),
+    le_near_axis: z.string(),
+  })
+  .superRefine((values, context) => {
+    // Only validate the fields used by the pricing mode.
+    const priceFields =
+      values.pricingMode === "SPLIT"
+        ? (["frameRate", "lensRate"] as const)
+        : (["mrp"] as const);
+
+    for (const field of priceFields) {
+      if (!validMoney(values[field])) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: "Enter a valid price (maximum 2 decimals).",
+        });
+      }
+    }
+
+    // Validate each optical measurement independently.
+    for (const eye of eyes) {
+      for (const measure of [
+        "sph",
+        "cyl",
+        "axis",
+      ] as const) {
+        const key: EyeFieldName =
+          `${eye.prefix}_${measure}`;
+
+        const value = values[key].trim();
+
+        if (!value) continue;
+
+        const number = Number(value);
+
+        const limit = measure === "sph" ? 30 : 15;
+
+        const valid =
+          measure === "axis"
+            ? /^\d+$/.test(value) && number <= 180
+            : /^[+-]?\d+(\.\d+)?$/.test(value) &&
+              Number.isFinite(number) &&
+              Math.abs(number) <= limit;
+
+        if (!valid) {
+          context.addIssue({
+            code: "custom",
+            path: [key],
+            message:
+              measure === "axis"
+                ? "AXIS must be between 0 and 180."
+                : `${measure.toUpperCase()} must be between -${limit} and +${limit}.`,
+          });
+        }
+      }
+    }
+  });
+
+type FormValues = z.infer<typeof formSchema>;
+
+// -----------------------------------------------------
+// 4. FORM DEFAULT VALUES
+// -----------------------------------------------------
+
+const initialValues: FormValues = {
+  name: "",
+  mobNumber: "",
+  gender: "",
+  reference: "",
+  notes: "",
+
+  purchaseDate: todayLocalDate(),
+
+  specsType: "",
+  lensType: "",
+
+  frameCatalogId: "",
+  lensCatalogId: "",
+
+  pricingMode: "SPLIT",
+
+  frameRate: "",
+  lensRate: "",
+  mrp: "",
+
+  re_dist_sph: "",
+  re_dist_cyl: "",
+  re_dist_axis: "",
+
+  re_near_sph: "",
+  re_near_cyl: "",
+  re_near_axis: "",
+
+  le_dist_sph: "",
+  le_dist_cyl: "",
+  le_dist_axis: "",
+
+  le_near_sph: "",
+  le_near_cyl: "",
+  le_near_axis: "",
+};
+
+// -----------------------------------------------------
+// 5. REUSABLE INPUT COMPONENTS
+// -----------------------------------------------------
+
+type SharedProps = {
+  control: Control<FormValues>;
+  errors: FieldErrors<FormValues>;
+  disabled: boolean;
+};
+
+type FormTextInputProps = SharedProps & {
+  name: keyof FormValues;
+  label: string;
+  required?: boolean;
+  multiline?: boolean;
+  rows?: number;
+  inputMode?: "numeric" | "decimal";
+  maxLength?: number;
+};
+
+function FormTextInput({
+  control,
+  errors,
+  disabled,
+  name,
+  label,
+  required,
+  multiline,
+  rows,
+  inputMode,
+  maxLength,
+}: FormTextInputProps) {
+  return (
+    <Controller
+      name={name}
+      control={control}
+      render={({ field }) => (
+        <TextField
+          {...field}
+          fullWidth
+          label={label}
+          required={required}
+          multiline={multiline}
+          rows={rows}
+          disabled={disabled}
+          error={Boolean(errors[name])}
+          helperText={errors[name]?.message}
+          slotProps={{
+            htmlInput: {
+              ...(inputMode ? { inputMode } : {}),
+              ...(maxLength ? { maxLength } : {}),
+            },
+          }}
+        />
+      )}
+    />
+  );
+}
+
+// nik - A visible searchable SPH/CYL dropdown.
+// Do not override Autocomplete's internal input props:
+// MUI provides those through the {...params} spread.
+
+function PowerInput({
+  control,
+  errors,
+  disabled,
+  name,
+  label,
+  options,
+}: SharedProps & {
+  name: EyeFieldName;
+  label: string;
+  options: string[];
+}) {
+  return (
+    <Controller
+      name={name}
+      control={control}
+      render={({ field }) => (
+        <Autocomplete<string, false, false, true>
+          freeSolo
+          fullWidth
+          size="small"
+          openOnFocus
+          forcePopupIcon
+          selectOnFocus
+          clearOnBlur={false}
+          options={options}
+          value={field.value}
+          inputValue={field.value}
+          disabled={disabled}
+          onInputChange={(_, next, reason) => {
+            if (
+              reason === "input" ||
+              reason === "clear"
+            ) {
+              field.onChange(next);
+            }
+          }}
+          onChange={(_, next) => {
+            field.onChange(next ?? "");
+          }}
+          onBlur={field.onBlur}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              inputRef={field.ref}
+              label={label}
+              placeholder="Select or type"
+              error={Boolean(errors[name])}
+              helperText={errors[name]?.message}
+            />
+          )}
+        />
+      )}
+    />
+  );
+}
+
+function AxisInput({
+  control,
+  errors,
+  disabled,
+  name,
+  label,
+}: SharedProps & {
+  name: EyeFieldName;
+  label: string;
+}) {
+  return (
+    <Controller
+      name={name}
+      control={control}
+      render={({ field }) => (
+        <TextField
+          {...field}
+          fullWidth
+          size="small"
+          label={label}
+          placeholder="0–180"
+          disabled={disabled}
+          error={Boolean(errors[name])}
+          helperText={errors[name]?.message}
+          onChange={(event) => {
+            const next = event.target.value
+              .replace(/\D/g, "")
+              .slice(0, 3);
+
+            field.onChange(next);
+          }}
+          slotProps={{
+            htmlInput: {
+              inputMode: "numeric",
+            },
+          }}
+        />
+      )}
+    />
+  );
+}
+
+// -----------------------------------------------------
+// 6. PRESCRIPTION PAYLOAD HELPER
+// -----------------------------------------------------
+
+function readEye(
+  values: FormValues,
+  prefix: EyePrefix
+): EyeValues | undefined {
+  const eye: EyeValues = {};
+
+  for (const measure of [
+    "sph",
+    "cyl",
+    "axis",
+  ] as const) {
+    const text =
+      values[`${prefix}_${measure}`].trim();
+
+    if (text) {
+      eye[measure] = Number(text);
+    }
+  }
+
+  return Object.keys(eye).length ? eye : undefined;
+}
+
+// -----------------------------------------------------
+// 7. PAGE COMPONENT
+// -----------------------------------------------------
+
+export default function AddCustomerPage() {
+  const navigate = useNavigate();
+
+  // Protect against duplicate customer submissions.
+  const submissionLock = useRef(false);
+
+  const [saveError, setSaveError] = useState("");
+  const [catalogError, setCatalogError] = useState("");
+
+  const [catalogLoading, setCatalogLoading] =
+    useState(true);
+
+  const [frames, setFrames] = useState<FrameProduct[]>([]);
+  const [lenses, setLenses] = useState<LensProduct[]>([]);
+
+  const {
+    control,
+    handleSubmit,
+    setValue,
+    formState: {
+      errors,
+      isSubmitting,
+      isDirty,
+      submitCount,
+    },
+  } = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: initialValues,
+    mode: "onBlur",
+    shouldFocusError: true,
+  });
+
+  // Watch fields needed for catalog and price previews.
+  const [
+    frameCatalogId,
+    lensCatalogId,
+    specsType,
+    lensType,
+  ] = useWatch({
+    control,
+    name: [
+      "frameCatalogId",
+      "lensCatalogId",
+      "specsType",
+      "lensType",
+    ],
+  });
+
+  const [
+    pricingMode,
+    frameRate,
+    lensRate,
+    mrp,
+  ] = useWatch({
+    control,
+    name: [
+      "pricingMode",
+      "frameRate",
+      "lensRate",
+      "mrp",
+    ],
+  });
+
+  // ---------------------------------------------------
+  // 8. LOAD THE PRODUCT CATALOG
+  // ---------------------------------------------------
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadCatalog() {
+      try {
+        const [frameData, lensData] =
+          await Promise.all([
+            getFrames(false),
+            getLenses(false),
+          ]);
+
+        if (!active) return;
+
+        setFrames(frameData);
+        setLenses(lensData);
+        setCatalogError("");
+      } catch (err) {
+        if (active) {
+          setCatalogError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load product catalog."
+          );
+        }
+      } finally {
+        if (active) {
+          setCatalogLoading(false);
+        }
+      }
+    }
+
+    void loadCatalog();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // ---------------------------------------------------
+  // 9. UNSAVED-CHANGES PROTECTION
+  // ---------------------------------------------------
+
+  // nik - Warn before browser refresh or closing a tab
+  // while a customer registration is unfinished.
+
+  useEffect(() => {
+    if (!isDirty || isSubmitting) return;
+
+    function warnBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener(
+      "beforeunload",
+      warnBeforeUnload
+    );
+
+    return () => {
+      window.removeEventListener(
+        "beforeunload",
+        warnBeforeUnload
+      );
+    };
+  }, [isDirty, isSubmitting]);
+
+  // ---------------------------------------------------
+  // 10. PURCHASE PREVIEW
+  // ---------------------------------------------------
+
+  // Purchase type depends on actual product names,
+  // not on whether prices are split.
+
+  const hasFrame = Boolean(specsType.trim());
+  const hasLens = Boolean(lensType.trim());
+
+  const purchaseType =
+    hasFrame && hasLens
+      ? "Frame + Lens"
+      : hasFrame
+        ? "Frame Only"
+        : hasLens
+          ? "Lens Only"
+          : "Not Specified";
+
+  const total =
+    pricingMode === "SPLIT"
+      ? validMoney(frameRate) &&
+        validMoney(lensRate)
+        ? (
+            Math.round(Number(frameRate) * 100) +
+            Math.round(Number(lensRate) * 100)
+          ) / 100
+        : null
+      : validMoney(mrp)
+        ? Number(mrp)
+        : null;
+
+  // ---------------------------------------------------
+  // 11. SUBMIT CUSTOMER
+  // ---------------------------------------------------
+
+  async function onSubmit(values: FormValues) {
+    if (submissionLock.current) return;
+
+    submissionLock.current = true;
+    setSaveError("");
+
+    try {
+      const prescription = {
+        re_dist: readEye(values, "re_dist"),
+        re_near: readEye(values, "re_near"),
+        le_dist: readEye(values, "le_dist"),
+        le_near: readEye(values, "le_near"),
+      };
+
+      const hasPrescription =
+        Object.values(prescription).some(Boolean);
+
+      // Manual product names use null catalog IDs.
+      const commonRecord = {
+        specsType: values.specsType.trim() || null,
+        lensType: values.lensType.trim() || null,
+
+        frameCatalogId:
+          values.frameCatalogId || null,
+
+        lensCatalogId:
+          values.lensCatalogId || null,
+      };
+
+      const record: CustomerPayload["record"] =
+        values.pricingMode === "SPLIT"
+          ? {
+              ...commonRecord,
+              pricingMode: "SPLIT",
+              frameRate: Number(values.frameRate),
+              lensRate: Number(values.lensRate),
+            }
+          : {
+              ...commonRecord,
+              pricingMode: "MRP_ONLY",
+              mrp: Number(values.mrp),
+            };
+
+      const payload: CustomerPayload = {
+        name: values.name.trim(),
+
+        mobNumber:
+          values.mobNumber.trim() || null,
+
+        gender: values.gender || null,
+
+        reference:
+          values.reference.trim() || null,
+
+        notes:
+          values.notes.trim() || null,
+
+        purchaseDate:
+          values.purchaseDate || null,
+
+        prescription:
+          hasPrescription
+            ? prescription
+            : undefined,
+
+        record,
+      };
+
+      const customer = await createCustomer(payload);
+
+      navigate(`/customers/${customer.id}`, {
+        replace: true,
+        state: { saved: true },
+      });
+    } catch (err) {
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : "Unable to save customer."
+      );
+    } finally {
+      submissionLock.current = false;
+    }
+  }
+
+  // ---------------------------------------------------
+  // 12. CANCEL REGISTRATION
+  // ---------------------------------------------------
+
+  function cancelCreation() {
+    if (isSubmitting) return;
+
+    if (
+      !isDirty ||
+      window.confirm(
+        "Discard unsaved customer information?"
+      )
+    ) {
+      navigate("/customers");
+    }
+  }
+
+  const sharedProps = {
+    control,
+    errors,
+    disabled: isSubmitting,
+  };
+
+  // ---------------------------------------------------
+  // 13. USER INTERFACE
+  // ---------------------------------------------------
+
+  return (
+    <Box
+      component="form"
+      noValidate
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{
+        maxWidth: 1160,
+        mx: "auto",
+        pb: 5,
+      }}
+    >
+      <Stack spacing={2.5}>
+        {/* HEADER */}
+
+        <Box>
+          <Button
+            startIcon={<ArrowBackOutlined />}
+            onClick={cancelCreation}
+            disabled={isSubmitting}
+            size="small"
+            sx={{ mb: 1.5 }}
+          >
+            Back to Customers
+          </Button>
+
+          <Typography
+            variant="h4"
+            sx={{ fontWeight: 800 }}
+          >
+            Add New Customer
+          </Typography>
+
+          <Typography
+            color="text.secondary"
+            variant="body2"
+            sx={{ mt: 0.75 }}
+          >
+            Register customer details, prescription
+            and purchase information.
+          </Typography>
+        </Box>
+
+        {/* STATUS MESSAGES */}
+
+        {saveError && (
+          <Alert
+            severity="error"
+            onClose={() => setSaveError("")}
+          >
+            {saveError}
+          </Alert>
+        )}
+
+        {catalogError && (
+          <Alert severity="warning">
+            Product Catalog could not load:{" "}
+            {catalogError}. Manual product names
+            can still be entered.
+          </Alert>
+        )}
+
+        {submitCount > 0 &&
+          Object.keys(errors).length > 0 && (
+            <Alert severity="warning">
+              Please correct the highlighted fields
+              before saving.
+            </Alert>
+          )}
+
+        {isSubmitting && (
+          <Alert severity="info">
+            <Stack
+              direction="row"
+              spacing={1.5}
+              
+             sx={{ alignItems: "center" }}>
+              <CircularProgress size={18} />
+
+              Saving customer and optical records...
+            </Stack>
+          </Alert>
+        )}
+
+        {/* -----------------------------------------
+            PERSONAL INFORMATION
+        ----------------------------------------- */}
+
+        <Card
+          variant="outlined"
+          sx={{ borderRadius: 3 }}
+        >
+          <CardContent sx={{ p: 2.5 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              
+              sx={{ alignItems: "center",  mb: 2.5 }}
+            >
+              <PersonOutlineOutlined color="primary" />
+
+              <Typography
+                variant="h6"
+                
+               sx={{ fontWeight: 700 }}>
+                Personal Information
+              </Typography>
+            </Stack>
+
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormTextInput
+                  {...sharedProps}
+                  name="name"
+                  label="Customer Name"
+                  required
+                  maxLength={150}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormTextInput
+                  {...sharedProps}
+                  name="mobNumber"
+                  label="Mobile Number"
+                  inputMode="numeric"
+                  maxLength={10}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Controller
+                  name="gender"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      select
+                      label="Gender"
+                      disabled={isSubmitting}
+                    >
+                      <MenuItem value="">
+                        Not specified
+                      </MenuItem>
+
+                      <MenuItem value="Male">
+                        Male
+                      </MenuItem>
+
+                      <MenuItem value="Female">
+                        Female
+                      </MenuItem>
+
+                      <MenuItem value="Other">
+                        Other
+                      </MenuItem>
+                    </TextField>
+                  )}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormTextInput
+                  {...sharedProps}
+                  name="reference"
+                  label="Reference / Referred By"
+                  maxLength={255}
+                />
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* -----------------------------------------
+            OPTICAL PRESCRIPTION
+        ----------------------------------------- */}
+
+        <Card
+          variant="outlined"
+          sx={{ borderRadius: 3 }}
+        >
+          <CardContent sx={{ p: 2.5 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              
+              sx={{ alignItems: "center",  mb: 1 }}
+            >
+              <VisibilityOutlined color="primary" />
+
+              <Typography
+                variant="h6"
+                
+               sx={{ fontWeight: 700 }}>
+                Optical Prescription
+              </Typography>
+
+              <Chip
+                label="Optional"
+                size="small"
+                variant="outlined"
+              />
+            </Stack>
+
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mb: 2 }}
+            >
+              Select SPH and CYL from searchable
+              dropdowns, or type the required power.
+            </Typography>
+
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{
+                borderRadius: 2,
+                overflowX: "auto",
+              }}
+            >
+              <Table
+                size="small"
+                sx={{
+                  minWidth: 640,
+
+                  "& .MuiTableCell-root": {
+                    px: 1.5,
+                    py: 1.5,
+                    verticalAlign: "middle",
+                  },
+                }}
+              >
+                <TableHead>
+                  <TableRow
+                    sx={{
+                      bgcolor: "background.default",
+                    }}
+                  >
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      Eye / Vision
+                    </TableCell>
+
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      SPH
+                    </TableCell>
+
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      CYL
+                    </TableCell>
+
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      AXIS
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+
+                <TableBody>
+                  {eyes.map((eye) => (
+                    <TableRow key={eye.prefix} hover>
+                      <TableCell sx={{ minWidth: 150 }}>
+                        <Typography
+                          variant="subtitle2"
+                          
+                         sx={{ fontWeight: 700 }}>
+                          {eye.label}
+                        </Typography>
+
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                        >
+                          {eye.description}
+                        </Typography>
+                      </TableCell>
+
+                      <TableCell sx={{ minWidth: 170 }}>
+                        <PowerInput
+                          {...sharedProps}
+                          name={`${eye.prefix}_sph`}
+                          label="SPH"
+                          options={sphOptions}
+                        />
+                      </TableCell>
+
+                      <TableCell sx={{ minWidth: 170 }}>
+                        <PowerInput
+                          {...sharedProps}
+                          name={`${eye.prefix}_cyl`}
+                          label="CYL"
+                          options={cylOptions}
+                        />
+                      </TableCell>
+
+                      <TableCell sx={{ minWidth: 125 }}>
+                        <AxisInput
+                          {...sharedProps}
+                          name={`${eye.prefix}_axis`}
+                          label="AXIS"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mt: 1.5 }}
+            >
+              SPH: −30 to +30 · CYL: −15 to +15 ·
+              AXIS: 0–180
+            </Typography>
+          </CardContent>
+        </Card>
+
+        {/* -----------------------------------------
+            PURCHASE INFORMATION
+        ----------------------------------------- */}
+
+        <Card
+          variant="outlined"
+          sx={{ borderRadius: 3 }}
+        >
+          <CardContent sx={{ p: 2.5 }}>
+            <Stack
+              direction="row"
+              
+              
+              sx={{ justifyContent: "space-between", alignItems: "center",  mb: 2.5 }}
+            >
+              <Stack
+                direction="row"
+                spacing={1}
+                
+               sx={{ alignItems: "center" }}>
+                <ShoppingBagOutlined color="primary" />
+
+                <Typography
+                  variant="h6"
+                  
+                 sx={{ fontWeight: 700 }}>
+                  Purchase Information
+                </Typography>
+              </Stack>
+
+              <Chip
+                label={purchaseType}
+                color={
+                  hasFrame || hasLens
+                    ? "primary"
+                    : "default"
+                }
+                variant="outlined"
+                size="small"
+              />
+            </Stack>
+
+            <Grid container spacing={2}>
+              {/* PURCHASE DATE */}
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Controller
+                  name="purchaseDate"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      type="date"
+                      label="Date of Purchase"
+                      disabled={isSubmitting}
+                      error={Boolean(
+                        errors.purchaseDate
+                      )}
+                      helperText={
+                        errors.purchaseDate?.message ??
+                        "Defaults to today; can be changed."
+                      }
+                      slotProps={{
+                        inputLabel: { shrink: true },
+                      }}
+                    />
+                  )}
+                />
+              </Grid>
+
+              {/* FRAME CATALOG DROPDOWN */}
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Controller
+                  name="specsType"
+                  control={control}
+                  render={({ field }) => (
+                    <Autocomplete<
+                      FrameProduct,
+                      false,
+                      false,
+                      true
+                    >
+                      freeSolo
+                      fullWidth
+                      openOnFocus
+                      forcePopupIcon
+                      autoHighlight
+                      clearOnBlur={false}
+                      disabled={isSubmitting}
+                      loading={catalogLoading}
+                      options={frames}
+                      filterOptions={(
+                        options,
+                        state
+                      ) =>
+                        options.filter((frame) =>
+                          [
+                            frame.brand,
+                            frame.model,
+                            frame.frameCode,
+                            frame.frameStyle,
+                          ]
+                            .filter(Boolean)
+                            .join(" ")
+                            .toLowerCase()
+                            .includes(
+                              state.inputValue
+                                .toLowerCase()
+                                .trim()
+                            )
+                        )
+                      }
+                      getOptionLabel={(option) =>
+                        typeof option === "string"
+                          ? option
+                          : frameLabel(option)
+                      }
+                      isOptionEqualToValue={(
+                        option,
+                        value
+                      ) =>
+                        typeof value !== "string" &&
+                        option.id === value.id
+                      }
+                      value={
+                        frames.find(
+                          (frame) =>
+                            frame.id === frameCatalogId
+                        ) ?? field.value
+                      }
+                      inputValue={field.value}
+                      onInputChange={(
+                        _,
+                        text,
+                        reason
+                      ) => {
+                        if (
+                          reason === "input" ||
+                          reason === "clear"
+                        ) {
+                          field.onChange(text);
+
+                          setValue(
+                            "frameCatalogId",
+                            "",
+                            { shouldDirty: true }
+                          );
+                        }
+                      }}
+                      onChange={(_, selected) => {
+                        const product =
+                          typeof selected === "string"
+                            ? null
+                            : selected;
+
+                        const text =
+                          typeof selected === "string"
+                            ? selected
+                            : product
+                              ? frameLabel(product)
+                              : "";
+
+                        field.onChange(text);
+
+                        setValue(
+                          "frameCatalogId",
+                          product?.id ?? "",
+                          { shouldDirty: true }
+                        );
+                      }}
+                      onBlur={field.onBlur}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Frame / Spectacle"
+                          placeholder="Search or type frame"
+                          error={Boolean(
+                            errors.specsType
+                          )}
+                          helperText={
+                            errors.specsType?.message ??
+                            (frameCatalogId
+                              ? "Selected from catalog"
+                              : "Catalog or custom name")
+                          }
+                        />
+                      )}
+                    />
+                  )}
+                />
+              </Grid>
+
+              {/* LENS CATALOG DROPDOWN */}
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Controller
+                  name="lensType"
+                  control={control}
+                  render={({ field }) => (
+                    <Autocomplete<
+                      LensProduct,
+                      false,
+                      false,
+                      true
+                    >
+                      freeSolo
+                      fullWidth
+                      openOnFocus
+                      forcePopupIcon
+                      autoHighlight
+                      clearOnBlur={false}
+                      disabled={isSubmitting}
+                      loading={catalogLoading}
+                      options={lenses}
+                      filterOptions={(
+                        options,
+                        state
+                      ) =>
+                        options.filter((lens) =>
+                          [
+                            lens.company,
+                            lens.lensName,
+                            lens.visionType,
+                            lens.coating,
+                            lens.lensCode,
+                          ]
+                            .filter(Boolean)
+                            .join(" ")
+                            .toLowerCase()
+                            .includes(
+                              state.inputValue
+                                .toLowerCase()
+                                .trim()
+                            )
+                        )
+                      }
+                      getOptionLabel={(option) =>
+                        typeof option === "string"
+                          ? option
+                          : lensLabel(option)
+                      }
+                      isOptionEqualToValue={(
+                        option,
+                        value
+                      ) =>
+                        typeof value !== "string" &&
+                        option.id === value.id
+                      }
+                      value={
+                        lenses.find(
+                          (lens) =>
+                            lens.id === lensCatalogId
+                        ) ?? field.value
+                      }
+                      inputValue={field.value}
+                      onInputChange={(
+                        _,
+                        text,
+                        reason
+                      ) => {
+                        if (
+                          reason === "input" ||
+                          reason === "clear"
+                        ) {
+                          field.onChange(text);
+
+                          setValue(
+                            "lensCatalogId",
+                            "",
+                            { shouldDirty: true }
+                          );
+                        }
+                      }}
+                      onChange={(_, selected) => {
+                        const product =
+                          typeof selected === "string"
+                            ? null
+                            : selected;
+
+                        const text =
+                          typeof selected === "string"
+                            ? selected
+                            : product
+                              ? lensLabel(product)
+                              : "";
+
+                        field.onChange(text);
+
+                        setValue(
+                          "lensCatalogId",
+                          product?.id ?? "",
+                          { shouldDirty: true }
+                        );
+                      }}
+                      onBlur={field.onBlur}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Lens Type"
+                          placeholder="Search or type lens"
+                          error={Boolean(
+                            errors.lensType
+                          )}
+                          helperText={
+                            errors.lensType?.message ??
+                            (lensCatalogId
+                              ? "Selected from catalog"
+                              : "Catalog or custom name")
+                          }
+                        />
+                      )}
+                    />
+                  )}
+                />
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* -----------------------------------------
+            PRICING INFORMATION
+        ----------------------------------------- */}
+
+        <Card
+          variant="outlined"
+          sx={{ borderRadius: 3 }}
+        >
+          <CardContent sx={{ p: 2.5 }}>
+            <Typography
+              variant="h6"
+              
+              sx={{ fontWeight: 700,  mb: 0.75 }}
+            >
+              Pricing Details
+            </Typography>
+
+            <Typography
+              variant="body2"
+              color="text.secondary"
+            >
+              Choose how the purchase price is entered.
+            </Typography>
+
+            <Controller
+              name="pricingMode"
+              control={control}
+              render={({ field }) => (
+                <ToggleButtonGroup
+                  exclusive
+                  color="primary"
+                  size="small"
+                  value={field.value}
+                  disabled={isSubmitting}
+                  onChange={(_, next) => {
+                    if (next !== null) {
+                      setValue(
+                        "pricingMode",
+                        next as "SPLIT" | "MRP_ONLY",
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      );
+                    }
+                  }}
+                  sx={{
+                    mt: 2,
+                    mb: 2.5,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <ToggleButton value="SPLIT">
+                    Separate Rates
+                  </ToggleButton>
+
+                  <ToggleButton value="MRP_ONLY">
+                    Total MRP Only
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
+            />
+
+            {pricingMode === "SPLIT" ? (
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormTextInput
+                    {...sharedProps}
+                    name="frameRate"
+                    label="Frame Rate (₹)"
+                    inputMode="decimal"
+                    required
+                  />
+                </Grid>
+
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormTextInput
+                    {...sharedProps}
+                    name="lensRate"
+                    label="Lens Rate (₹)"
+                    inputMode="decimal"
+                    required
+                  />
+                </Grid>
+              </Grid>
+            ) : (
+              <FormTextInput
+                {...sharedProps}
+                name="mrp"
+                label="Total MRP (₹)"
+                inputMode="decimal"
+                required
+              />
+            )}
+
+            {/* LIVE TOTAL */}
+
+            <Paper
+              variant="outlined"
+              sx={{
+                mt: 2.5,
+                p: 2,
+                borderRadius: 2,
+                bgcolor: "action.hover",
+              }}
+            >
+              <Stack
+                direction={{
+                  xs: "column",
+                  sm: "row",
+                }}
+                
+                
+                spacing={1}
+               sx={{ justifyContent: "space-between", alignItems: {
+                  sm: "center",
+                } }}>
+                <Box>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                  >
+                    {pricingMode === "SPLIT"
+                      ? "Calculated Total MRP"
+                      : "Purchase Total MRP"}
+                  </Typography>
+
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                  >
+                    Based on the currently entered rates.
+                  </Typography>
+                </Box>
+
+                <Typography
+                  variant="h5"
+                  color="primary"
+                  
+                 sx={{ fontWeight: 800 }}>
+                  {total === null
+                    ? "₹ —"
+                    : money(total)}
+                </Typography>
+              </Stack>
+            </Paper>
+
+            <Alert
+              severity="info"
+              icon={<InfoOutlined />}
+              sx={{ mt: 2 }}
+            >
+              Pricing mode does not decide whether the
+              customer bought a frame, lens, or both.
+            </Alert>
+          </CardContent>
+        </Card>
+
+        {/* -----------------------------------------
+            INTERNAL STAFF NOTES
+        ----------------------------------------- */}
+
+        <Card
+          variant="outlined"
+          sx={{ borderRadius: 3 }}
+        >
+          <CardContent sx={{ p: 2.5 }}>
+            <Stack
+              direction="row"
+              
+              spacing={1}
+              sx={{ alignItems: "center",  mb: 1.5 }}
+            >
+              <LockOutlined
+                color="action"
+                fontSize="small"
+              />
+
+              <Typography
+                variant="subtitle1"
+                
+               sx={{ fontWeight: 700 }}>
+                Private Staff Notes
+              </Typography>
+
+              <Chip
+                label="Internal"
+                variant="outlined"
+                size="small"
+              />
+            </Stack>
+
+            <FormTextInput
+              {...sharedProps}
+              name="notes"
+              label="Internal Notes"
+              multiline
+              rows={3}
+              maxLength={5000}
+            />
+
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                display: "block",
+                mt: 1,
+              }}
+            >
+              Staff only. Do not export these notes
+              to customer PDFs or WhatsApp messages.
+            </Typography>
+          </CardContent>
+        </Card>
+
+        <Divider />
+
+        {/* -----------------------------------------
+            SAVE AND CANCEL
+        ----------------------------------------- */}
+
+        <Stack
+          direction={{
+            xs: "column-reverse",
+            sm: "row",
+          }}
+          
+          spacing={1.5}
+         sx={{ justifyContent: "flex-end" }}>
+          <Button
+            variant="outlined"
+            onClick={cancelCreation}
+            disabled={isSubmitting}
+            sx={{
+              borderRadius: 2,
+              minWidth: 115,
+            }}
+          >
+            Cancel
+          </Button>
+
+          <Button
+            type="submit"
+            variant="contained"
+            size="large"
+            disabled={isSubmitting}
+            startIcon={
+              isSubmitting ? (
+                <CircularProgress
+                  size={18}
+                  color="inherit"
+                />
+              ) : (
+                <SaveOutlined />
+              )
+            }
+            sx={{
+              borderRadius: 2,
+              minWidth: 175,
+              fontWeight: 700,
+            }}
+          >
+            {isSubmitting
+              ? "Saving..."
+              : "Save Customer"}
+          </Button>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+========== client/src/pages/CustomerDetailPage.tsx ==========
+
+import { useEffect, useRef, useState } from "react";
+
+import {
+  Alert,
+  Avatar,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Tabs,
+  Tab,
+  Tooltip,
+  IconButton,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  Grid,
+  Paper,
+  Skeleton,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+} from "@mui/material";
+
+import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
+import EditOutlined from "@mui/icons-material/EditOutlined";
+import PersonOutlined from "@mui/icons-material/PersonOutlined";
+import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
+import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
+import LockOutlined from "@mui/icons-material/LockOutlined";
+import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
+import ExpandMoreOutlined from "@mui/icons-material/ExpandMoreOutlined";
+import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
+import ContentCopyOutlined from "@mui/icons-material/ContentCopyOutlined";
+
+import {
+  Link,
+  useParams,
+  useSearchParams,
+} from "react-router";
+
+import {
+  getCustomer,
+  type CustomerDetails,
+  type CustomerRecord,
+  type Prescription,
+} from "../services/customerApi";
+
+// -----------------------------------------------------
+// 1. LIGHTWEIGHT CUSTOMER CACHE
+// -----------------------------------------------------
+
+// nik - Keep recently viewed customer records in memory.
+// This avoids showing a blank page every time staff go
+// from Customer Details to Edit and back again.
+//
+// Data is always refreshed from the backend when
+// the customer details page opens.
+//
+// Cache lives only in this browser tab's JavaScript memory.
+const CACHE_TIME_MS = 30_000;
+const MAX_CACHE_ITEMS = 20;
+
+type CachedCustomer = {
+  data: CustomerDetails;
+  savedAt: number;
+};
+
+const customerCache = new Map<string, CachedCustomer>();
+
+function readCachedCustomer(
+  id: string
+): CustomerDetails | null {
+  const cached = customerCache.get(id);
+
+  if (!cached) return null;
+
+  if (Date.now() - cached.savedAt > CACHE_TIME_MS) {
+    customerCache.delete(id);
+    return null;
+  }
+
+  return cached.data;
+}
+
+function saveCachedCustomer(
+  id: string,
+  data: CustomerDetails
+) {
+  // Keep the cache small.
+  if (customerCache.has(id)) {
+    customerCache.delete(id);
+  }
+
+  customerCache.set(id, {
+    data,
+    savedAt: Date.now(),
+  });
+
+  if (customerCache.size > MAX_CACHE_ITEMS) {
+    const oldestKey = customerCache.keys().next().value;
+
+    if (oldestKey) {
+      customerCache.delete(oldestKey);
+    }
+  }
+}
+
+// -----------------------------------------------------
+// 2. DISPLAY HELPERS
+// -----------------------------------------------------
+
+function display(
+  value: string | number | null | undefined
+): string {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  return String(value);
+}
+
+// Format prices in Indian rupees.
+function formatMoney(
+  value: string | number | null | undefined
+): string {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+// Format a saved date without a timezone-related day shift.
+function formatDate(
+  value: string | null | undefined
+): string {
+  if (!value) return "Not recorded";
+
+  const datePart = value.slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+
+  if (!match) return "Unknown date";
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() + 1 !== month ||
+    date.getUTCDate() !== day
+  ) {
+    return "Unknown date";
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+// Format optical power with signs and two decimal places.
+function formatPower(
+  value: string | number | null | undefined
+): string {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "—";
+  }
+
+  const safeNumber = Object.is(number, -0) ? 0 : number;
+
+  return `${safeNumber > 0 ? "+" : ""}${safeNumber.toFixed(2)}`;
+}
+
+// -----------------------------------------------------
+// 3. AUTOMATIC PURCHASE FLAGS
+// -----------------------------------------------------
+
+// nik - Determine what was actually purchased from the
+// saved product names. Pricing mode is NOT purchase type.
+// Works for both catalog selections and custom typed names.
+type PurchaseFlag =
+  | "FRAME_ONLY"
+  | "LENS_ONLY"
+  | "FRAME_AND_LENS"
+  | "NOT_SPECIFIED";
+
+function getPurchaseFlag(record: CustomerRecord): PurchaseFlag {
+  const hasFrame = Boolean(record.specsType?.trim());
+  const hasLens = Boolean(record.lensType?.trim());
+
+  if (hasFrame && hasLens) return "FRAME_AND_LENS";
+  if (hasFrame) return "FRAME_ONLY";
+  if (hasLens) return "LENS_ONLY";
+  return "NOT_SPECIFIED";
+}
+
+// Use one consistent label and color across the page.
+const purchaseFlagInfo: Record<
+  PurchaseFlag,
+  {
+    label: string;
+    color: "primary" | "success" | "info" | "default";
+  }
+> = {
+  FRAME_ONLY: { label: "Frame Only", color: "info" },
+  LENS_ONLY: { label: "Lens Only", color: "success" },
+  FRAME_AND_LENS: { label: "Frame + Lens", color: "primary" },
+  NOT_SPECIFIED: { label: "Not Specified", color: "default" },
+};
+
+// Display the product flag independently from the payment mode.
+function PurchaseFlagChip({ record }: { record: CustomerRecord }) {
+  const flag = purchaseFlagInfo[getPurchaseFlag(record)];
+  return <Chip label={flag.label} color={flag.color} size="small" />;
+}
+
+// -----------------------------------------------------
+// 4. REUSABLE DETAIL COMPONENTS
+// -----------------------------------------------------
+
+function DetailItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+}) {
+  return (
+    <Box>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+
+      <Typography
+        sx={{
+          mt: 0.5,
+          fontWeight: 500,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {display(value)}
+      </Typography>
+    </Box>
+  );
+}
+
+function PrescriptionRow({
+  label,
+  description,
+  sph,
+  cyl,
+  axis,
+}: {
+  label: string;
+  description: string;
+  sph: string | number | null;
+  cyl: string | number | null;
+  axis: string | number | null;
+}) {
+  return (
+    <TableRow hover>
+      <TableCell sx={{ minWidth: 155 }}>
+        <Typography sx={{ fontWeight: 700 }}>
+          {label}
+        </Typography>
+
+        <Typography variant="caption" color="text.secondary">
+          {description}
+        </Typography>
+      </TableCell>
+
+      <TableCell
+        align="center"
+        sx={{
+          fontWeight: 600,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {formatPower(sph)}
+      </TableCell>
+
+      <TableCell
+        align="center"
+        sx={{
+          fontWeight: 600,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {formatPower(cyl)}
+      </TableCell>
+
+      <TableCell
+        align="center"
+        sx={{
+          fontWeight: 600,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {display(axis)}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// Show prescriptions in the exact order requested by the shop.
+function PrescriptionTable({
+  prescription,
+}: {
+  prescription: Prescription;
+}) {
+  return (
+    <TableContainer
+      component={Paper}
+      variant="outlined"
+      sx={{
+        borderRadius: 2,
+        overflowX: "auto",
+      }}
+    >
+      <Table
+        size="small"
+        sx={{
+          minWidth: 520,
+          "& .MuiTableCell-root": {
+            px: 2,
+            py: 1.5,
+          },
+        }}
+      >
+        <TableHead>
+          <TableRow sx={{ bgcolor: "background.default" }}>
+            <TableCell sx={{ fontWeight: 700 }}>
+              Eye / Vision
+            </TableCell>
+
+            <TableCell align="center" sx={{ fontWeight: 700 }}>
+              SPH
+            </TableCell>
+
+            <TableCell align="center" sx={{ fontWeight: 700 }}>
+              CYL
+            </TableCell>
+
+            <TableCell align="center" sx={{ fontWeight: 700 }}>
+              AXIS
+            </TableCell>
+          </TableRow>
+        </TableHead>
+
+        <TableBody>
+          <PrescriptionRow
+            label="RE DIST"
+            description="Right Eye Distance"
+            sph={prescription.reDistSph}
+            cyl={prescription.reDistCyl}
+            axis={prescription.reDistAxis}
+          />
+
+          <PrescriptionRow
+            label="RE NEAR"
+            description="Right Eye Near"
+            sph={prescription.reNearSph}
+            cyl={prescription.reNearCyl}
+            axis={prescription.reNearAxis}
+          />
+
+          <PrescriptionRow
+            label="LE DIST"
+            description="Left Eye Distance"
+            sph={prescription.leDistSph}
+            cyl={prescription.leDistCyl}
+            axis={prescription.leDistAxis}
+          />
+
+          <PrescriptionRow
+            label="LE NEAR"
+            description="Left Eye Near"
+            sph={prescription.leNearSph}
+            cyl={prescription.leNearCyl}
+            axis={prescription.leNearAxis}
+          />
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+// -----------------------------------------------------
+// 5. LOADING SKELETON
+// -----------------------------------------------------
+
+// Display a lightweight layout immediately,
+// instead of an empty screen with only a spinner.
+function CustomerDetailsSkeleton() {
+  return (
+    <Stack spacing={3} sx={{ pb: 4 }}>
+      <Box>
+        <Skeleton width={160} height={35} />
+        <Skeleton width="45%" height={50} />
+        <Skeleton width="65%" height={25} />
+      </Box>
+
+      {[1, 2, 3].map((item) => (
+        <Card key={item}>
+          <CardContent sx={{ p: 3 }}>
+            <Skeleton width="35%" height={35} />
+            <Skeleton sx={{ mt: 2 }} height={28} />
+            <Skeleton height={28} />
+            <Skeleton height={28} />
+          </CardContent>
+        </Card>
+      ))}
+    </Stack>
+  );
+}
+
+// -----------------------------------------------------
+// 6. CUSTOMER DETAIL PAGE
+// -----------------------------------------------------
+
+// nik - Each customer is identified by its unique ID.
+// Different customers may share the same mobile number.
+export default function CustomerDetailPage() {
+  const { id } = useParams();
+  const [params] = useSearchParams();
+
+  const [customer, setCustomer] =
+    useState<CustomerDetails | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState(0);
+  const [copyMessage, setCopyMessage] = useState("");
+
+  // nik - Abort outdated customer requests when refreshing or switching customers.
+  const requestRef = useRef<AbortController | null>(null);
+
+  const previousSearch = params.get("search") ?? "";
+
+  const searchQuery = previousSearch
+    ? `?search=${encodeURIComponent(previousSearch)}`
+    : "";
+
+  const backUrl = `/customers${searchQuery}`;
+
+  // Restore recent data immediately, then fetch fresh data.
+  useEffect(() => {
+    if (!id) {
+      setCustomer(null);
+      setLoading(false);
+      setError("Customer ID is missing.");
+      return;
+    }
+
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const cached = readCachedCustomer(id);
+
+    setCustomer(cached);
+    setLoading(!cached);
+    setRefreshing(Boolean(cached));
+    setError("");
+
+    getCustomer(id, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted || requestRef.current !== controller || result.id !== id) return;
+
+        saveCachedCustomer(id, result);
+        setCustomer(result);
+        setError("");
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || requestRef.current !== controller) return;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load customer details."
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && requestRef.current === controller) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+      if (requestRef.current === controller) requestRef.current = null;
+    };
+  }, [id]);
+
+  // nik - A new refresh cancels older requests, preventing stale UI updates.
+  async function handleRefresh() {
+    if (!id || refreshing) return;
+
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setRefreshing(true);
+    setLoading(false);
+    setError("");
+
+    try {
+      const result = await getCustomer(id, controller.signal);
+      if (controller.signal.aborted || requestRef.current !== controller || result.id !== id) return;
+
+      saveCachedCustomer(id, result);
+      setCustomer(result);
+    } catch (err) {
+      if (controller.signal.aborted || requestRef.current !== controller) return;
+      setError(err instanceof Error ? err.message : "Unable to refresh customer details.");
+    } finally {
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setRefreshing(false);
+      }
+    }
+  }
+
+  // Show skeleton only for the initial uncached load.
+  if (loading && !customer) {
+    return <CustomerDetailsSkeleton />;
+  }
+
+  // No record is available.
+  if (!customer) {
+    return (
+      <Stack spacing={2}>
+        <Alert severity="error">
+          {error || "Customer not found."}
+        </Alert>
+
+        <Button
+          component={Link}
+          to={backUrl}
+          startIcon={<ArrowBackOutlined />}
+          sx={{ alignSelf: "flex-start" }}
+        >
+          Back to Customers
+        </Button>
+      </Stack>
+    );
+  }
+
+  const editUrl = `/customers/${customer.id}/edit${searchQuery}`;
+  // nik - Product names determine purchase type, not the pricing method.
+  const latestRecord = customer.records[0];
+  const initials = customer.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+  const totalSpent = customer.records.reduce((sum, item) => sum + (Number(item.mrp) || 0), 0);
+
+  async function copyCustomerId() {
+    try {
+     if (!customer) return;
+await navigator.clipboard.writeText(customer.id);
+      setCopyMessage("Customer ID copied");
+    } catch {
+      setCopyMessage("Could not copy Customer ID");
+    }
+  }
+
+  return (
+    <Box sx={{ maxWidth: 1250, mx: "auto", pb: 6 }}>
+      <Stack spacing={2.5}>
+        {/* nik - Return to the previous customer search without losing the query. */}
+        <Box>
+          <Button component={Link} to={backUrl} startIcon={<ArrowBackOutlined />} size="small">
+            Back to Customers
+          </Button>
+        </Box>
+
+        {/* Customer identity and frequently used actions. */}
+        <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 }, "&:last-child": { pb: { xs: 2, md: 3 } } }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2.5} sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}>
+              <Stack direction="row" spacing={2} sx={{ alignItems: "center", minWidth: 0 }}>
+                <Avatar sx={{ width: 62, height: 62, bgcolor: "primary.main", fontSize: 23, fontWeight: 700 }}>
+                  {initials || <PersonOutlined />}
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h4" sx={{ fontWeight: 800, overflowWrap: "anywhere", fontSize: { xs: "1.55rem", md: "2rem" } }}>
+                    {customer.name}
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ mt: 0.6, flexWrap: "wrap", alignItems: "center", gap: 0.5 }}>
+                    <Typography color="text.secondary" variant="body2">{customer.mobNumber || "No mobile number"}</Typography>
+                    <Chip size="small" variant="outlined" label={`${customer.records.length} purchases`} />
+                    <Chip size="small" variant="outlined" label={`${customer.prescriptions.length} prescriptions`} />
+                  </Stack>
+                </Box>
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                {customer.mobNumber && (
+                  <Button component="a" href={`tel:${customer.mobNumber}`} variant="outlined" startIcon={<PhoneOutlined />}>
+                    Call
+                  </Button>
+                )}
+                <Button variant="outlined" onClick={handleRefresh} disabled={refreshing} startIcon={refreshing ? <CircularProgress size={17} /> : <RefreshOutlined />}>
+                  {refreshing ? "Refreshing" : "Refresh"}
+                </Button>
+                <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>
+                  Edit Customer
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {error && <Alert severity="warning" onClose={() => setError("")}>Unable to refresh: {error}. Showing the last available information.</Alert>}
+        {copyMessage && <Alert severity="info" onClose={() => setCopyMessage("")}>{copyMessage}</Alert>}
+
+        {/* Small, useful facts are easier to scan than repeated full-size cards. */}
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Purchase Records</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>{customer.records.length}</Typography>
+                <Typography variant="caption" color="text.secondary">{latestRecord ? `Latest: ${formatDate(latestRecord.purchaseDate)}` : "No purchases recorded"}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Total Purchase Value</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 800, mt: 1 }}>{formatMoney(totalSpent)}</Typography>
+                <Typography variant="caption" color="text.secondary">Sum of saved purchase MRP amounts</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Prescription Records</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>{customer.prescriptions.length}</Typography>
+                <Typography variant="caption" color="text.secondary">Saved optical prescriptions</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Personal information remains immediately visible. */}
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 2 }}>
+              <PersonOutlined color="primary" />
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>Personal Information</Typography>
+            </Stack>
+            <Grid container spacing={2.5}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Customer Name" value={customer.name} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Mobile Number" value={customer.mobNumber} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Gender" value={customer.gender} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Reference" value={customer.reference} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Registered" value={formatDate(customer.createdAt)} /></Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }}><DetailItem label="Updated" value={formatDate(customer.updatedAt)} /></Grid>
+            </Grid>
+            <Divider sx={{ my: 2 }} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>ID: {customer.id}</Typography>
+              <Tooltip title="Copy customer ID">
+                <IconButton size="small" onClick={() => { void copyCustomerId(); }} aria-label="Copy customer ID"><ContentCopyOutlined fontSize="inherit" /></IconButton>
+              </Tooltip>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {/* nik - Tabs keep long purchase and prescription histories manageable. */}
+        <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+            <Tabs value={activeTab} onChange={(_, next: number) => setActiveTab(next)} variant="scrollable" scrollButtons="auto" aria-label="Customer details sections">
+              <Tab icon={<ReceiptLongOutlined />} iconPosition="start" label={`Purchases (${customer.records.length})`} />
+              <Tab icon={<VisibilityOutlined />} iconPosition="start" label={`Prescriptions (${customer.prescriptions.length})`} />
+              <Tab icon={<LockOutlined />} iconPosition="start" label="Staff Notes" />
+            </Tabs>
+          </Box>
+          <CardContent sx={{ p: { xs: 1.5, md: 3 }, minHeight: 240 }}>
+            {activeTab === 0 && (
+              <Stack spacing={1.5}>
+                <Typography color="text.secondary" variant="body2" sx={{ mb: 0.5 }}>
+                  Open a purchase to see its products, prices and purchase date.
+                </Typography>
+                {customer.records.length === 0 ? <Alert severity="info">No purchase records available.</Alert> : customer.records.map((record, index) => (
+                  <Accordion key={record.id} disableGutters defaultExpanded={index === 0} variant="outlined" sx={{ borderRadius: "12px !important", overflow: "hidden", "&:before": { display: "none" } }}>
+                    <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2, py: 0.5 }}>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ width: "100%", alignItems: { sm: "center" }, pr: 1, justifyContent: "space-between" }}>
+                        <Box>
+                          <Typography sx={{ fontWeight: 700 }}>Purchase {customer.records.length - index} {index === 0 ? "· Latest" : ""}</Typography>
+                          <Typography variant="body2" color="text.secondary">{formatDate(record.purchaseDate)}</Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
+                          <PurchaseFlagChip record={record} />
+                          <Typography sx={{ fontWeight: 800, ml: 1 }}>{formatMoney(record.mrp)}</Typography>
+                        </Stack>
+                      </Stack>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ borderTop: 1, borderColor: "divider", px: 2.5, py: 2.5 }}>
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", mb: 2 }}>
+                        <Chip size="small" variant="outlined" label={record.pricingMode === "SPLIT" ? "Separate Frame / Lens Rates" : "MRP Only"} />
+                      </Stack>
+                      <Grid container spacing={2.5}>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Frame / Spectacle" value={record.specsType} /></Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Lens" value={record.lensType} /></Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Date of Purchase" value={formatDate(record.purchaseDate)} /></Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Record Created" value={formatDate(record.createdAt)} /></Grid>
+                        {record.pricingMode === "SPLIT" && <>
+                          <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Frame Rate" value={formatMoney(record.frameRate)} /></Grid>
+                          <Grid size={{ xs: 12, sm: 6 }}><DetailItem label="Lens Rate" value={formatMoney(record.lensRate)} /></Grid>
+                        </>}
+                      </Grid>
+                      <Paper variant="outlined" sx={{ mt: 2.5, p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
+                        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
+                          <Typography sx={{ fontWeight: 700 }}>Total MRP</Typography>
+                          <Typography variant="h6" sx={{ fontWeight: 800, color: "primary.main" }}>{formatMoney(record.mrp)}</Typography>
+                        </Stack>
+                      </Paper>
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Stack>
+            )}
+            {activeTab === 1 && (
+              <Stack spacing={2}>
+                <Typography color="text.secondary" variant="body2">Saved prescriptions, most recent first. Values are read-only on this page.</Typography>
+                {customer.prescriptions.length === 0 ? <Alert severity="info">No optical prescription recorded.</Alert> : customer.prescriptions.map((prescription, index) => (
+                  <Accordion key={prescription.id} disableGutters defaultExpanded={index === 0} variant="outlined" sx={{ borderRadius: "12px !important", overflow: "hidden", "&:before": { display: "none" } }}>
+                    <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+                      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                        <Typography sx={{ fontWeight: 700 }}>Prescription {index + 1}</Typography>
+                        <Chip size="small" label={formatDate(prescription.createdAt)} variant="outlined" />
+                        {index === 0 && <Chip size="small" label="Latest" color="primary" />}
+                      </Stack>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ borderTop: 1, borderColor: "divider", p: { xs: 1, md: 2 } }}>
+                      <PrescriptionTable prescription={prescription} />
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Stack>
+            )}
+            {activeTab === 2 && (
+              <Stack spacing={2}>
+                <Alert severity="info" icon={<LockOutlined />}>Staff-only information. Never include these notes in customer PDFs or WhatsApp messages.</Alert>
+                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, minHeight: 100 }}>
+                  <Typography sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{customer.notes || "No internal notes added."}</Typography>
+                </Paper>
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
+          <Button component={Link} to={backUrl} variant="outlined" startIcon={<ArrowBackOutlined />}>All Customers</Button>
+          <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>Edit Customer</Button>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}========== client/src/services/customerApi.ts ==========
+
+/**
+ * Customer API Service
+ *
+ * Handles communication between the React frontend
+ * and the Express backend.
+ *
+ * nik - Keep API types and requests in one place.
+ */
+
+// -----------------------------------------------------
+// 1. CUSTOMER CREATION TYPES
+// -----------------------------------------------------
+
+// Optical prescription measurements.
+// Each value is optional because some prescriptions
+// may not contain every measurement.
+export type EyeValues = {
+  sph?: number;
+  cyl?: number;
+  axis?: number;
+};
+
+// Reusable product information stored with a purchase.
+// Catalog IDs are null when products are entered manually.
+export type PurchaseProducts = {
+  specsType: string | null;
+  lensType: string | null;
+
+  // nik - Link products to the Admin Catalog.
+  // The backend validates these IDs before saving.
+  frameCatalogId?: string | null;
+  lensCatalogId?: string | null;
+};
+
+// Data sent when registering a new customer.
+export type CustomerPayload = {
+  name: string;
+  mobNumber: string | null;
+  gender: "Male" | "Female" | "Other" | null;
+  reference: string | null;
+
+  // Private information for shop staff only.
+  notes: string | null;
+
+  // Actual purchase date in YYYY-MM-DD format.
+  // Null means the date has not been recorded.
+  purchaseDate?: string | null;
+
+  // Optical prescription is optional.
+  prescription?: {
+    re_dist?: EyeValues;
+    re_near?: EyeValues;
+    le_dist?: EyeValues;
+    le_near?: EyeValues;
+  };
+
+  // nik - Support two pricing methods.
+  // The backend calculates and validates final pricing.
+  record:
+    | (PurchaseProducts & {
+        pricingMode: "SPLIT";
+        frameRate: number;
+        lensRate: number;
+      })
+    | (PurchaseProducts & {
+        pricingMode: "MRP_ONLY";
+        mrp: number;
+      });
+};
+
+// Minimal response after successful customer creation.
+export type CreatedCustomer = {
+  id: string;
+  name: string;
+};
+
+// -----------------------------------------------------
+// 2. SHARED API RESPONSE HANDLER
+// -----------------------------------------------------
+
+// Read JSON safely and display useful error messages.
+async function readResponse<T>(
+  response: Response
+): Promise<T> {
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok || !result?.success) {
+    throw new Error(
+      result?.message ||
+        `Request failed (${response.status}). Please try again.`
+    );
+  }
+
+  return result.data as T;
+}
+
+// nik - Send the Admin session cookie with every customer request.
+// Keep this in one place instead of repeating it in each API function.
+function apiFetch(url: string, options: RequestInit = {}) {
+  return fetch(url, { ...options, credentials: "include" });
+}
+
+// -----------------------------------------------------
+// 3. CREATE CUSTOMER
+// -----------------------------------------------------
+
+// Vite forwards /api requests to the Express server.
+// No hardcoded backend address is required.
+export async function createCustomer(
+  payload: CustomerPayload
+): Promise<CreatedCustomer> {
+  const response = await apiFetch("/api/customers", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const customer =
+    await readResponse<CreatedCustomer>(response);
+
+  // Confirm the backend returned a unique customer ID.
+  if (!customer?.id) {
+    throw new Error(
+      "Customer was saved, but the server did not return a customer ID."
+    );
+  }
+
+  return customer;
+}
+
+// -----------------------------------------------------
+// 4. CUSTOMER DETAILS TYPES
+// -----------------------------------------------------
+
+// Prisma Decimal measurements are normally
+// serialized as strings in JSON.
+export type Prescription = {
+  id: string;
+  createdAt: string;
+
+  // Right Eye Distance
+  reDistSph: string | null;
+  reDistCyl: string | null;
+  reDistAxis: number | null;
+
+  // Right Eye Near
+  reNearSph: string | null;
+  reNearCyl: string | null;
+  reNearAxis: number | null;
+
+  // Left Eye Distance
+  leDistSph: string | null;
+  leDistCyl: string | null;
+  leDistAxis: number | null;
+
+  // Left Eye Near
+  leNearSph: string | null;
+  leNearCyl: string | null;
+  leNearAxis: number | null;
+};
+
+// -----------------------------------------------------
+// 5. HISTORICAL PURCHASE RECORD
+// -----------------------------------------------------
+
+// nik - Every purchase has its own unique record ID.
+// Product names are saved as historical snapshots.
+// Later catalog edits should not rename past purchases.
+export type CustomerRecord = {
+  id: string;
+
+  // Prescription linked to this purchase.
+  prescriptionId: string | null;
+
+  // Original frame and lens names saved at purchase time.
+  specsType: string | null;
+  lensType: string | null;
+
+  // Optional links to the Admin Product Catalog.
+  // These may be null for older or manually entered data.
+  frameCatalogId: string | null;
+  lensCatalogId: string | null;
+
+  // Supported pricing methods.
+  pricingMode: "SPLIT" | "MRP_ONLY";
+
+  // Amounts returned by Prisma as strings.
+  frameRate: string | null;
+  lensRate: string | null;
+  mrp: string;
+
+  // Actual purchase date returned by the backend.
+  // This is separate from createdAt.
+  purchaseDate: string | null;
+
+  // Database record creation time.
+  createdAt: string;
+};
+
+// -----------------------------------------------------
+// 6. CUSTOMER SEARCH AND DETAILS
+// -----------------------------------------------------
+
+// Small customer summary shown in search results.
+// Multiple customers may share the same mobile number.
+export type CustomerSummary = {
+  id: string;
+  name: string;
+  mobNumber: string | null;
+  gender: string | null;
+  createdAt: string;
+};
+
+// Complete customer information and history.
+export type CustomerDetails = CustomerSummary & {
+  reference: string | null;
+
+  // Staff-only notes.
+  // Never expose these in customer PDFs or WhatsApp.
+  notes: string | null;
+
+  updatedAt: string;
+
+  prescriptions: Prescription[];
+  records: CustomerRecord[];
+};
+
+// -----------------------------------------------------
+// 7. SEARCH CUSTOMERS
+// -----------------------------------------------------
+
+// Search using a name or partial mobile number.
+// Customer records are always identified by UUID.
+export async function searchCustomers(
+  search: string,
+  signal?: AbortSignal
+): Promise<CustomerSummary[]> {
+  const value = search.trim();
+
+  const params = new URLSearchParams();
+
+  if (value) {
+    if (/^\d+$/.test(value)) {
+      params.set("phone", value);
+    } else {
+      params.set("name", value);
+    }
+  }
+
+  const query = params.toString();
+
+  const response = await apiFetch(
+    `/api/customers${query ? `?${query}` : ""}`,
+    {
+      signal,
+    }
+  );
+
+  return readResponse<CustomerSummary[]>(response);
+}
+
+// -----------------------------------------------------
+// 8. GET CUSTOMER DETAILS
+// -----------------------------------------------------
+
+// Retrieve the selected customer by unique ID,
+// never by their mobile number.
+export async function getCustomer(
+  id: string,
+  signal?: AbortSignal
+): Promise<CustomerDetails> {
+  const response = await apiFetch(
+    `/api/customers/${encodeURIComponent(id)}`,
+    {
+      signal,
+    }
+  );
+
+  return readResponse<CustomerDetails>(response);
+}
+
+// -----------------------------------------------------
+// 9. UPDATE CUSTOMER PERSONAL INFORMATION
+// -----------------------------------------------------
+
+export type CustomerPersonalUpdate = {
+  name: string;
+  mobNumber: string | null;
+  gender: "Male" | "Female" | "Other" | null;
+  reference: string | null;
+
+  // Internal notes are editable by shop staff.
+  notes: string | null;
+};
+
+// Update only the selected customer's personal details.
+// Purchase history is edited through separate endpoints.
+export async function updateCustomer(
+  id: string,
+  changes: CustomerPersonalUpdate
+): Promise<CustomerDetails> {
+  const response = await apiFetch(
+    `/api/customers/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(changes),
+    }
+  );
+
+  return readResponse<CustomerDetails>(response);
+}
+
+// -----------------------------------------------------
+// 10. HISTORICAL PRESCRIPTION EDITING TYPES
+// -----------------------------------------------------
+
+// Nullable measurements allow staff to clear
+// an existing prescription value.
+export type EditableEye = {
+  sph?: number | null;
+  cyl?: number | null;
+  axis?: number | null;
+};
+
+export type EditablePrescription = {
+  re_dist?: EditableEye;
+  re_near?: EditableEye;
+  le_dist?: EditableEye;
+  le_near?: EditableEye;
+};
+
+// -----------------------------------------------------
+// 11. HISTORICAL PURCHASE EDITING TYPES
+// -----------------------------------------------------
+
+// Reuse the same pricing and catalog structure
+// when editing an existing purchase.
+export type EditablePurchase = {
+  purchaseDate: string | null;
+
+  record: CustomerPayload["record"];
+};
+
+// -----------------------------------------------------
+// 12. UPDATE ONE HISTORICAL PURCHASE
+// -----------------------------------------------------
+
+// Update exactly one purchase using the customer ID
+// and the selected purchase record ID.
+// Other historical purchases remain unchanged.
+export async function updatePurchase(
+  customerId: string,
+  recordId: string,
+  changes: EditablePurchase
+): Promise<CustomerRecord> {
+  const response = await apiFetch(
+    `/api/customers/${encodeURIComponent(customerId)}/records/${encodeURIComponent(recordId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(changes),
+    }
+  );
+
+  return readResponse<CustomerRecord>(response);
+}
+
+// -----------------------------------------------------
+// 13. UPDATE ONE HISTORICAL PRESCRIPTION
+// -----------------------------------------------------
+
+// Update exactly one prescription by its ID.
+// Other saved prescriptions are not modified.
+export async function updatePrescription(
+  customerId: string,
+  prescriptionId: string,
+  changes: EditablePrescription
+): Promise<Prescription> {
+  const response = await apiFetch(
+    `/api/customers/${encodeURIComponent(customerId)}/prescriptions/${encodeURIComponent(prescriptionId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(changes),
+    }
+  );
+
+  return readResponse<Prescription>(response);
+}
