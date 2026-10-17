@@ -1,6 +1,17 @@
-import { useAnalyticsRefresh } from "../components/analytics/reportStore";
-import { useState } from "react";
-import { Box, Button, Card, Chip, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { useMemo, useState } from "react";
+import {
+  Box,
+  Button,
+  Collapse,
+  IconButton,
+  Stack,
+  Tab,
+  Tabs,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import InsightsOutlined from "@mui/icons-material/InsightsOutlined";
 import ShowChartOutlined from "@mui/icons-material/ShowChartOutlined";
 import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
@@ -8,6 +19,11 @@ import LensOutlined from "@mui/icons-material/LensOutlined";
 import PeopleOutline from "@mui/icons-material/PeopleOutlineOutlined";
 import DonutSmallOutlined from "@mui/icons-material/DonutSmallOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
+import TuneOutlined from "@mui/icons-material/TuneOutlined";
+import KeyboardArrowDownOutlined from "@mui/icons-material/KeyboardArrowDownOutlined";
+import CalendarMonthOutlined from "@mui/icons-material/CalendarMonthOutlined";
+import CompareArrowsOutlined from "@mui/icons-material/CompareArrowsOutlined";
+import TableRowsOutlined from "@mui/icons-material/TableRowsOutlined";
 import type { AnalyticsFilters as Filters, AnalyticsSection } from "../models/analytics";
 import { defaultAnalyticsFilters, defaultExplorer, defaultSalesTable } from "../utils/analytics";
 import { AnalyticsDataProvider } from "../components/analytics/AnalyticsData";
@@ -21,199 +37,225 @@ import {
 import HistoricalSalesExplorer from "../components/analytics/HistoricalSalesExplorer";
 import { DailySalesReport, PeriodComparison } from "../components/analytics/SalesReports";
 import type { SalesTableSettings } from "../components/analytics/SalesReports";
+import { useAnalyticsRefresh } from "../components/analytics/reportStore";
 
+// nik - Keep report navigation simple: one horizontal menu instead of multiple dashboards.
 const sections = [
-  {
-    key: "overview",
-    label: "Overview",
-    icon: <InsightsOutlined />,
-    detail: "A focused view of recorded business performance.",
-  },
-  {
-    key: "sales",
-    label: "Sales",
-    icon: <ShowChartOutlined />,
-    detail: "Explore historical years, inspect calendar-date sales, and compare periods.",
-  },
-  {
-    key: "frames",
-    label: "Frames",
-    icon: <VisibilityOutlined />,
-    detail: "Frame purchase patterns, saved products, brands and styles.",
-  },
-  {
-    key: "lenses",
-    label: "Lenses",
-    icon: <LensOutlined />,
-    detail: "Lens companies, vision types, coatings and purchase trends.",
-  },
-  {
-    key: "customers",
-    label: "Customers",
-    icon: <PeopleOutline />,
-    detail: "Customer profiles, purchasing behavior, gender and recorded-age coverage.",
-  },
-  {
-    key: "mix",
-    label: "Purchase Mix",
-    icon: <DonutSmallOutlined />,
-    detail: "Frame-only, lens-only, combined and unclassified purchases.",
-  },
+  { key: "overview", label: "Overview", icon: <InsightsOutlined fontSize="small" /> },
+  { key: "sales", label: "Sales", icon: <ShowChartOutlined fontSize="small" /> },
+  { key: "frames", label: "Frames", icon: <VisibilityOutlined fontSize="small" /> },
+  { key: "lenses", label: "Lenses", icon: <LensOutlined fontSize="small" /> },
+  { key: "customers", label: "Customers", icon: <PeopleOutline fontSize="small" /> },
+  { key: "mix", label: "Purchase Mix", icon: <DonutSmallOutlined fontSize="small" /> },
+] as const;
+
+type SalesView = "explorer" | "daily" | "comparison";
+
+const salesViews = [
+  { key: "explorer", label: "History", icon: <CalendarMonthOutlined fontSize="small" /> },
+  { key: "daily", label: "Transactions", icon: <TableRowsOutlined fontSize="small" /> },
+  { key: "comparison", label: "Compare periods", icon: <CompareArrowsOutlined fontSize="small" /> },
 ] as const;
 
 function AnalyticsWorkspace() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const refresh = useAnalyticsRefresh();
+
   const [section, setSection] = useState<AnalyticsSection>("overview");
-  const [salesView, setSalesView] = useState("explorer");
-  const [filters, setFilters] = useState(defaultAnalyticsFilters);
+  const [salesView, setSalesView] = useState<SalesView>("explorer");
+  const [filters, setFilters] = useState<Filters>(defaultAnalyticsFilters);
   const [comparison, setComparison] = useState<Filters>(() => ({
     ...defaultAnalyticsFilters(),
     period: "lastMonth",
   }));
   const [explorer, setExplorer] = useState(defaultExplorer);
   const [table, setTable] = useState<SalesTableSettings>(defaultSalesTable);
-  const refresh = useAnalyticsRefresh();
-  const active = sections.find((item) => item.key === section)!;
-  const filter = (next: Filters) => {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const filtersAvailable = !(section === "sales" && salesView === "explorer");
+  const heading = useMemo(
+    () => sections.find((item) => item.key === section)?.label ?? "Analytics",
+    [section],
+  );
+
+  // nik - Reset only the table page when the date or customer filters change.
+  const updateFilters = (next: Filters) => {
     setFilters(next);
     setTable((previous) => ({ ...previous, page: 0 }));
   };
+
   const navigate = (next: AnalyticsSection, view?: string) => {
     setSection(next);
-    if (view) setSalesView(view);
+    if (view === "explorer" || view === "daily" || view === "comparison") {
+      setSalesView(view);
+    }
   };
+
+  // nik - Keep the old drill-down behavior so clicking a report leads to its transactions.
   const drill = (changes: Partial<Filters>) => {
-    filter({ ...filters, ...changes });
+    updateFilters({ ...filters, ...changes });
     setSection("sales");
     setSalesView("daily");
     setTable((previous) => ({ ...previous, page: 0, search: "" }));
   };
-  // nik - Mount only the active report; filters and explorer selections live above tab unmounts.
+
   return (
-    <Box sx={{ maxWidth: 1500, mx: "auto", pb: 5, minWidth: 0 }}>
-      <Stack spacing={3}>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={2}
-          sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
-        >
-          <Box>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1 }}>
-              <InsightsOutlined color="primary" />
-              <Chip size="small" label="Optical Retail Business Intelligence" variant="outlined" />
-            </Stack>
-            <Typography
-              variant="h4"
-              sx={{
-                fontWeight: 800,
-                letterSpacing: "-0.03em",
-                fontSize: { xs: "1.75rem", md: "2.125rem" },
-              }}
-            >
-              OptiLens Intelligence
-            </Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-              Business performance, product insights, and customer analytics.
-            </Typography>
-          </Box>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshOutlined />}
-            onClick={refresh}
-            sx={{ alignSelf: { xs: "flex-start", sm: "center" }, whiteSpace: "nowrap" }}
+    <Box sx={{ width: "100%", maxWidth: 1540, mx: "auto", px: { xs: 1.5, sm: 3 }, pb: 6, minWidth: 0 }}>
+      {/* A compact page header, without a giant title card. */}
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        gap={1.5}
+        sx={{ pt: { xs: 2, md: 3 }, pb: 2.5 }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            component="h1"
+            sx={{ fontSize: { xs: "1.5rem", md: "1.9rem" }, fontWeight: 780, letterSpacing: "-0.035em" }}
           >
-            Refresh Reports
-          </Button>
-        </Stack>
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <Tabs
-            value={section}
-            onChange={(_, value) => setSection(value)}
-            variant="scrollable"
-            scrollButtons="auto"
-            allowScrollButtonsMobile
-            aria-label="Business analytics sections"
-          >
-            {sections.map((item) => (
-              <Tab
-                key={item.key}
-                id={`analytics-tab-${item.key}`}
-                aria-controls={`analytics-panel-${item.key}`}
-                icon={item.icon}
-                iconPosition="start"
-                value={item.key}
-                label={item.label}
-                sx={{ minHeight: 64, textTransform: "none", fontWeight: 700 }}
-              />
-            ))}
-          </Tabs>
-        </Card>
-        <Box
-          role="tabpanel"
-          id={`analytics-panel-${section}`}
-          aria-labelledby={`analytics-tab-${section}`}
-        >
-          <Stack spacing={3}>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 750 }}>
-                {active.label}
-              </Typography>
-              <Typography color="text.secondary">{active.detail}</Typography>
-            </Box>
-            {section === "sales" && (
-              <Tabs
-                value={salesView}
-                onChange={(_, value) => setSalesView(value)}
-                variant="scrollable"
-                scrollButtons="auto"
-                aria-label="Sales report views"
-              >
-                <Tab value="explorer" label="Historical Explorer" sx={{ textTransform: "none" }} />
-                <Tab value="daily" label="Daily Sales Report" sx={{ textTransform: "none" }} />
-                <Tab value="comparison" label="Period Comparison" sx={{ textTransform: "none" }} />
-              </Tabs>
-            )}
-            {!(section === "sales" && salesView === "explorer") && (
-              <AnalyticsFilters value={filters} onChange={filter} />
-            )}
-            {section === "overview" && (
-              <AnalyticsOverview filters={filters} navigate={navigate} drill={drill} />
-            )}
-            {section === "sales" && salesView === "explorer" && (
-              <HistoricalSalesExplorer
-                settings={explorer}
-                onChange={setExplorer}
-                onDrill={(from, to) =>
-                  drill({ ...defaultAnalyticsFilters(), period: "custom", from, to })
-                }
-              />
-            )}
-            {section === "sales" && salesView === "daily" && (
-              <DailySalesReport filters={filters} settings={table} onChange={setTable} />
-            )}
-            {section === "sales" && salesView === "comparison" && (
-              <PeriodComparison
-                filters={filters}
-                comparison={comparison}
-                onChange={setComparison}
-              />
-            )}
-            {(section === "frames" || section === "lenses") && (
-              <ProductAnalytics
-                key={section}
-                kind={section}
-                filters={filters}
-                onChange={filter}
-                drill={drill}
-              />
-            )}
-            {section === "customers" && <CustomerAnalytics filters={filters} />}
-            {section === "mix" && <PurchaseMixAnalytics filters={filters} drill={drill} />}
-          </Stack>
+            Analytics
+          </Typography>
+          <Typography color="text.secondary" variant="body2">
+            Sales, customers and optical products in one place
+          </Typography>
         </Box>
+        <Tooltip title="Refresh report data">
+          <IconButton onClick={refresh} aria-label="Refresh analytics" sx={{ border: 1, borderColor: "divider" }}>
+            <RefreshOutlined />
+          </IconButton>
+        </Tooltip>
       </Stack>
+
+      {/* The only primary navigation bar. Horizontal scrolling works on mobile. */}
+      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: { xs: 2.5, md: 3 } }}>
+        <Tabs
+          value={section}
+          onChange={(_, next: AnalyticsSection) => setSection(next)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          aria-label="Analytics reports"
+          sx={{ minHeight: 44, "& .MuiTabs-indicator": { height: 3, borderRadius: 3 } }}
+        >
+          {sections.map((item) => (
+            <Tab
+              key={item.key}
+              id={`report-tab-${item.key}`}
+              aria-controls={`report-panel-${item.key}`}
+              value={item.key}
+              label={item.label}
+              icon={isMobile ? undefined : item.icon}
+              iconPosition="start"
+              sx={{
+                minHeight: 44,
+                minWidth: "auto",
+                px: { xs: 1.75, md: 2.3 },
+                mr: 0.75,
+                textTransform: "none",
+                fontWeight: 650,
+                fontSize: "0.88rem",
+              }}
+            />
+          ))}
+        </Tabs>
+      </Box>
+
+      <Box role="tabpanel" id={`report-panel-${section}`} aria-labelledby={`report-tab-${section}`} sx={{ minWidth: 0 }}>
+        <Stack spacing={{ xs: 2.5, md: 3 }}>
+          {/* Secondary views appear only inside Sales, never on every report. */}
+          {section === "sales" && (
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" aria-label="Sales views">
+              {salesViews.map((item) => (
+                <Button
+                  key={item.key}
+                  variant={salesView === item.key ? "contained" : "outlined"}
+                  color={salesView === item.key ? "primary" : "inherit"}
+                  size="small"
+                  startIcon={item.icon}
+                  onClick={() => setSalesView(item.key)}
+                  aria-pressed={salesView === item.key}
+                  sx={{ borderRadius: 2, textTransform: "none", boxShadow: "none", py: 0.85 }}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </Stack>
+          )}
+
+          {/* Filter controls stay out of the way until somebody needs them. */}
+          {filtersAvailable && (
+            <Box sx={{ borderBottom: filtersOpen ? 1 : 0, borderColor: "divider", pb: filtersOpen ? 2 : 0 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
+                <Typography component="h2" variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  {heading}
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Button
+                    variant="text"
+                    color="inherit"
+                    size="small"
+                    startIcon={<TuneOutlined />}
+                    endIcon={<KeyboardArrowDownOutlined sx={{ transform: filtersOpen ? "rotate(180deg)" : "none" }} />}
+                    aria-expanded={filtersOpen}
+                    aria-controls="analytics-filter-panel"
+                    onClick={() => setFiltersOpen((previous) => !previous)}
+                    sx={{ textTransform: "none", fontWeight: 600 }}
+                  >
+                    Filters
+                  </Button>
+                </Stack>
+              </Stack>
+              <Collapse in={filtersOpen} unmountOnExit>
+                <Box id="analytics-filter-panel" sx={{ mt: 2 }}>
+                  <AnalyticsFilters value={filters} onChange={updateFilters} />
+                  <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
+                    <Button size="small" onClick={() => updateFilters(defaultAnalyticsFilters())} sx={{ textTransform: "none" }}>
+                      Reset filters
+                    </Button>
+                  </Stack>
+                </Box>
+              </Collapse>
+            </Box>
+          )}
+
+          {/* Reports remain unchanged internally, keeping the real data and drill actions. */}
+          {section === "overview" && (
+            <AnalyticsOverview filters={filters} navigate={navigate} drill={drill} />
+          )}
+          {section === "sales" && salesView === "explorer" && (
+            <HistoricalSalesExplorer
+              settings={explorer}
+              onChange={setExplorer}
+              onDrill={(from, to) =>
+                drill({ ...defaultAnalyticsFilters(), period: "custom", from, to })
+              }
+            />
+          )}
+          {section === "sales" && salesView === "daily" && (
+            <DailySalesReport filters={filters} settings={table} onChange={setTable} />
+          )}
+          {section === "sales" && salesView === "comparison" && (
+            <PeriodComparison filters={filters} comparison={comparison} onChange={setComparison} />
+          )}
+          {(section === "frames" || section === "lenses") && (
+            <ProductAnalytics
+              key={section}
+              kind={section}
+              filters={filters}
+              onChange={updateFilters}
+              drill={drill}
+            />
+          )}
+          {section === "customers" && <CustomerAnalytics filters={filters} />}
+          {section === "mix" && <PurchaseMixAnalytics filters={filters} drill={drill} />}
+        </Stack>
+      </Box>
     </Box>
   );
 }
+
 export default function BusinessAnalyticsPage() {
   return (
     <AnalyticsDataProvider>
