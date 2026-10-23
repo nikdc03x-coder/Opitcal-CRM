@@ -1,7 +1,4 @@
 # Optical CRM
-<<<<<<< HEAD
-# Opitcal-CRM
-=======
 
 Single-shop CRM for customers, optical prescriptions, purchase history, frame and lens catalogs, receipts, PDFs, WhatsApp sharing, and dashboard analytics.
 
@@ -140,4 +137,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-clean.ps1
 ```
 
 This creates `artifacts/optical-crm-clean.zip` from current source files, including root tooling and the canonical model schema. It excludes dependencies, generated code, build output, credentials and local tool configuration. `.env.example` is included. Old review exports, historical backup trees, scratch reports and duplicate ZIPs have been removed from the workspace. `npm run package:source` runs the same packaging command from the project root.
->>>>>>> production-deployment

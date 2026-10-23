@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: starter
     region: frankfurt
-    branch: production-deployment
+    branch: main
     buildCommand: npm run build && npm run db:migrate
     startCommand: npm start
     healthCheckPath: /api/health
@@ -27,4 +27,3 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
-
