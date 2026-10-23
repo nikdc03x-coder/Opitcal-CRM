@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: optical-crm
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: production-deployment
+    buildCommand: npm run build && npm run db:migrate
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: DB_POOL_MAX
+        value: "10"
+      - key: DB_POOL_CONNECT_TIMEOUT_MS
+        value: "30000"
+      - key: DB_POOL_QUERY_TIMEOUT_MS
+        value: "30000"
+      - key: CLIENT_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
