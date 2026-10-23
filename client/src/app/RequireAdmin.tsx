@@ -5,7 +5,7 @@ import { getCurrentAdmin } from "../services/authApi";
 import { SESSION_EXPIRED_EVENT } from "../services/http";
 
 // Check the Admin session before showing private CRM pages.
-export default function RequireAdmin() {
+export default function RequireAdmin({ guestOnly = false }: { guestOnly?: boolean }) {
   const location = useLocation();
 
   const [status, setStatus] = useState<"loading" | "allowed" | "denied" | "error">("loading");
@@ -14,26 +14,27 @@ export default function RequireAdmin() {
 
   useEffect(() => {
     let active = true;
+    let expired = false;
+    const sessionExpired = () => {
+      expired = true;
+      setStatus("denied");
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, sessionExpired);
 
     getCurrentAdmin()
       .then((admin) => {
-        if (active) setStatus(admin ? "allowed" : "denied");
+        if (active && !expired) setStatus(admin ? "allowed" : "denied");
       })
       .catch(() => {
-        if (!active) return;
+        if (!active || expired) return;
         setStatus("error");
       });
 
     return () => {
       active = false;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, sessionExpired);
     };
   }, [retry]);
-
-  useEffect(() => {
-    const expired = () => setStatus("denied");
-    window.addEventListener(SESSION_EXPIRED_EVENT, expired);
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expired);
-  }, []);
 
   if (status === "loading") {
     return (
@@ -50,11 +51,17 @@ export default function RequireAdmin() {
     );
   }
 
-  if (status === "denied") {
+  if (status === "denied" && !guestOnly) {
     return (
-      <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: `${location.pathname}${location.search}${location.hash}` }}
+      />
     );
   }
+
+  if (status === "allowed" && guestOnly) return <Navigate to="/dashboard" replace />;
 
   if (status === "error") {
     return (

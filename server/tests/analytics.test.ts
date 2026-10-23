@@ -142,6 +142,8 @@ test("analytics SQL binds every filter and verifies both catalog joins against t
   assert.match(sql.text, /f\."shopId" = c\."shopId"/);
   assert.match(sql.text, /l\."shopId" = c\."shopId"/);
   assert.match(sql.text, /purchase_date BETWEEN/);
+  assert.match(sql.text, /c\."isActive" = TRUE/);
+  assert.match(sql.text, /r\."deletionGroupId" IS NULL/);
 });
 
 test("period differences retain decimal accuracy and safely handle zero denominators", async () => {

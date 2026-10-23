@@ -62,24 +62,38 @@ const catalogFields = {
 };
 
 // A purchase may use split pricing or total MRP.
-export const recordSchema = z.discriminatedUnion("pricingMode", [
-  z
-    .object({
-      pricingMode: z.literal("SPLIT"),
-      ...catalogFields,
-      frameRate: amountSchema,
-      lensRate: amountSchema,
-    })
-    .strict(),
+export const recordSchema = z
+  .discriminatedUnion("pricingMode", [
+    z
+      .object({
+        pricingMode: z.literal("SPLIT"),
+        ...catalogFields,
+        frameRate: amountSchema.nullable().default(null),
+        lensRate: amountSchema.nullable().default(null),
+      })
+      .strict(),
 
-  z
-    .object({
-      pricingMode: z.literal("MRP_ONLY"),
-      ...catalogFields,
-      mrp: amountSchema,
-    })
-    .strict(),
-]);
+    z
+      .object({
+        pricingMode: z.literal("MRP_ONLY"),
+        ...catalogFields,
+        mrp: amountSchema.nullable().default(null),
+      })
+      .strict(),
+  ])
+  .superRefine((record, ctx) => {
+    // Each component fits Decimal(12,2), but their sum must fit it too.
+    if (
+      record.pricingMode === "SPLIT" &&
+      Math.round((record.frameRate ?? 0) * 100) + Math.round((record.lensRate ?? 0) * 100) >
+        999999999999
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Purchase total must be at most 9999999999.99.",
+      });
+    }
+  });
 
 const ageMessage = "Enter a whole-number age from 0 to 120, or leave it blank.";
 

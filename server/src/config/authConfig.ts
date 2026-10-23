@@ -1,6 +1,14 @@
 export const SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const READ_PROOF_AGE_MS = 30 * 1000;
 
+// Account writes span several database round trips. Keep a bounded budget for
+// Neon connection acquisition and latency instead of Prisma's 2s/5s defaults.
+export const AUTH_TRANSACTION_OPTIONS = {
+  isolationLevel: "Serializable" as const,
+  maxWait: 10000,
+  timeout: 20000,
+};
+
 export function sessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret || !/^[a-f0-9]{64,}$/i.test(secret)) {

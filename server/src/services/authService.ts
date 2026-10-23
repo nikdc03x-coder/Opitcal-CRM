@@ -2,7 +2,7 @@ import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:cry
 
 import { promisify } from "node:util";
 import { prisma } from "../config/database";
-import { SESSION_AGE_MS } from "../config/authConfig";
+import { AUTH_TRANSACTION_OPTIONS, SESSION_AGE_MS } from "../config/authConfig";
 import { hashSessionToken } from "../utils/sessionCookie";
 
 const scrypt = promisify(scryptCallback);
@@ -36,10 +36,10 @@ export async function verifyPassword(password: string, savedHash: string) {
 export async function loginAdmin(username: string, password: string, previousToken?: string) {
   const admin = await prisma.admin.findUnique({
     where: { username },
-    select: { id: true, username: true, passwordHash: true },
+    select: { id: true, username: true, passwordHash: true, isActive: true },
   });
 
-  if (!admin || !(await verifyPassword(password, admin.passwordHash))) {
+  if (!admin || admin.isActive === false || !(await verifyPassword(password, admin.passwordHash))) {
     return null;
   }
 
@@ -47,30 +47,27 @@ export async function loginAdmin(username: string, password: string, previousTok
   const expiresAt = new Date(Date.now() + SESSION_AGE_MS);
   // Rotate this browser's previous session and remove expired sessions on login,
   // rather than adding cleanup writes to every authenticated request.
-  await prisma.$transaction(
-    async (tx) => {
-      const current = await tx.admin.findUnique({
-        where: { id: admin.id },
-        select: { passwordHash: true },
-      });
-      if (!current || current.passwordHash !== admin.passwordHash)
-        throw new Error("Credentials changed. Please sign in again.");
-      await tx.adminSession.deleteMany({
-        where: {
-          OR: [
-            { expiresAt: { lte: new Date() } },
-            ...(previousToken && /^[a-f0-9]{64}$/.test(previousToken)
-              ? [{ tokenHash: hashSessionToken(previousToken) }]
-              : []),
-          ],
-        },
-      });
-      await tx.adminSession.create({
-        data: { adminId: admin.id, tokenHash: hashSessionToken(token), expiresAt },
-      });
-    },
-    { isolationLevel: "Serializable" },
-  );
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.admin.findUnique({
+      where: { id: admin.id },
+      select: { passwordHash: true, isActive: true },
+    });
+    if (!current || current.isActive === false || current.passwordHash !== admin.passwordHash)
+      throw new Error("Credentials changed. Please sign in again.");
+    await tx.adminSession.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lte: new Date() } },
+          ...(previousToken && /^[a-f0-9]{64}$/.test(previousToken)
+            ? [{ tokenHash: hashSessionToken(previousToken) }]
+            : []),
+        ],
+      },
+    });
+    await tx.adminSession.create({
+      data: { adminId: admin.id, tokenHash: hashSessionToken(token), expiresAt },
+    });
+  }, AUTH_TRANSACTION_OPTIONS);
   return { token, id: admin.id, username: admin.username, expiresAt };
 }
 
@@ -82,14 +79,22 @@ export async function getAdminSession(token?: string) {
 
   const session = await prisma.adminSession.findUnique({
     where: { tokenHash: hashSessionToken(token) },
-    select: { expiresAt: true, admin: { select: { id: true, username: true } } },
+    select: {
+      expiresAt: true,
+      admin: { select: { id: true, username: true, isActive: true, role: true } },
+    },
   });
 
-  if (!session || session.expiresAt <= new Date()) {
+  if (!session || session.admin.isActive === false || session.expiresAt <= new Date()) {
     return null;
   }
 
-  return { id: session.admin.id, username: session.admin.username, expiresAt: session.expiresAt };
+  return {
+    id: session.admin.id,
+    username: session.admin.username,
+    role: session.admin.role,
+    expiresAt: session.expiresAt,
+  };
 }
 
 // Remove the session when the Admin logs out.
@@ -105,5 +110,6 @@ export async function resetAdminPassword(adminId: number, passwordHash: string):
   await prisma.$transaction(async (tx) => {
     await tx.admin.update({ where: { id: adminId }, data: { passwordHash } });
     await tx.adminSession.deleteMany({ where: { adminId } });
+    await tx.passwordResetToken.deleteMany({ where: { adminId } });
   });
 }

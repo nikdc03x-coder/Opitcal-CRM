@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
   Alert,
   Avatar,
   Box,
   Button,
   Card,
   CardContent,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   Checkbox,
   Chip,
   CircularProgress,
@@ -36,10 +37,14 @@ import {
   Typography,
 } from "@mui/material";
 
+import AddOutlined from "@mui/icons-material/AddOutlined";
+import CompareArrowsOutlined from "@mui/icons-material/CompareArrowsOutlined";
 import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
+import CalendarTodayOutlined from "@mui/icons-material/CalendarTodayOutlined";
+import CheckCircleOutlineOutlined from "@mui/icons-material/CheckCircleOutlineOutlined";
 import ContentCopyOutlined from "@mui/icons-material/ContentCopyOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
-import ExpandMoreOutlined from "@mui/icons-material/ExpandMoreOutlined";
+import DeleteOutline from "@mui/icons-material/DeleteOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
 import PersonOutlined from "@mui/icons-material/PersonOutlined";
 import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
@@ -47,13 +52,24 @@ import PictureAsPdfOutlined from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlined from "@mui/icons-material/PrintOutlined";
 import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
+import RemoveRedEyeOutlined from "@mui/icons-material/RemoveRedEyeOutlined";
+import TrendingUpOutlined from "@mui/icons-material/TrendingUpOutlined";
 import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { getCustomer } from "../services/customerApi";
+import { getCustomer, deleteCustomer, deletePurchase } from "../services/customerApi";
+import AddPurchaseDialog from "../components/customers/AddPurchaseDialog";
+import ResponsiveDialog from "../components/layout/ResponsiveDialog";
 import { type CustomerDetails, type CustomerRecord, type Prescription } from "../models/customer";
+import {
+  getPurchaseFlag,
+  sortPurchases,
+  sortPrescriptions,
+  measurementDifference,
+  type PurchaseFlag,
+} from "../utils/customerHistory";
 
 import {
   receiptHtml,
@@ -125,18 +141,60 @@ function formatPower(value: string | number | null | undefined): string {
   return `${safe > 0 ? "+" : ""}${safe.toFixed(2)}`;
 }
 
-type PurchaseFlag = "FRAME_ONLY" | "LENS_ONLY" | "FRAME_AND_LENS" | "NOT_SPECIFIED";
+// Compute reading addition (Add = Near Sph - Dist Sph)
+function calculateAdd(
+  nearSph: string | number | null | undefined,
+  distSph: string | number | null | undefined,
+): string | null {
+  if (
+    nearSph === null ||
+    nearSph === undefined ||
+    nearSph === "" ||
+    distSph === null ||
+    distSph === undefined ||
+    distSph === ""
+  ) {
+    return null;
+  }
 
-// Determine product type from saved product names.
-function getPurchaseFlag(record: CustomerRecord): PurchaseFlag {
-  const frame = Boolean(record.specsType?.trim());
-  const lens = Boolean(record.lensType?.trim());
+  const near = Number(nearSph);
+  const dist = Number(distSph);
 
-  if (frame && lens) return "FRAME_AND_LENS";
-  if (frame) return "FRAME_ONLY";
-  if (lens) return "LENS_ONLY";
+  if (!Number.isFinite(near) || !Number.isFinite(dist)) return null;
 
-  return "NOT_SPECIFIED";
+  const add = measurementDifference(near, dist)!;
+  const safe = Object.is(add, -0) ? 0 : add;
+  return `${safe > 0 ? "+" : ""}${safe.toFixed(2)} D`;
+}
+
+// Classify prescription based on Distance and Near powers
+function classifyRx(prescription: Prescription): {
+  label: string;
+  color: "primary" | "info" | "secondary" | "default";
+} {
+  const hasDist = Boolean(
+    prescription.reDistSph ||
+    prescription.reDistCyl ||
+    prescription.leDistSph ||
+    prescription.leDistCyl,
+  );
+  const hasNear = Boolean(
+    prescription.reNearSph ||
+    prescription.reNearCyl ||
+    prescription.leNearSph ||
+    prescription.leNearCyl,
+  );
+
+  if (hasDist && hasNear) {
+    return { label: "Distance + Near Recorded", color: "primary" };
+  }
+  if (hasDist) {
+    return { label: "Distance Recorded", color: "info" };
+  }
+  if (hasNear) {
+    return { label: "Near Recorded", color: "secondary" };
+  }
+  return { label: "Standard Rx", color: "default" };
 }
 
 const purchaseFlagInfo: Record<
@@ -155,53 +213,91 @@ const purchaseFlagInfo: Record<
 function DetailItem({
   label,
   value,
+  highlight = false,
 }: {
   label: string;
   value: string | number | null | undefined;
+  highlight?: boolean;
 }) {
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography variant="body2" color="text.secondary">
+      <Typography
+        variant="caption"
+        sx={{ color: "text.secondary", fontWeight: 600, display: "block" }}
+      >
         {label}
       </Typography>
 
-      <Typography sx={{ mt: 0.5, fontWeight: 600, overflowWrap: "anywhere" }}>
+      <Typography
+        sx={{
+          mt: 0.25,
+          fontWeight: highlight ? 700 : 600,
+          color: highlight ? "primary.main" : "text.primary",
+          fontSize: "0.95rem",
+          overflowWrap: "anywhere",
+        }}
+      >
         {display(value)}
       </Typography>
     </Box>
   );
 }
 
-function PrescriptionTable({ prescription }: { prescription: Prescription }) {
-  // The required order is RE DIST, RE NEAR, LE DIST, LE NEAR.
+// Clinical Optometry Prescription Matrix with OD / OS Distinction & Add power
+function ClinicalPrescriptionTable({
+  prescription,
+  compact = false,
+}: {
+  prescription: Prescription;
+  compact?: boolean;
+}) {
+  const reAdd = calculateAdd(prescription.reNearSph, prescription.reDistSph);
+  const leAdd = calculateAdd(prescription.leNearSph, prescription.leDistSph);
+
   const rows = [
     {
-      label: "RE DIST",
-      description: "Right Eye Distance",
+      eye: "OD",
+      eyeName: "Right Eye",
+      vision: "Distance (DV)",
       sph: prescription.reDistSph,
       cyl: prescription.reDistCyl,
       axis: prescription.reDistAxis,
+      add: "—",
+      color: "#1D4ED8",
+      bgColor: "#EFF6FF",
     },
     {
-      label: "RE NEAR",
-      description: "Right Eye Near",
+      eye: "OD",
+      eyeName: "Right Eye",
+      vision: "Near (NV)",
       sph: prescription.reNearSph,
       cyl: prescription.reNearCyl,
       axis: prescription.reNearAxis,
+      add: reAdd ?? "—",
+      color: "#1D4ED8",
+      bgColor: "#EFF6FF",
     },
     {
-      label: "LE DIST",
-      description: "Left Eye Distance",
+      eye: "OS",
+      eyeName: "Left Eye",
+      vision: "Distance (DV)",
       sph: prescription.leDistSph,
       cyl: prescription.leDistCyl,
       axis: prescription.leDistAxis,
+      add: "—",
+      color: "#047857",
+      bgColor: "#ECFDF5",
     },
     {
-      label: "LE NEAR",
-      description: "Left Eye Near",
+      eye: "OS",
+      eyeName: "Left Eye",
+      vision: "Near (NV)",
       sph: prescription.leNearSph,
       cyl: prescription.leNearCyl,
       axis: prescription.leNearAxis,
+      add: leAdd ?? "—",
+      color: "#047857",
+      bgColor: "#ECFDF5",
     },
   ];
 
@@ -209,51 +305,128 @@ function PrescriptionTable({ prescription }: { prescription: Prescription }) {
     <TableContainer
       component={Paper}
       variant="outlined"
-      sx={{ borderRadius: 2, overflowX: "auto" }}
+      sx={{
+        borderRadius: 2,
+        overflowX: "auto",
+        border: "1px solid",
+        borderColor: "divider",
+      }}
     >
       <Table
         size="small"
         sx={{
-          minWidth: 460,
+          minWidth: compact ? 420 : 540,
           "& th": {
             bgcolor: "action.hover",
             fontWeight: 700,
+            fontSize: "0.78rem",
+            color: "text.secondary",
+            letterSpacing: "0.03em",
+            py: compact ? 1 : 1.25,
           },
-          "& td, & th": {
-            py: 1.5,
+          "& td": {
+            py: compact ? 1 : 1.25,
+            fontSize: "0.88rem",
           },
         }}
       >
         <TableHead>
           <TableRow>
-            <TableCell>Eye / Vision</TableCell>
-            <TableCell align="center">SPH</TableCell>
-            <TableCell align="center">CYL</TableCell>
-            <TableCell align="center">AXIS</TableCell>
+            <TableCell sx={{ minWidth: 90 }}>Eye</TableCell>
+            <TableCell sx={{ minWidth: 120 }}>Vision Type</TableCell>
+            <TableCell align="center" sx={{ minWidth: 80 }}>
+              SPH
+            </TableCell>
+            <TableCell align="center" sx={{ minWidth: 80 }}>
+              CYL
+            </TableCell>
+            <TableCell align="center" sx={{ minWidth: 80 }}>
+              AXIS
+            </TableCell>
+            <TableCell align="center" sx={{ minWidth: 90 }}>
+              ADD
+            </TableCell>
           </TableRow>
         </TableHead>
 
         <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.label}>
+          {rows.map((row, idx) => (
+            <TableRow
+              key={`${row.eye}-${row.vision}`}
+              sx={{
+                bgcolor:
+                  idx === 0 || idx === 1 ? "rgba(37, 99, 235, 0.02)" : "rgba(5, 150, 105, 0.02)",
+                "&:hover": { bgcolor: "action.hover" },
+                borderBottom: idx === 1 ? "2px solid" : undefined,
+                borderColor: idx === 1 ? "divider" : undefined,
+              }}
+            >
               <TableCell>
-                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{row.label}</Typography>
-
-                <Typography variant="caption" color="text.secondary">
-                  {row.description}
-                </Typography>
+                <Chip
+                  size="small"
+                  label={row.eye}
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: "0.75rem",
+                    bgcolor: row.bgColor,
+                    color: row.color,
+                    border: `1px solid ${row.color}`,
+                    mr: 0.75,
+                  }}
+                />
+                {!compact && (
+                  <Typography component="span" variant="caption" color="text.secondary">
+                    {row.eyeName}
+                  </Typography>
+                )}
               </TableCell>
 
-              <TableCell align="center" sx={{ fontWeight: 700 }}>
+              <TableCell>
+                <Typography sx={{ fontWeight: 600, fontSize: "0.85rem" }}>{row.vision}</Typography>
+              </TableCell>
+
+              <TableCell
+                align="center"
+                sx={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.92rem" }}
+              >
                 {formatPower(row.sph)}
               </TableCell>
 
-              <TableCell align="center" sx={{ fontWeight: 700 }}>
+              <TableCell
+                align="center"
+                sx={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.92rem" }}
+              >
                 {formatPower(row.cyl)}
               </TableCell>
 
-              <TableCell align="center" sx={{ fontWeight: 700 }}>
-                {display(row.axis)}
+              <TableCell
+                align="center"
+                sx={{ fontWeight: 600, fontFamily: "monospace", fontSize: "0.92rem" }}
+              >
+                {row.axis !== null && row.axis !== undefined && row.axis !== 0
+                  ? `${row.axis}°`
+                  : display(row.axis)}
+              </TableCell>
+
+              <TableCell align="center">
+                {row.add !== "—" ? (
+                  <Chip
+                    size="small"
+                    label={row.add}
+                    sx={{
+                      fontWeight: 700,
+                      fontSize: "0.75rem",
+                      bgcolor: "primary.50",
+                      color: "primary.main",
+                      border: "1px solid",
+                      borderColor: "primary.200",
+                    }}
+                  />
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    —
+                  </Typography>
+                )}
               </TableCell>
             </TableRow>
           ))}
@@ -263,20 +436,232 @@ function PrescriptionTable({ prescription }: { prescription: Prescription }) {
   );
 }
 
+// Paired Optical Rx summary card shown inside a Purchase Record
+function PairedPrescriptionCard({
+  prescription,
+  onPrint,
+}: {
+  prescription: Prescription;
+  onPrint: () => void;
+}) {
+  const rxType = classifyRx(prescription);
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 2,
+        borderRadius: 2,
+        bgcolor: "#F8FAFC",
+        border: "1px solid #E2E8F0",
+      }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        sx={{ alignItems: { sm: "center" }, justifyContent: "space-between", mb: 1.5 }}
+      >
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{ alignItems: "center", flexWrap: "wrap" }}
+        >
+          <RemoveRedEyeOutlined sx={{ fontSize: 18, color: "primary.main" }} />
+          <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>
+            Linked Eye Prescription
+          </Typography>
+          <Chip
+            size="small"
+            label={rxType.label}
+            color={rxType.color}
+            sx={{ fontSize: "0.7rem", height: 20 }}
+          />
+        </Stack>
+
+        <Typography variant="caption" color="text.secondary">
+          Recorded: {formatDate(prescription.createdAt)}
+        </Typography>
+      </Stack>
+
+      <ClinicalPrescriptionTable prescription={prescription} compact />
+
+      <Stack direction="row" sx={{ mt: 1.5, justifyContent: "flex-end" }}>
+        <Button
+          size="small"
+          variant="text"
+          startIcon={<PrintOutlined />}
+          onClick={onPrint}
+          sx={{ fontSize: "0.8rem", textTransform: "none" }}
+        >
+          Print Rx
+        </Button>
+      </Stack>
+    </Paper>
+  );
+}
+
+// Compare two recorded exams without altering stored clinical data.
+function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription[] }) {
+  const sorted = sortPrescriptions(prescriptions);
+  const [selectedFirstId, setFirstId] = useState(sorted[0]?.id ?? "");
+  const [selectedSecondId, setSecondId] = useState(sorted[1]?.id ?? "");
+  const firstId = sorted.some((rx) => rx.id === selectedFirstId)
+    ? selectedFirstId
+    : (sorted[0]?.id ?? "");
+  const secondId = sorted.some((rx) => rx.id === selectedSecondId)
+    ? selectedSecondId
+    : (sorted.find((rx) => rx.id !== firstId)?.id ?? "");
+  const first = sorted.find((rx) => rx.id === firstId);
+  const second = sorted.find((rx) => rx.id === secondId);
+  const metrics = [
+    ["Right eye · Distance SPH", "reDistSph"],
+    ["Right eye · Distance CYL", "reDistCyl"],
+    ["Right eye · Distance AXIS", "reDistAxis"],
+    ["Right eye · Near SPH", "reNearSph"],
+    ["Right eye · Near CYL", "reNearCyl"],
+    ["Right eye · Near AXIS", "reNearAxis"],
+    ["Left eye · Distance SPH", "leDistSph"],
+    ["Left eye · Distance CYL", "leDistCyl"],
+    ["Left eye · Distance AXIS", "leDistAxis"],
+    ["Left eye · Near SPH", "leNearSph"],
+    ["Left eye · Near CYL", "leNearCyl"],
+    ["Left eye · Near AXIS", "leNearAxis"],
+  ] as const;
+  const read = (rx: Prescription | undefined, key: (typeof metrics)[number][1]) =>
+    rx ? rx[key] : null;
+  const shown = (value: string | number | null | undefined, axis: boolean) =>
+    axis ? (value == null || value === "" ? "—" : `${value}°`) : formatPower(value);
+  return (
+    <Stack spacing={2.5}>
+      <Box>
+        <Typography variant="h6" sx={{ fontWeight: 800 }}>
+          Compare prescription history
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Choose two different recorded prescriptions. Differences are Exam A minus Exam B,
+          regardless of date. Dates are when each prescription was recorded; no separate examination
+          date is stored. This is not a diagnosis.
+        </Typography>
+      </Box>
+      {sorted.length < 2 ? (
+        <Alert severity="info">At least two prescriptions are needed for comparison.</Alert>
+      ) : (
+        <>
+          <Grid container spacing={2}>
+            {([firstId, secondId] as const).map((value, index) => (
+              <Grid key={index} size={{ xs: 12, md: 6 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>{index === 0 ? "Exam A" : "Exam B"}</InputLabel>
+                  <Select
+                    label={index === 0 ? "Exam A" : "Exam B"}
+                    value={value}
+                    onChange={(event) =>
+                      index === 0 ? setFirstId(event.target.value) : setSecondId(event.target.value)
+                    }
+                  >
+                    {sorted.map((rx) => (
+                      <MenuItem
+                        key={rx.id}
+                        value={rx.id}
+                        disabled={rx.id === (index === 0 ? secondId : firstId)}
+                      >
+                        {formatDate(rx.createdAt)} · {rx.id}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            ))}
+          </Grid>
+          {firstId === secondId ? (
+            <Alert severity="warning">Select two different examinations.</Alert>
+          ) : (
+            <>
+              <TableContainer
+                component={Paper}
+                variant="outlined"
+                sx={{ borderRadius: 2, overflowX: "auto" }}
+              >
+                <Table size="small" sx={{ minWidth: 530 }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: "action.hover" }}>
+                      <TableCell>Measurement</TableCell>
+                      <TableCell align="right">Exam A</TableCell>
+                      <TableCell align="right">Exam B</TableCell>
+                      <TableCell align="right">A − B</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {metrics.map(([label, key]) => {
+                      const a = read(first, key);
+                      const b = read(second, key);
+                      const axis = key.endsWith("Axis");
+                      const delta = measurementDifference(a, b);
+                      return (
+                        <TableRow key={key} hover>
+                          <TableCell sx={{ fontWeight: 650 }}>{label}</TableCell>
+                          <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                            {shown(a, axis)}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                            {shown(b, axis)}
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{ fontFamily: "monospace", fontWeight: 750 }}
+                          >
+                            {delta === null
+                              ? "—"
+                              : axis
+                                ? `${delta > 0 ? "+" : ""}${delta}°`
+                                : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Alert severity="info">
+                Axis values are angular measurements; their simple numerical difference may not
+                represent the shortest angular change. Review findings with an optometrist.
+              </Alert>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Typography sx={{ mb: 1, fontWeight: 750 }}>
+                    Exam A · {formatDate(first?.createdAt)}
+                  </Typography>
+                  {first && <ClinicalPrescriptionTable prescription={first} compact />}
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Typography sx={{ mb: 1, fontWeight: 750 }}>
+                    Exam B · {formatDate(second?.createdAt)}
+                  </Typography>
+                  {second && <ClinicalPrescriptionTable prescription={second} compact />}
+                </Grid>
+              </Grid>
+            </>
+          )}
+        </>
+      )}
+    </Stack>
+  );
+}
+
 function CustomerDetailsSkeleton() {
   return (
     <Stack spacing={3}>
       <Skeleton width="40%" height={48} />
-
-      {[1, 2, 3].map((item) => (
-        <Card key={item} variant="outlined">
-          <CardContent>
-            <Skeleton height={36} />
-            <Skeleton height={24} />
-            <Skeleton height={24} />
-          </CardContent>
-        </Card>
-      ))}
+      <Skeleton width="100%" height={160} sx={{ borderRadius: 3 }} />
+      <Grid container spacing={2}>
+        {[1, 2, 3, 4].map((item) => (
+          <Grid key={item} size={{ xs: 12, sm: 6, md: 3 }}>
+            <Skeleton height={110} sx={{ borderRadius: 2 }} />
+          </Grid>
+        ))}
+      </Grid>
+      <Skeleton height={320} sx={{ borderRadius: 3 }} />
     </Stack>
   );
 }
@@ -316,7 +701,7 @@ function ReceiptPreviewDialog({
   const filename = `receipt-${record.id}.pdf`;
 
   return (
-    <Dialog
+    <ResponsiveDialog
       open
       fullWidth
       maxWidth="md"
@@ -327,12 +712,12 @@ function ReceiptPreviewDialog({
       }}
     >
       <DialogTitle id="receipt-preview-title">
-        <Typography component="div" variant="h5" sx={{ fontWeight: 800 }}>
+        <Typography component="div" variant="h6" sx={{ fontWeight: 800 }}>
           Prepare Customer Receipt
         </Typography>
 
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Review the selected purchase and choose how to share it.
+          Review the selected purchase and choose how to share or print it.
         </Typography>
       </DialogTitle>
 
@@ -351,8 +736,10 @@ function ReceiptPreviewDialog({
             <Typography sx={{ fontWeight: 800, mb: 1 }}>Receipt Contents</Typography>
 
             <Stack spacing={0.75}>
-              <Typography variant="body2">✓ Customer information</Typography>
-              <Typography variant="body2">✓ Purchased products and prices</Typography>
+              <Typography variant="body2">✓ Customer information and contact details</Typography>
+              <Typography variant="body2">
+                ✓ Purchased frame, lens design, and itemized rates
+              </Typography>
               <Typography variant="body2">✓ Purchase date and total MRP</Typography>
             </Stack>
 
@@ -367,11 +754,11 @@ function ReceiptPreviewDialog({
                     onChange={(_, checked) => setIncludePrescription(checked)}
                   />
                 }
-                label="Include linked optical prescription"
+                label="Include linked optical prescription details on the receipt"
               />
             ) : (
               <Typography variant="body2" color="text.secondary">
-                No prescription is linked to this purchase.
+                No optical prescription is linked to this specific purchase.
               </Typography>
             )}
           </Paper>
@@ -380,7 +767,7 @@ function ReceiptPreviewDialog({
             <Typography sx={{ fontWeight: 800, mb: 1.5 }}>Customer Information</Typography>
 
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-              <Typography variant="h6" sx={{ fontWeight: 800, mb: 2 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.5 }}>
                 {customer.name}
               </Typography>
 
@@ -398,7 +785,7 @@ function ReceiptPreviewDialog({
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem label="Registered" value={formatDate(customer.createdAt)} />
+                  <DetailItem label="Registered Date" value={formatDate(customer.createdAt)} />
                 </Grid>
               </Grid>
             </Paper>
@@ -418,7 +805,7 @@ function ReceiptPreviewDialog({
                 </Grid>
 
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <DetailItem label="Lens" value={record.lensType} />
+                  <DetailItem label="Lens Type / Coating" value={record.lensType} />
                 </Grid>
 
                 {record.pricingMode === "SPLIT" && (
@@ -444,9 +831,9 @@ function ReceiptPreviewDialog({
                   gap: 2,
                 }}
               >
-                <Typography sx={{ fontWeight: 700 }}>Total MRP</Typography>
+                <Typography sx={{ fontWeight: 700 }}>Total Purchase MRP</Typography>
 
-                <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                <Typography variant="h5" sx={{ fontWeight: 800, color: "primary.main" }}>
                   {formatMoney(record.mrp)}
                 </Typography>
               </Stack>
@@ -467,17 +854,17 @@ function ReceiptPreviewDialog({
                 <Typography sx={{ fontWeight: 800 }}>Optical Prescription</Typography>
 
                 <Typography variant="body2" color="text.secondary">
-                  {formatDate(selectedPrescription.createdAt)}
+                  Recorded: {formatDate(selectedPrescription.createdAt)}
                 </Typography>
               </Stack>
 
-              <PrescriptionTable prescription={selectedPrescription} />
+              <ClinicalPrescriptionTable prescription={selectedPrescription} />
             </Box>
           )}
 
           <Alert severity="info">
-            The document shows recorded MRP, not verified payment. Staff-only notes are not
-            included.
+            This document represents recorded MRP and order specifications. Internal staff-only
+            notes are strictly omitted.
           </Alert>
         </Stack>
       </DialogContent>
@@ -513,11 +900,9 @@ function ReceiptPreviewDialog({
             void onPdf(documentContent, filename, "receipt");
           }}
         >
-          Share / Save PDF
+          Save PDF
         </Button>
 
-        {/* Send the actual PDF through device sharing.
-            Desktop fallback downloads the PDF and opens WhatsApp. */}
         <Button
           variant="contained"
           color="success"
@@ -530,14 +915,19 @@ function ReceiptPreviewDialog({
           {busy ? "Preparing PDF..." : "Share PDF via WhatsApp"}
         </Button>
       </DialogActions>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }
 
-// A customer is identified by database ID, not mobile number.
 export default function CustomerDetailPage() {
+  const navigate = useNavigate();
+  const [deleteTarget, setDeleteTarget] = useState<CustomerRecord | "customer" | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const deletePending = useRef(false);
   const { id } = useParams();
-  const [params] = useSearchParams();
+  const visibleCustomerId = useRef(id);
+  const [params, setParams] = useSearchParams();
 
   const [customer, setCustomer] = useState<CustomerDetails | null>(null);
 
@@ -549,21 +939,73 @@ export default function CustomerDetailPage() {
   const [copyMessage, setCopyMessage] = useState("");
   const [documentMessage, setDocumentMessage] = useState("");
   const [documentBusy, setDocumentBusy] = useState(false);
+  const [purchaseMessage, setPurchaseMessage] = useState("");
 
   const [selectedRecord, setSelectedRecord] = useState<CustomerRecord | null>(null);
+  const purchaseDialogOpen = params.get("purchase") === "new";
+  function setPurchaseDialogOpen(open: boolean) {
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (open) next.set("purchase", "new");
+        else next.delete("purchase");
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   const requestRef = useRef<AbortController | null>(null);
 
   const previousSearch = params.get("search") ?? "";
-
   const searchQuery = previousSearch ? `?search=${encodeURIComponent(previousSearch)}` : "";
-
   const backUrl = `/customers${searchQuery}`;
 
-  // Reload the customer whenever the ID changes.
+  async function confirmDelete() {
+    if (!customer || !deleteTarget || deletePending.current) return;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      if (deleteTarget === "customer") {
+        await deleteCustomer(customer.id);
+        if (visibleCustomerId.current !== customer.id) return;
+        navigate(backUrl, { state: { success: "Customer deleted successfully." } });
+      } else {
+        const deleted = await deletePurchase(customer.id, deleteTarget.id);
+        if (visibleCustomerId.current !== customer.id) return;
+        requestRef.current?.abort();
+        setRefreshing(false);
+        setCustomer((previous) =>
+          previous?.id === customer.id
+            ? {
+                ...previous,
+                records: previous.records.filter((record) => record.id !== deleted.purchaseId),
+                prescriptions: previous.prescriptions.filter(
+                  (rx) => rx.id !== deleted.prescriptionId,
+                ),
+              }
+            : previous,
+        );
+        setDeleteTarget(null);
+        setSelectedRecord(null);
+        setPurchaseMessage("Purchase deleted successfully.");
+      }
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error
+          ? err.message
+          : "Unable to delete. Check your connection and try again.",
+      );
+    } finally {
+      deletePending.current = false;
+      setDeleting(false);
+    }
+  }
+
   useEffect(() => {
+    visibleCustomerId.current = id;
     if (!id) {
-      // Schedule route-related updates after the effect starts.
       void Promise.resolve().then(() => {
         setCustomer(null);
         setLoading(false);
@@ -577,7 +1019,6 @@ export default function CustomerDetailPage() {
     const controller = new AbortController();
     requestRef.current = controller;
 
-    // Reset the view asynchronously so React avoids cascading renders.
     void Promise.resolve().then(() => {
       if (controller.signal.aborted) return;
       setCustomer(null);
@@ -585,6 +1026,10 @@ export default function CustomerDetailPage() {
       setRefreshing(false);
       setError("");
       setSelectedRecord(null);
+      setDeleteTarget(null);
+      setDeleteError("");
+      setPurchaseMessage("");
+      setActiveTab(0);
     });
 
     getCustomer(id, controller.signal)
@@ -593,13 +1038,13 @@ export default function CustomerDetailPage() {
           return;
         }
         setCustomer(result);
+
         setError("");
       })
       .catch((err) => {
         if (controller.signal.aborted || requestRef.current !== controller) {
           return;
         }
-
         setError(err instanceof Error ? err.message : "Unable to load customer details.");
       })
       .finally(() => {
@@ -611,15 +1056,14 @@ export default function CustomerDetailPage() {
 
     return () => {
       controller.abort();
-
       if (requestRef.current === controller) {
         requestRef.current = null;
       }
     };
   }, [id]);
 
-  async function handleRefresh() {
-    if (!id || refreshing) return;
+  async function handleRefresh(force = false) {
+    if (!id || (refreshing && !force)) return;
 
     requestRef.current?.abort();
 
@@ -641,7 +1085,6 @@ export default function CustomerDetailPage() {
       if (controller.signal.aborted || requestRef.current !== controller) {
         return;
       }
-
       setError(err instanceof Error ? err.message : "Unable to refresh customer details.");
     } finally {
       if (requestRef.current === controller) {
@@ -654,7 +1097,7 @@ export default function CustomerDetailPage() {
   async function copyCustomerId(customerId: string) {
     try {
       await navigator.clipboard.writeText(customerId);
-      setCopyMessage("Customer ID copied");
+      setCopyMessage("Customer ID copied to clipboard");
     } catch {
       setCopyMessage("Could not copy Customer ID");
     }
@@ -662,7 +1105,6 @@ export default function CustomerDetailPage() {
 
   function handlePrint(content: string, title: string) {
     setDocumentMessage("");
-
     try {
       printDocument(content, title);
     } catch (err) {
@@ -670,7 +1112,6 @@ export default function CustomerDetailPage() {
     }
   }
 
-  // Existing normal PDF action.
   async function handlePdf(content: string, filename: string, type: PdfKind): Promise<void> {
     if (documentBusy) return;
 
@@ -679,10 +1120,9 @@ export default function CustomerDetailPage() {
 
     try {
       const result = await shareOrDownloadPdf(content, filename, type);
-
       setDocumentMessage(
         result === "shared"
-          ? "Device share menu completed. Check the recipient and confirm the PDF was sent."
+          ? "Device share completed. Check the recipient and confirm the PDF was sent."
           : "PDF downloaded successfully.",
       );
     } catch (err) {
@@ -692,9 +1132,6 @@ export default function CustomerDetailPage() {
     }
   }
 
-  // New WhatsApp PDF action.
-  // It uses native file sharing wherever available.
-  // Desktop fallback downloads the PDF, then opens chat.
   async function handleWhatsAppPdf(content: string, filename: string): Promise<void> {
     if (!customer || documentBusy) return;
 
@@ -705,19 +1142,14 @@ export default function CustomerDetailPage() {
       const result = await shareOrDownloadPdf(content, filename, "receipt");
 
       if (result === "shared") {
-        setDocumentMessage(
-          "PDF handed to the device share menu. Choose WhatsApp, select the correct customer and press Send.",
-        );
+        setDocumentMessage("PDF handed to device share menu. Select WhatsApp and send.");
         return;
       }
 
-      // PDF was downloaded because direct file sharing
-      // is not supported. Open the saved customer's chat.
       try {
         openCustomerWhatsApp(customer.mobNumber, "");
-
         setDocumentMessage(
-          "Receipt PDF downloaded. In the customer's WhatsApp chat, click Attach → Document, select the downloaded PDF and press Send. If the chat did not open, open WhatsApp Web manually.",
+          "Receipt PDF downloaded. In WhatsApp, attach the downloaded PDF and press Send.",
         );
       } catch (chatError) {
         setDocumentMessage(
@@ -735,16 +1167,20 @@ export default function CustomerDetailPage() {
     }
   }
 
-  if (loading && !customer) {
+  if ((loading && !customer) || (customer && customer.id !== id)) {
     return <CustomerDetailsSkeleton />;
   }
 
   if (!customer) {
     return (
-      <Stack spacing={2}>
+      <Stack spacing={2} sx={{ maxWidth: 800, mx: "auto", mt: 4 }}>
         <Alert severity="error">{error || "Customer not found."}</Alert>
-
-        <Button component={Link} to={backUrl} startIcon={<ArrowBackOutlined />}>
+        <Button
+          component={Link}
+          to={backUrl}
+          startIcon={<ArrowBackOutlined />}
+          sx={{ width: "fit-content" }}
+        >
           Back to Customers
         </Button>
       </Stack>
@@ -752,8 +1188,9 @@ export default function CustomerDetailPage() {
   }
 
   const editUrl = `/customers/${customer.id}/edit${searchQuery}`;
-
-  const latestRecord = customer.records[0];
+  // Sort explicitly; API array order is not guaranteed to be newest first.
+  const sortedRecords = sortPurchases(customer.records);
+  const sortedPrescriptions = sortPrescriptions(customer.prescriptions);
 
   const initials = customer.name
     .trim()
@@ -768,85 +1205,191 @@ export default function CustomerDetailPage() {
   );
 
   return (
-    <Box sx={{ maxWidth: 1250, mx: "auto", pb: 6 }}>
-      <Stack spacing={2.5}>
+    <Box sx={{ maxWidth: 1320, mx: "auto", pb: 8, px: { xs: 1, sm: 2 } }}>
+      <Stack spacing={3}>
+        {/* Navigation Breadcrumb */}
         <Box>
-          <Button component={Link} to={backUrl} size="small" startIcon={<ArrowBackOutlined />}>
+          <Button
+            component={Link}
+            to={backUrl}
+            size="small"
+            startIcon={<ArrowBackOutlined />}
+            sx={{ fontWeight: 600, color: "text.secondary" }}
+          >
             Back to Customers
           </Button>
         </Box>
 
-        {/* Customer header */}
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+        {/* Customer Header Hero Banner */}
+        <Card
+          variant="outlined"
+          sx={{
+            borderRadius: 3,
+            bgcolor: "background.paper",
+            borderColor: "divider",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+          }}
+        >
+          <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
             <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={2.5}
+              direction={{ xs: "column", md: "row" }}
+              spacing={3}
               sx={{
-                alignItems: { sm: "center" },
                 justifyContent: "space-between",
+                alignItems: { xs: "flex-start", md: "center" },
               }}
             >
-              <Stack direction="row" spacing={2} sx={{ alignItems: "center", minWidth: 0 }}>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={2.5}
+                sx={{ alignItems: { xs: "flex-start", sm: "center" }, minWidth: 0, width: "100%" }}
+              >
                 <Avatar
                   sx={{
-                    width: 62,
-                    height: 62,
+                    width: 72,
+                    height: 72,
                     bgcolor: "primary.main",
-                    fontWeight: 700,
-                    fontSize: 23,
+                    fontWeight: 800,
+                    fontSize: "1.75rem",
+                    boxShadow: "0 4px 12px rgba(37,99,235,0.25)",
                   }}
                 >
-                  {initials || <PersonOutlined />}
+                  {initials || <PersonOutlined sx={{ fontSize: 36 }} />}
                 </Avatar>
 
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography
-                    variant="h4"
-                    sx={{
-                      fontWeight: 800,
-                      overflowWrap: "anywhere",
-                      fontSize: { xs: "1.55rem", md: "2rem" },
-                    }}
+                <Box sx={{ minWidth: 0, flex: 1, width: "100%" }}>
+                  <Stack
+                    direction="row"
+                    spacing={1.5}
+                    sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.5 }}
                   >
-                    {customer.name}
-                  </Typography>
+                    <Typography
+                      variant="h4"
+                      sx={{
+                        fontWeight: 800,
+                        letterSpacing: "-0.02em",
+                        fontSize: { xs: "1.6rem", md: "2.1rem" },
+                      }}
+                    >
+                      {customer.name}
+                    </Typography>
+
+                    {totalPurchaseValue >= 10000 && (
+                      <Chip
+                        size="small"
+                        label="VIP Customer"
+                        sx={{
+                          bgcolor: "#FEF3C7",
+                          color: "#92400E",
+                          fontWeight: 700,
+                          fontSize: "0.75rem",
+                        }}
+                      />
+                    )}
+
+                    {customer.records.length > 1 && (
+                      <Chip
+                        size="small"
+                        label="Repeat Patron"
+                        sx={{
+                          bgcolor: "#EFF6FF",
+                          color: "#1D4ED8",
+                          fontWeight: 700,
+                          fontSize: "0.75rem",
+                        }}
+                      />
+                    )}
+                  </Stack>
 
                   <Stack
                     direction="row"
-                    spacing={1}
+                    spacing={1.5}
                     sx={{
-                      mt: 0.75,
+                      mt: 1,
                       flexWrap: "wrap",
                       alignItems: "center",
-                      gap: 0.5,
+                      gap: 0.75,
+                      color: "text.secondary",
+                      fontSize: "0.9rem",
                     }}
                   >
-                    <Typography variant="body2" color="text.secondary">
-                      {customer.mobNumber || "No mobile number"}
-                    </Typography>
+                    {customer.mobNumber ? (
+                      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                        <PhoneOutlined sx={{ fontSize: 16 }} />
+                        <Typography
+                          component="span"
+                          sx={{ fontWeight: 600, color: "text.primary" }}
+                        >
+                          {customer.mobNumber}
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <Typography component="span" variant="body2" color="text.secondary">
+                        No phone number
+                      </Typography>
+                    )}
 
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={`${customer.records.length} purchases`}
-                    />
+                    {customer.gender && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={customer.gender}
+                        sx={{
+                          height: "auto",
+                          minHeight: 22,
+                          maxWidth: "100%",
+                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                        }}
+                      />
+                    )}
 
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={`${customer.prescriptions.length} prescriptions`}
-                    />
+                    {customer.ageAtRecording != null && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`${customer.ageAtRecording} yrs (recorded ${formatDate(customer.ageRecordedAt)})`}
+                        sx={{
+                          height: "auto",
+                          minHeight: 22,
+                          maxWidth: "100%",
+                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                        }}
+                      />
+                    )}
+
+                    {customer.reference && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`Ref: ${customer.reference}`}
+                        sx={{
+                          height: "auto",
+                          minHeight: 22,
+                          maxWidth: "100%",
+                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                        }}
+                      />
+                    )}
                   </Stack>
                 </Box>
               </Stack>
 
-              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+              {/* Action Toolbar */}
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                <Button
+                  variant="contained"
+                  startIcon={<AddOutlined />}
+                  disabled={refreshing}
+                  onClick={() => setPurchaseDialogOpen(true)}
+                >
+                  New Purchase
+                </Button>
                 {customer.mobNumber && (
                   <Button
                     component="a"
                     href={`tel:${customer.mobNumber}`}
                     variant="outlined"
+                    color="inherit"
                     startIcon={<PhoneOutlined />}
                   >
                     Call
@@ -855,6 +1398,7 @@ export default function CustomerDetailPage() {
 
                 <Button
                   variant="outlined"
+                  color="inherit"
                   disabled={refreshing}
                   onClick={() => {
                     void handleRefresh();
@@ -874,9 +1418,69 @@ export default function CustomerDetailPage() {
                 </Button>
               </Stack>
             </Stack>
+
+            <Divider sx={{ my: 2.5 }} />
+
+            {/* Quick Identifier & Registration Metadata */}
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              sx={{
+                justifyContent: "space-between",
+                alignItems: { sm: "center" },
+                fontSize: "0.85rem",
+                color: "text.secondary",
+              }}
+            >
+              <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  CUSTOMER ID:
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontFamily: "monospace",
+                    bgcolor: "action.hover",
+                    px: 1,
+                    py: 0.25,
+                    borderRadius: 1,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {customer.id}
+                </Typography>
+                <Tooltip title="Copy customer ID">
+                  <IconButton
+                    size="small"
+                    aria-label="Copy customer ID"
+                    onClick={() => {
+                      void copyCustomerId(customer.id);
+                    }}
+                    sx={{ p: 0.5 }}
+                  >
+                    <ContentCopyOutlined sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+
+              <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap", gap: 1 }}>
+                <Typography variant="caption">
+                  Registered: <strong>{formatDate(customer.createdAt)}</strong>
+                </Typography>
+                <Typography variant="caption">
+                  Last Updated: <strong>{formatDate(customer.updatedAt)}</strong>
+                </Typography>
+              </Stack>
+            </Stack>
           </CardContent>
         </Card>
 
+        {/* Global Alert Messages */}
+        {purchaseMessage && (
+          <Alert severity="success" onClose={() => setPurchaseMessage("")}>
+            {purchaseMessage}
+          </Alert>
+        )}
         {error && (
           <Alert severity="warning" onClose={() => setError("")}>
             Unable to refresh: {error}. Showing the last available information.
@@ -895,438 +1499,774 @@ export default function CustomerDetailPage() {
           </Alert>
         )}
 
-        {/* Summary cards */}
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 4 }}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">
-                  Purchase Records
-                </Typography>
-
-                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>
-                  {customer.records.length}
-                </Typography>
-
-                <Typography variant="caption" color="text.secondary">
-                  {latestRecord
-                    ? `Latest: ${formatDate(latestRecord.purchaseDate)}`
-                    : "No purchases recorded"}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid size={{ xs: 12, sm: 4 }}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">
-                  Total Purchase Value
-                </Typography>
-
-                <Typography variant="h5" sx={{ fontWeight: 800, mt: 1 }}>
-                  {formatMoney(totalPurchaseValue)}
-                </Typography>
-
-                <Typography variant="caption" color="text.secondary">
-                  Sum of saved purchase MRP amounts
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid size={{ xs: 12, sm: 4 }}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: "100%" }}>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">
-                  Prescription Records
-                </Typography>
-
-                <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5 }}>
-                  {customer.prescriptions.length}
-                </Typography>
-
-                <Typography variant="caption" color="text.secondary">
-                  Saved optical prescriptions
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Personal information */}
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 2 }}>
-              <PersonOutlined color="primary" />
-
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                Personal Information
-              </Typography>
-            </Stack>
-
-            <Grid container spacing={2.5}>
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem label="Customer Name" value={customer.name} />
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem label="Mobile Number" value={customer.mobNumber} />
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem label="Gender" value={customer.gender} />
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem label="Reference" value={customer.reference} />
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem label="Registered" value={formatDate(customer.createdAt)} />
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem label="Updated" value={formatDate(customer.updatedAt)} />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                <DetailItem
-                  label="Age at recording"
-                  value={
-                    customer.ageAtRecording == null
-                      ? "Not recorded"
-                      : `${customer.ageAtRecording} years${
-                          customer.ageRecordedAt
-                            ? ` (recorded ${formatDate(customer.ageRecordedAt)})`
-                            : ""
-                        }`
-                  }
-                />
-              </Grid>
-            </Grid>
-
-            <Divider sx={{ my: 2 }} />
-
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ overflowWrap: "anywhere" }}
-              >
-                ID: {customer.id}
-              </Typography>
-
-              <Tooltip title="Copy customer ID">
-                <IconButton
-                  size="small"
-                  aria-label="Copy customer ID"
-                  onClick={() => {
-                    void copyCustomerId(customer.id);
-                  }}
-                >
-                  <ContentCopyOutlined fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        {/* Purchase and prescription history */}
+        {/* Tabbed Clinical & Commercial Dashboard */}
         <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
-          <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+          <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
             <Tabs
               value={activeTab}
               onChange={(_, next: number) => setActiveTab(next)}
               variant="scrollable"
               scrollButtons="auto"
-              aria-label="Customer detail sections"
+              aria-label="Customer detail views"
+              sx={{ px: { xs: 1, md: 2 } }}
             >
               <Tab
                 icon={<ReceiptLongOutlined />}
                 iconPosition="start"
-                label={`Purchases (${customer.records.length})`}
+                label={`Purchases & Eyewear (${customer.records.length})`}
+                sx={{ fontWeight: 650, py: 2 }}
               />
               <Tab
                 icon={<VisibilityOutlined />}
                 iconPosition="start"
-                label={`Prescriptions (${customer.prescriptions.length})`}
+                label={`Clinical Prescriptions (${customer.prescriptions.length})`}
+                sx={{ fontWeight: 650, py: 2 }}
               />
-              <Tab icon={<LockOutlined />} iconPosition="start" label="Staff Notes" />
+              <Tab
+                icon={<TrendingUpOutlined />}
+                iconPosition="start"
+                label="Vision Progression"
+                sx={{ fontWeight: 650, py: 2 }}
+              />
+              <Tab
+                icon={<CompareArrowsOutlined />}
+                iconPosition="start"
+                label="Compare Exams"
+                sx={{ fontWeight: 650, py: 2 }}
+              />
+              <Tab
+                icon={<LockOutlined />}
+                iconPosition="start"
+                label="Staff & Clinical Notes"
+                sx={{ fontWeight: 650, py: 2 }}
+              />
             </Tabs>
           </Box>
 
-          <CardContent sx={{ p: { xs: 1.5, md: 3 }, minHeight: 240 }}>
+          <CardContent sx={{ p: { xs: 2, md: 3.5 }, minHeight: 300 }}>
+            {/* TAB 0: Purchases & Paired Eyewear */}
             {activeTab === 0 && (
-              <Stack spacing={1.5}>
-                <Typography variant="body2" color="text.secondary">
-                  Open a purchase to review its details and prepare a receipt PDF.
-                </Typography>
+              <Stack spacing={2.5}>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
+                >
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                      Purchase History & Dispensed Eyewear
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Each purchase record is visually paired with its corresponding eye
+                      prescription and itemized rates.
+                    </Typography>
+                  </Box>
+
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`${customer.records.length} Total Orders`}
+                    sx={{ fontWeight: 600, width: "fit-content" }}
+                  />
+                </Stack>
 
                 {customer.records.length === 0 ? (
-                  <Alert severity="info">No purchase records available.</Alert>
+                  <Alert severity="info" sx={{ borderRadius: 2 }}>
+                    No purchase records recorded for this customer yet.
+                  </Alert>
                 ) : (
-                  customer.records.map((record, index) => {
+                  sortedRecords.map((record, index) => {
                     const flag = purchaseFlagInfo[getPurchaseFlag(record)];
+                    const linkedRx = customer.prescriptions.find(
+                      (p) => p.id === record.prescriptionId,
+                    );
 
                     return (
-                      <Accordion
+                      <Card
+                        id={`purchase-${record.id}`}
                         key={record.id}
-                        disableGutters
-                        defaultExpanded={index === 0}
                         variant="outlined"
                         sx={{
-                          borderRadius: "12px !important",
+                          borderRadius: 2.5,
+                          borderColor: index === 0 ? "#2563EB" : "divider",
+                          boxShadow: index === 0 ? "0 2px 8px rgba(37,99,235,0.06)" : "none",
                           overflow: "hidden",
-                          "&:before": { display: "none" },
                         }}
                       >
-                        <AccordionSummary
-                          expandIcon={<ExpandMoreOutlined />}
-                          sx={{ px: 2, py: 0.5 }}
+                        {/* Order Header Ribbon */}
+                        <Box
+                          sx={{
+                            p: 2,
+                            bgcolor: index === 0 ? "#EAF2FF" : "#F1F5F9",
+                            borderBottom: "1px solid",
+                            borderColor: "divider",
+                          }}
                         >
                           <Stack
                             direction={{ xs: "column", sm: "row" }}
                             spacing={1.5}
                             sx={{
-                              width: "100%",
-                              pr: 1,
-                              alignItems: { sm: "center" },
                               justifyContent: "space-between",
+                              alignItems: { sm: "center" },
                             }}
                           >
-                            <Box>
-                              <Typography sx={{ fontWeight: 700 }}>
-                                Purchase {customer.records.length - index}
-                                {index === 0 ? " · Latest" : ""}
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.75 }}
+                            >
+                              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                {index === 0 ? "Most recent order" : `Previous order ${index}`}
                               </Typography>
 
-                              <Typography variant="body2" color="text.secondary">
-                                {formatDate(record.purchaseDate)}
-                              </Typography>
-                            </Box>
+                              {index === 0 && (
+                                <Chip
+                                  size="small"
+                                  color="primary"
+                                  label="LATEST PURCHASE"
+                                  sx={{ fontWeight: 700, height: 22 }}
+                                />
+                              )}
+
+                              {index > 0 && (
+                                <Chip
+                                  size="small"
+                                  label="PREVIOUS PURCHASE"
+                                  sx={{ bgcolor: "#E2E8F0", color: "#334155", fontWeight: 750 }}
+                                />
+                              )}
+                              <Chip
+                                size="small"
+                                icon={<CalendarTodayOutlined sx={{ fontSize: 14 }} />}
+                                label={formatDate(record.purchaseDate)}
+                                variant="outlined"
+                                sx={{ height: 22 }}
+                              />
+
+                              <Chip
+                                label={flag.label}
+                                color={flag.color}
+                                size="small"
+                                sx={{ height: 22, fontWeight: 600 }}
+                              />
+
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={
+                                  record.pricingMode === "SPLIT" ? "Itemized Split" : "Standard MRP"
+                                }
+                                sx={{ height: 22 }}
+                              />
+                            </Stack>
 
                             <Stack
                               direction="row"
                               spacing={1}
-                              sx={{ alignItems: "center", flexWrap: "wrap" }}
+                              sx={{ alignItems: "center", flexShrink: 0 }}
                             >
-                              <Chip label={flag.label} color={flag.color} size="small" />
-                              <Typography sx={{ fontWeight: 800 }}>
+                              <Tooltip title="Delete Purchase">
+                                <span>
+                                  <IconButton
+                                    color="error"
+                                    size="small"
+                                    aria-label="Delete Purchase"
+                                    disabled={deleting}
+                                    onClick={(e) => {
+                                      e.currentTarget.blur();
+                                      setDeleteError("");
+                                      setDeleteTarget(record);
+                                    }}
+                                  >
+                                    <DeleteOutline />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ fontWeight: 600, whiteSpace: "nowrap" }}
+                              >
+                                TOTAL:
+                              </Typography>
+                              <Typography
+                                variant="h6"
+                                sx={{
+                                  fontWeight: 800,
+                                  color: "primary.main",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
                                 {formatMoney(record.mrp)}
                               </Typography>
                             </Stack>
                           </Stack>
-                        </AccordionSummary>
+                        </Box>
 
-                        <AccordionDetails
-                          sx={{
-                            borderTop: 1,
-                            borderColor: "divider",
-                            px: 2.5,
-                            py: 2.5,
-                          }}
-                        >
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={
-                              record.pricingMode === "SPLIT"
-                                ? "Separate Frame / Lens Rates"
-                                : "MRP Only"
-                            }
-                            sx={{ mb: 2 }}
-                          />
+                        <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                          <Grid container spacing={3}>
+                            {/* Product & Pricing Breakdown */}
+                            <Grid size={{ xs: 12, md: 6 }}>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{
+                                  fontWeight: 750,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                  display: "block",
+                                  mb: 1.5,
+                                }}
+                              >
+                                Dispensed Eyewear Specifications
+                              </Typography>
 
-                          <Grid container spacing={2.5}>
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                              <DetailItem label="Frame / Spectacle" value={record.specsType} />
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                              <DetailItem label="Lens" value={record.lensType} />
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                              <DetailItem
-                                label="Date of Purchase"
-                                value={formatDate(record.purchaseDate)}
-                              />
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                              <DetailItem
-                                label="Record Created"
-                                value={formatDate(record.createdAt)}
-                              />
-                            </Grid>
+                              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                <Grid container spacing={2}>
+                                  <Grid size={{ xs: 12 }}>
+                                    <DetailItem
+                                      label="Frame / Spectacle Model"
+                                      value={record.specsType}
+                                      highlight
+                                    />
+                                  </Grid>
 
-                            {record.pricingMode === "SPLIT" && (
-                              <>
-                                <Grid size={{ xs: 12, sm: 6 }}>
-                                  <DetailItem
-                                    label="Frame Rate"
-                                    value={formatMoney(record.frameRate)}
-                                  />
+                                  <Grid size={{ xs: 12 }}>
+                                    <DetailItem
+                                      label="Lens Type / Coating / Design"
+                                      value={record.lensType}
+                                      highlight
+                                    />
+                                  </Grid>
+
+                                  {record.pricingMode === "SPLIT" && (
+                                    <>
+                                      <Grid size={{ xs: 6 }}>
+                                        <DetailItem
+                                          label="Frame Rate"
+                                          value={formatMoney(record.frameRate)}
+                                        />
+                                      </Grid>
+
+                                      <Grid size={{ xs: 6 }}>
+                                        <DetailItem
+                                          label="Lens Rate"
+                                          value={formatMoney(record.lensRate)}
+                                        />
+                                      </Grid>
+                                    </>
+                                  )}
+
+                                  <Grid size={{ xs: 6 }}>
+                                    <DetailItem
+                                      label="Purchase Date"
+                                      value={formatDate(record.purchaseDate)}
+                                    />
+                                  </Grid>
+
+                                  <Grid size={{ xs: 6 }}>
+                                    <DetailItem
+                                      label="Recorded At"
+                                      value={formatDate(record.createdAt)}
+                                    />
+                                  </Grid>
                                 </Grid>
-                                <Grid size={{ xs: 12, sm: 6 }}>
-                                  <DetailItem
-                                    label="Lens Rate"
-                                    value={formatMoney(record.lensRate)}
+                              </Paper>
+                            </Grid>
+
+                            {/* Linked Optical Prescription */}
+                            <Grid size={{ xs: 12, md: 6 }}>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{
+                                  fontWeight: 750,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                  display: "block",
+                                  mb: 1.5,
+                                }}
+                              >
+                                Paired Prescription Data
+                              </Typography>
+
+                              {linkedRx ? (
+                                <PairedPrescriptionCard
+                                  prescription={linkedRx}
+                                  onPrint={() =>
+                                    handlePrint(
+                                      prescriptionHtml(customer, linkedRx),
+                                      "Optical Prescription",
+                                    )
+                                  }
+                                />
+                              ) : (
+                                <Paper
+                                  variant="outlined"
+                                  sx={{
+                                    p: 3,
+                                    borderRadius: 2,
+                                    bgcolor: "action.hover",
+                                    textAlign: "center",
+                                    minHeight: 140,
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 1,
+                                  }}
+                                >
+                                  <RemoveRedEyeOutlined
+                                    sx={{ color: "text.secondary", fontSize: 28 }}
                                   />
-                                </Grid>
-                              </>
-                            )}
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ fontWeight: 650, color: "text.primary" }}
+                                  >
+                                    No Prescription Linked to This Purchase
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    This purchase was registered as an over-the-counter sale or
+                                    without eye test data.
+                                  </Typography>
+                                </Paper>
+                              )}
+                            </Grid>
                           </Grid>
 
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              mt: 2.5,
-                              p: 2,
-                              borderRadius: 2,
-                              bgcolor: "action.hover",
-                            }}
-                          >
-                            <Stack
-                              direction="row"
-                              sx={{
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                              }}
-                            >
-                              <Typography sx={{ fontWeight: 700 }}>Total MRP</Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                                {formatMoney(record.mrp)}
-                              </Typography>
-                            </Stack>
-                          </Paper>
+                          <Divider sx={{ my: 2.5 }} />
 
-                          <Button
-                            variant="contained"
-                            startIcon={<ReceiptLongOutlined />}
-                            sx={{ mt: 2 }}
-                            onClick={() => setSelectedRecord(record)}
+                          {/* Order Actions */}
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={1.5}
+                            sx={{ justifyContent: "flex-end", alignItems: { sm: "center" } }}
                           >
-                            Prepare Receipt
-                          </Button>
-                        </AccordionDetails>
-                      </Accordion>
+                            <Button
+                              variant="contained"
+                              startIcon={<ReceiptLongOutlined />}
+                              onClick={() => setSelectedRecord(record)}
+                              sx={{ fontWeight: 700 }}
+                            >
+                              Prepare Receipt & WhatsApp PDF
+                            </Button>
+                          </Stack>
+                        </CardContent>
+                      </Card>
                     );
                   })
                 )}
               </Stack>
             )}
 
+            {/* TAB 1: Clinical Optical Prescriptions (OD / OS) */}
             {activeTab === 1 && (
-              <Stack spacing={2}>
-                <Typography variant="body2" color="text.secondary">
-                  Saved optical prescriptions, most recent first.
-                </Typography>
+              <Stack spacing={2.5}>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
+                >
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                      Clinical Optical Prescriptions
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Standardized optometry charts formatted by OD (Right Eye) and OS (Left Eye),
+                      with automatic Add calculations.
+                    </Typography>
+                  </Box>
+
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`${customer.prescriptions.length} Recorded Tests`}
+                    sx={{ fontWeight: 600, width: "fit-content" }}
+                  />
+                </Stack>
 
                 {customer.prescriptions.length === 0 ? (
-                  <Alert severity="info">No optical prescription recorded.</Alert>
+                  <Alert severity="info" sx={{ borderRadius: 2 }}>
+                    No optical prescription recorded for this customer.
+                  </Alert>
                 ) : (
-                  customer.prescriptions.map((prescription, index) => (
-                    <Accordion
-                      key={prescription.id}
-                      disableGutters
-                      defaultExpanded={index === 0}
-                      variant="outlined"
-                      sx={{
-                        borderRadius: "12px !important",
-                        overflow: "hidden",
-                        "&:before": { display: "none" },
-                      }}
-                    >
-                      <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
-                        <Stack
-                          direction="row"
-                          spacing={1.5}
-                          sx={{ alignItems: "center", flexWrap: "wrap" }}
-                        >
-                          <Typography sx={{ fontWeight: 700 }}>Prescription {index + 1}</Typography>
+                  sortedPrescriptions.map((prescription, index) => {
+                    const rxType = classifyRx(prescription);
+                    const linkedPurchases = customer.records.filter(
+                      (r) => r.prescriptionId === prescription.id,
+                    );
 
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={formatDate(prescription.createdAt)}
-                          />
-
-                          {index === 0 && <Chip size="small" color="primary" label="Latest" />}
-                        </Stack>
-                      </AccordionSummary>
-
-                      <AccordionDetails
+                    return (
+                      <Card
+                        id={`prescription-${prescription.id}`}
+                        key={prescription.id}
+                        variant="outlined"
                         sx={{
-                          borderTop: 1,
-                          borderColor: "divider",
-                          p: { xs: 1, md: 2 },
+                          borderRadius: 2.5,
+                          borderColor: index === 0 ? "#2563EB" : "divider",
+                          overflow: "hidden",
                         }}
                       >
-                        <PrescriptionTable prescription={prescription} />
-
-                        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
-                          <Button
-                            variant="outlined"
-                            startIcon={<PrintOutlined />}
-                            onClick={() =>
-                              handlePrint(
-                                prescriptionHtml(customer, prescription),
-                                "Optical Prescription",
-                              )
-                            }
-                          >
-                            Print Prescription
-                          </Button>
-
-                          <Button
-                            variant="outlined"
-                            disabled={documentBusy}
-                            startIcon={<PictureAsPdfOutlined />}
-                            onClick={() => {
-                              void handlePdf(
-                                prescriptionHtml(customer, prescription),
-                                `prescription-${prescription.id}.pdf`,
-                                "prescription",
-                              );
+                        {/* Prescription Header Ribbon */}
+                        <Box
+                          sx={{
+                            p: 2,
+                            bgcolor: index === 0 ? "#EAF2FF" : "#F1F5F9",
+                            borderBottom: "1px solid",
+                            borderColor: "divider",
+                          }}
+                        >
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={1.5}
+                            sx={{
+                              justifyContent: "space-between",
+                              alignItems: { sm: "center" },
                             }}
                           >
-                            Share / Save PDF
-                          </Button>
-                        </Stack>
-                      </AccordionDetails>
-                    </Accordion>
-                  ))
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.75 }}
+                            >
+                              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                Prescription {customer.prescriptions.length - index}
+                              </Typography>
+
+                              {index === 0 && (
+                                <Chip
+                                  size="small"
+                                  color="primary"
+                                  label="Latest recorded exam"
+                                  sx={{ fontWeight: 700, height: 22 }}
+                                />
+                              )}
+
+                              <Chip
+                                size="small"
+                                icon={<CalendarTodayOutlined sx={{ fontSize: 14 }} />}
+                                label={formatDate(prescription.createdAt)}
+                                variant="outlined"
+                                sx={{ height: 22 }}
+                              />
+
+                              <Chip
+                                label={rxType.label}
+                                color={rxType.color}
+                                size="small"
+                                sx={{ height: 22, fontWeight: 600 }}
+                              />
+                            </Stack>
+
+                            <Stack direction="row" spacing={1}>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<PrintOutlined />}
+                                onClick={() =>
+                                  handlePrint(
+                                    prescriptionHtml(customer, prescription),
+                                    "Optical Prescription",
+                                  )
+                                }
+                              >
+                                Print
+                              </Button>
+
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={documentBusy}
+                                startIcon={<PictureAsPdfOutlined />}
+                                onClick={() => {
+                                  void handlePdf(
+                                    prescriptionHtml(customer, prescription),
+                                    `prescription-${prescription.id}.pdf`,
+                                    "prescription",
+                                  );
+                                }}
+                              >
+                                PDF
+                              </Button>
+                            </Stack>
+                          </Stack>
+                        </Box>
+
+                        <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                          {/* Optometric Table */}
+                          <ClinicalPrescriptionTable prescription={prescription} />
+
+                          {/* Dispensed Eyewear Connection */}
+                          <Box sx={{ mt: 2.5 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{
+                                fontWeight: 750,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                display: "block",
+                                mb: 1,
+                              }}
+                            >
+                              Dispensed Eyewear for this Prescription
+                            </Typography>
+
+                            {linkedPurchases.length > 0 ? (
+                              <Stack spacing={1}>
+                                {linkedPurchases.map((purchase) => (
+                                  <Paper
+                                    key={purchase.id}
+                                    variant="outlined"
+                                    sx={{
+                                      p: 1.5,
+                                      borderRadius: 2,
+                                      bgcolor: "#F8FAFC",
+                                      border: "1px solid #E2E8F0",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      flexWrap: "wrap",
+                                      gap: 1,
+                                    }}
+                                  >
+                                    <Stack
+                                      direction="row"
+                                      spacing={1}
+                                      sx={{ alignItems: "center" }}
+                                    >
+                                      <CheckCircleOutlineOutlined
+                                        sx={{ color: "success.main", fontSize: 18 }}
+                                      />
+                                      <Typography variant="body2" sx={{ fontWeight: 650 }}>
+                                        {purchase.specsType || "Frame"} +{" "}
+                                        {purchase.lensType || "Lens"}
+                                      </Typography>
+                                      <Chip
+                                        size="small"
+                                        label={formatDate(purchase.purchaseDate)}
+                                        sx={{ fontSize: "0.72rem", height: 20 }}
+                                      />
+                                    </Stack>
+
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 750, color: "primary.main" }}
+                                    >
+                                      {formatMoney(purchase.mrp)}
+                                    </Typography>
+                                  </Paper>
+                                ))}
+                              </Stack>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                No purchase has been linked to this prescription yet.
+                              </Typography>
+                            )}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    );
+                  })
                 )}
               </Stack>
             )}
 
+            {/* TAB 2: Vision Progression Timeline */}
             {activeTab === 2 && (
-              <Stack spacing={2}>
-                <Alert severity="info" icon={<LockOutlined />}>
-                  Staff-only information. Never include these notes in customer PDFs or WhatsApp
-                  messages.
+              <Stack spacing={2.5}>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    Vision Refractive Progression
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    View recorded measurements and calculated reading addition over time.
+                    Differences describe saved measurements and are not a clinical interpretation.
+                  </Typography>
+                </Box>
+
+                {customer.prescriptions.length === 0 ? (
+                  <Alert severity="info" sx={{ borderRadius: 2 }}>
+                    No optical examinations recorded to track progression.
+                  </Alert>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <Table size="small" sx={{ minWidth: 780 }}>
+                      <TableHead sx={{ bgcolor: "action.hover" }}>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700 }}>Recorded Date</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, color: "#1D4ED8" }}>
+                            OD Dist (Sph / Cyl / Axis)
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, color: "#1D4ED8" }}>
+                            OD Add
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, color: "#047857" }}>
+                            OS Dist (Sph / Cyl / Axis)
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, color: "#047857" }}>
+                            OS Add
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700 }}>
+                            Classification
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sortedPrescriptions.map((rx, idx) => {
+                          const reAdd = calculateAdd(rx.reNearSph, rx.reDistSph);
+                          const leAdd = calculateAdd(rx.leNearSph, rx.leDistSph);
+                          const type = classifyRx(rx);
+
+                          return (
+                            <TableRow key={rx.id} hover>
+                              <TableCell sx={{ fontWeight: 650 }}>
+                                {formatDate(rx.createdAt)}
+                                {idx === 0 && (
+                                  <Chip
+                                    size="small"
+                                    color="primary"
+                                    label="Latest"
+                                    sx={{ ml: 1, height: 20, fontSize: "0.68rem" }}
+                                  />
+                                )}
+                              </TableCell>
+
+                              <TableCell
+                                align="center"
+                                sx={{ fontFamily: "monospace", fontWeight: 650 }}
+                              >
+                                {formatPower(rx.reDistSph)} / {formatPower(rx.reDistCyl)} /{" "}
+                                {rx.reDistAxis != null ? `${rx.reDistAxis}°` : "—"}
+                              </TableCell>
+
+                              <TableCell align="center">
+                                {reAdd ? (
+                                  <Chip
+                                    size="small"
+                                    label={reAdd}
+                                    sx={{
+                                      height: 20,
+                                      fontSize: "0.72rem",
+                                      bgcolor: "#EFF6FF",
+                                      color: "#1D4ED8",
+                                    }}
+                                  />
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
+
+                              <TableCell
+                                align="center"
+                                sx={{ fontFamily: "monospace", fontWeight: 650 }}
+                              >
+                                {formatPower(rx.leDistSph)} / {formatPower(rx.leDistCyl)} /{" "}
+                                {rx.leDistAxis != null ? `${rx.leDistAxis}°` : "—"}
+                              </TableCell>
+
+                              <TableCell align="center">
+                                {leAdd ? (
+                                  <Chip
+                                    size="small"
+                                    label={leAdd}
+                                    sx={{
+                                      height: 20,
+                                      fontSize: "0.72rem",
+                                      bgcolor: "#ECFDF5",
+                                      color: "#047857",
+                                    }}
+                                  />
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
+
+                              <TableCell align="center">
+                                <Chip
+                                  size="small"
+                                  label={type.label}
+                                  color={type.color}
+                                  sx={{ height: 22, fontSize: "0.72rem" }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Stack>
+            )}
+
+            {/* TAB 3: Side-by-side comparison of any two prescriptions. */}
+            {activeTab === 3 && <PrescriptionComparison prescriptions={customer.prescriptions} />}
+
+            {/* TAB 4: Confidential Staff & Clinical Notes */}
+            {activeTab === 4 && (
+              <Stack spacing={2.5}>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    Internal Staff & Clinical Notes
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Confidential optometry observations, lens adaptation history, and patient
+                    preferences.
+                  </Typography>
+                </Box>
+
+                <Alert severity="info" icon={<LockOutlined />} sx={{ borderRadius: 2 }}>
+                  Private information for shop staff and optometrists only. These notes are strictly
+                  excluded from customer receipts, PDFs, and WhatsApp messages.
                 </Alert>
 
-                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, minHeight: 100 }}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 3,
+                    borderRadius: 2.5,
+                    bgcolor: "background.paper",
+                    minHeight: 140,
+                  }}
+                >
                   <Typography
                     sx={{
                       whiteSpace: "pre-wrap",
                       overflowWrap: "anywhere",
+                      fontSize: "0.95rem",
+                      lineHeight: 1.6,
+                      color: customer.notes ? "text.primary" : "text.secondary",
                     }}
                   >
-                    {customer.notes || "No internal notes added."}
+                    {customer.notes || "No internal staff or clinical notes recorded."}
                   </Typography>
                 </Paper>
+
+                <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
+                  <Button
+                    component={Link}
+                    to={editUrl}
+                    variant="outlined"
+                    startIcon={<EditOutlined />}
+                  >
+                    Edit Clinical Notes
+                  </Button>
+                </Stack>
               </Stack>
             )}
           </CardContent>
         </Card>
 
+        {/* Bottom Actions Bar */}
         <Stack
           direction="row"
           sx={{
             alignItems: "center",
             justifyContent: "space-between",
             flexWrap: "wrap",
-            gap: 1,
+            gap: 1.5,
+            pt: 1,
           }}
         >
           <Button
@@ -1338,13 +2278,130 @@ export default function CustomerDetailPage() {
             All Customers
           </Button>
 
+          <Button
+            color="error"
+            variant="outlined"
+            startIcon={<DeleteOutline />}
+            disabled={deleting}
+            onClick={() => {
+              setDeleteError("");
+              setDeleteTarget("customer");
+            }}
+          >
+            Delete Customer
+          </Button>
           <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>
             Edit Customer
           </Button>
         </Stack>
       </Stack>
 
-      {/* A separate dialog for the selected purchase. */}
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {deleteTarget === "customer" ? "Delete Customer?" : "Delete Purchase?"}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2}>
+            {deleteError && <Alert severity="error">{deleteError}</Alert>}
+            <Typography>
+              {deleteTarget === "customer"
+                ? "Are you sure you want to delete this customer? All purchase records, optical prescriptions, and other customer-owned records will also be deleted."
+                : "Are you sure you want to delete this purchase? The selected purchase will be deleted. Its linked prescription will also be deleted only if it belongs exclusively to this purchase and is not used elsewhere."}
+            </Typography>
+            {deleteTarget === "customer" ? (
+              <>
+                <DetailItem label="Customer name" value={customer.name} />
+                <DetailItem label="Mobile number" value={customer.mobNumber} />
+                <DetailItem label="Linked purchases" value={customer.records.length} />
+                <DetailItem label="Linked prescriptions" value={customer.prescriptions.length} />
+              </>
+            ) : (
+              deleteTarget && (
+                <>
+                  <DetailItem label="Purchase date" value={formatDate(deleteTarget.purchaseDate)} />
+                  <DetailItem label="Frame / Spectacle" value={deleteTarget.specsType} />
+                  <DetailItem label="Lens Type" value={deleteTarget.lensType} />
+                  <DetailItem label="Total MRP" value={formatMoney(deleteTarget.mrp)} />
+                  <DetailItem
+                    label="Linked prescription"
+                    value={deleteTarget.prescriptionId || "None"}
+                  />
+                  {customer.prescriptions.find((rx) => rx.id === deleteTarget.prescriptionId) && (
+                    <ClinicalPrescriptionTable
+                      prescription={customer.prescriptions.find(
+                        (rx) => rx.id === deleteTarget.prescriptionId,
+                      )!}
+                      compact
+                    />
+                  )}
+                </>
+              )
+            )}
+            <Typography variant="body2" color="text.secondary">
+              Deleted records can be recovered from Trash.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button autoFocus disabled={deleting} onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={deleting}
+            onClick={() => void confirmDelete()}
+          >
+            {deleting
+              ? "Deleting…"
+              : deleteTarget === "customer"
+                ? "Delete Customer"
+                : "Delete Purchase"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {purchaseDialogOpen && (
+        <AddPurchaseDialog
+          key={customer.id}
+          customer={customer}
+          renderPrescriptionPreview={(rx) => (
+            <ClinicalPrescriptionTable prescription={rx} compact />
+          )}
+          onClose={() => setPurchaseDialogOpen(false)}
+          onSuccess={(record) => {
+            requestRef.current?.abort();
+            setRefreshing(false);
+            setCustomer((previous) =>
+              previous?.id === customer.id
+                ? {
+                    ...previous,
+                    records: [...previous.records.filter((item) => item.id !== record.id), record],
+                    prescriptions: record.prescription
+                      ? [
+                          ...previous.prescriptions.filter(
+                            (rx) => rx.id !== record.prescription?.id,
+                          ),
+                          record.prescription,
+                        ]
+                      : previous.prescriptions,
+                  }
+                : previous,
+            );
+            setActiveTab(0);
+            setPurchaseMessage("Purchase saved successfully.");
+          }}
+        />
+      )}
+
+      {/* Existing Receipt Preview Dialog with 100% Preserved Props & Logic */}
       {selectedRecord && (
         <ReceiptPreviewDialog
           key={selectedRecord.id}

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "../config/database";
 import { getShopId } from "./shopService";
 
@@ -18,6 +19,7 @@ export async function searchCustomers(phone?: string, name?: string) {
     where: {
       shopId,
       isActive: true,
+      deletedAt: null,
 
       ...(phone
         ? {
@@ -61,16 +63,19 @@ export async function getCustomerById(id: string) {
       id,
       shopId,
       isActive: true,
+      deletedAt: null,
     },
 
     include: {
       prescriptions: {
+        where: { deletionGroupId: null, deletedAt: null },
         orderBy: {
           createdAt: "desc",
         },
       },
 
       records: {
+        where: { deletionGroupId: null, deletedAt: null },
         orderBy: {
           createdAt: "desc",
         },
@@ -82,6 +87,7 @@ export async function getCustomerById(id: string) {
 export async function createCustomer(data: CreateCustomerInput) {
   const shopId = await getShopId();
 
+  const purchaseId = randomUUID();
   const pricing = calculatePricing(data.record);
 
   const purchaseDate = data.purchaseDate ? new Date(`${data.purchaseDate}T00:00:00.000Z`) : null;
@@ -111,14 +117,16 @@ export async function createCustomer(data: CreateCustomerInput) {
       ? await tx.prescription.create({
           data: {
             customerId: customer.id,
+            createdForPurchaseId: purchaseId,
             ...mapPrescription(data.prescription),
           },
         })
       : null;
 
-    await tx.customerRecord.create({
+    const record = await tx.customerRecord.create({
       data: {
         customerId: customer.id,
+        id: purchaseId,
         prescriptionId: prescription?.id ?? null,
 
         // Validated catalog IDs and historical names.
@@ -130,16 +138,8 @@ export async function createCustomer(data: CreateCustomerInput) {
       },
     });
 
-    return tx.customer.findUniqueOrThrow({
-      where: {
-        id: customer.id,
-      },
-
-      include: {
-        prescriptions: true,
-        records: true,
-      },
-    });
+    // The transaction already returned the persisted rows; avoid reading them again.
+    return { ...customer, prescriptions: prescription ? [prescription] : [], records: [record] };
   });
 }
 
@@ -154,10 +154,12 @@ export async function updateCustomer(id: string, data: UpdateCustomerInput) {
         id,
         shopId,
         isActive: true,
+        deletedAt: null,
       },
 
       include: {
         prescriptions: {
+          where: { deletionGroupId: null, deletedAt: null },
           orderBy: {
             createdAt: "desc",
           },
@@ -165,6 +167,7 @@ export async function updateCustomer(id: string, data: UpdateCustomerInput) {
         },
 
         records: {
+          where: { deletionGroupId: null, deletedAt: null },
           orderBy: {
             createdAt: "desc",
           },
@@ -275,6 +278,8 @@ export async function updateCustomer(id: string, data: UpdateCustomerInput) {
         const latestPrescription = await tx.prescription.findFirst({
           where: {
             customerId: id,
+            deletionGroupId: null,
+            deletedAt: null,
           },
 
           orderBy: {
@@ -303,12 +308,14 @@ export async function updateCustomer(id: string, data: UpdateCustomerInput) {
 
       include: {
         prescriptions: {
+          where: { deletionGroupId: null, deletedAt: null },
           orderBy: {
             createdAt: "desc",
           },
         },
 
         records: {
+          where: { deletionGroupId: null, deletedAt: null },
           orderBy: {
             createdAt: "desc",
           },

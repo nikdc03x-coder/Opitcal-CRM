@@ -687,7 +687,12 @@ export function receiptHtml(
 ): string {
   const purchase = purchaseDetailsHtml(record);
 
-  const prescriptionSection = prescription ? prescriptionTableHtml(prescription, "03") : "";
+  const prescriptionSection =
+    prescription &&
+    prescription.id === record.prescriptionId &&
+    customer.prescriptions.some((rx) => rx.id === prescription.id)
+      ? prescriptionTableHtml(prescription, "03")
+      : "";
 
   return documentHtml("Purchase Receipt", customer, purchase + prescriptionSection);
 }
@@ -1044,7 +1049,11 @@ export function whatsappReceiptMessage(
 
   message.push(`*Total Purchase MRP: ${money(record.mrp)}*`);
 
-  if (prescription) {
+  if (
+    prescription &&
+    prescription.id === record.prescriptionId &&
+    customer.prescriptions.some((rx) => rx.id === prescription.id)
+  ) {
     message.push(...whatsappPrescriptionText(prescription));
   }
 

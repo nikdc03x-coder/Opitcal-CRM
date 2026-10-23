@@ -10,7 +10,20 @@ test("database pool is bounded, pooled, certificate verified and has finite time
   assert.equal(settings.enableChannelBinding, true);
   assert.equal(settings.connectionTimeoutMillis, 10000);
   assert.equal(settings.query_timeout, 15000);
+  assert.equal(settings.idleTimeoutMillis, 120000);
   assert.equal(new URL(settings.connectionString!).searchParams.has("sslmode"), false);
+});
+
+test("idle connection reuse remains bounded and can be configured", () => {
+  assert.equal(
+    databasePoolConfig({ DATABASE_URL: TEST_DATABASE_URL, DB_POOL_IDLE_TIMEOUT_MS: "60000" })
+      .idleTimeoutMillis,
+    60000,
+  );
+  for (const DB_POOL_IDLE_TIMEOUT_MS of ["0", "600001", "NaN", "1.5"])
+    assert.throws(() =>
+      databasePoolConfig({ DATABASE_URL: TEST_DATABASE_URL, DB_POOL_IDLE_TIMEOUT_MS }),
+    );
 });
 
 test("connection validation rejects legacy stores, non-Neon hosts, unsafe TLS and URL overrides", () => {

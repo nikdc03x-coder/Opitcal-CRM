@@ -92,12 +92,12 @@ export function DailySalesReport({
     }
   }
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2.5}>
       <Box>
-        <Typography variant="h5" sx={{ fontWeight: 750 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
           Daily Sales & Purchase Report
         </Typography>
-        <Typography color="text.secondary">
+        <Typography variant="body2" color="text.secondary">
           Every matching purchase is available through pagination. Totals cover the complete
           filtered result.
         </Typography>
@@ -116,7 +116,7 @@ export function DailySalesReport({
           label="Sort by"
           value={settings.sort}
           onChange={(event) => update({ sort: event.target.value as SalesTableSettings["sort"] })}
-          sx={{ minWidth: 180 }}
+          sx={{ minWidth: { xs: 0, sm: 180 }, width: { xs: "100%", sm: "auto" } }}
         >
           <MenuItem value="date">Purchase date</MenuItem>
           <MenuItem value="customer">Customer name</MenuItem>
@@ -128,7 +128,7 @@ export function DailySalesReport({
           label="Order"
           value={settings.direction}
           onChange={(event) => update({ direction: event.target.value as "asc" | "desc" })}
-          sx={{ minWidth: 150 }}
+          sx={{ minWidth: { xs: 0, sm: 150 }, width: { xs: "100%", sm: "auto" } }}
         >
           <MenuItem value="asc">Ascending</MenuItem>
           <MenuItem value="desc">Descending</MenuItem>
@@ -287,12 +287,12 @@ export function PeriodComparison({
   const report = useAnalyticsQuery<AnalyticsComparison>(analyticsUrl("comparison", params));
   const data = report.data;
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2.5}>
       <Box>
-        <Typography variant="h5" sx={{ fontWeight: 750 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
           Period Comparison
         </Typography>
-        <Typography color="text.secondary">
+        <Typography variant="body2" color="text.secondary">
           Compare the reporting period above with another month, year, date or custom range. Both
           inclusive ranges are shown explicitly.
         </Typography>

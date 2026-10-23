@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import {
   Box,
   Button,
-  Collapse,
   IconButton,
   Stack,
   Tab,
@@ -19,8 +18,6 @@ import LensOutlined from "@mui/icons-material/LensOutlined";
 import PeopleOutline from "@mui/icons-material/PeopleOutlineOutlined";
 import DonutSmallOutlined from "@mui/icons-material/DonutSmallOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
-import TuneOutlined from "@mui/icons-material/TuneOutlined";
-import KeyboardArrowDownOutlined from "@mui/icons-material/KeyboardArrowDownOutlined";
 import CalendarMonthOutlined from "@mui/icons-material/CalendarMonthOutlined";
 import CompareArrowsOutlined from "@mui/icons-material/CompareArrowsOutlined";
 import TableRowsOutlined from "@mui/icons-material/TableRowsOutlined";
@@ -71,7 +68,6 @@ function AnalyticsWorkspace() {
   }));
   const [explorer, setExplorer] = useState(defaultExplorer);
   const [table, setTable] = useState<SalesTableSettings>(defaultSalesTable);
-  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const filtersAvailable = !(section === "sales" && salesView === "explorer");
   const heading = useMemo(
@@ -101,28 +97,41 @@ function AnalyticsWorkspace() {
   };
 
   return (
-    <Box sx={{ width: "100%", maxWidth: 1540, mx: "auto", px: { xs: 1.5, sm: 3 }, pb: 6, minWidth: 0 }}>
+    <Box
+      sx={{ width: "100%", maxWidth: 1440, mx: "auto", px: { xs: 0, sm: 0.5 }, pb: 5, minWidth: 0 }}
+    >
       {/* A compact page header, without a giant title card. */}
       <Stack
         direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        gap={1.5}
-        sx={{ pt: { xs: 2, md: 3 }, pb: 2.5 }}
+        spacing={1.5}
+        sx={{
+          pt: { xs: 2, md: 3 },
+          pb: 2.5,
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
       >
         <Box sx={{ minWidth: 0 }}>
           <Typography
             component="h1"
-            sx={{ fontSize: { xs: "1.5rem", md: "1.9rem" }, fontWeight: 780, letterSpacing: "-0.035em" }}
+            sx={{
+              fontSize: { xs: "1.5rem", md: "1.75rem" },
+              fontWeight: 780,
+              letterSpacing: "-0.035em",
+            }}
           >
-            Analytics
+            Business analytics
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            Sales, customers and optical products in one place
+            Understand performance. Explore your customers and products.
           </Typography>
         </Box>
         <Tooltip title="Refresh report data">
-          <IconButton onClick={refresh} aria-label="Refresh analytics" sx={{ border: 1, borderColor: "divider" }}>
+          <IconButton
+            onClick={refresh}
+            aria-label="Refresh analytics"
+            sx={{ border: 1, borderColor: "divider" }}
+          >
             <RefreshOutlined />
           </IconButton>
         </Tooltip>
@@ -162,11 +171,22 @@ function AnalyticsWorkspace() {
         </Tabs>
       </Box>
 
-      <Box role="tabpanel" id={`report-panel-${section}`} aria-labelledby={`report-tab-${section}`} sx={{ minWidth: 0 }}>
+      <Box
+        role="tabpanel"
+        id={`report-panel-${section}`}
+        aria-labelledby={`report-tab-${section}`}
+        sx={{ minWidth: 0 }}
+      >
         <Stack spacing={{ xs: 2.5, md: 3 }}>
           {/* Secondary views appear only inside Sales, never on every report. */}
           {section === "sales" && (
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" aria-label="Sales views">
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              aria-label="Sales views"
+              sx={{ flexWrap: "wrap" }}
+            >
               {salesViews.map((item) => (
                 <Button
                   key={item.key}
@@ -184,40 +204,12 @@ function AnalyticsWorkspace() {
             </Stack>
           )}
 
-          {/* Filter controls stay out of the way until somebody needs them. */}
           {filtersAvailable && (
-            <Box sx={{ borderBottom: filtersOpen ? 1 : 0, borderColor: "divider", pb: filtersOpen ? 2 : 0 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
-                <Typography component="h2" variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  {heading}
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Button
-                    variant="text"
-                    color="inherit"
-                    size="small"
-                    startIcon={<TuneOutlined />}
-                    endIcon={<KeyboardArrowDownOutlined sx={{ transform: filtersOpen ? "rotate(180deg)" : "none" }} />}
-                    aria-expanded={filtersOpen}
-                    aria-controls="analytics-filter-panel"
-                    onClick={() => setFiltersOpen((previous) => !previous)}
-                    sx={{ textTransform: "none", fontWeight: 600 }}
-                  >
-                    Filters
-                  </Button>
-                </Stack>
-              </Stack>
-              <Collapse in={filtersOpen} unmountOnExit>
-                <Box id="analytics-filter-panel" sx={{ mt: 2 }}>
-                  <AnalyticsFilters value={filters} onChange={updateFilters} />
-                  <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
-                    <Button size="small" onClick={() => updateFilters(defaultAnalyticsFilters())} sx={{ textTransform: "none" }}>
-                      Reset filters
-                    </Button>
-                  </Stack>
-                </Box>
-              </Collapse>
-            </Box>
+            <AnalyticsFilters
+              value={filters}
+              onChange={updateFilters}
+              title={`${heading} · reporting period`}
+            />
           )}
 
           {/* Reports remain unchanged internally, keeping the real data and drill actions. */}

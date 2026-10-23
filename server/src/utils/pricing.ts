@@ -9,13 +9,21 @@ function toPaise(amount: number): number {
 // The frontend cannot override a split-price calculation.
 export function calculatePricing(record: RecordInput) {
   if (record.pricingMode === "SPLIT") {
-    const totalPaise = toPaise(record.frameRate) + toPaise(record.lensRate);
+    // Determine presence of frame/lens based on either catalog references or explicit rate values.
+    const hasFrameRate = record.frameRate !== null && record.frameRate !== undefined;
+    const hasLensRate = record.lensRate !== null && record.lensRate !== undefined;
+    const frame = Boolean(record.specsType?.trim() || record.frameCatalogId || hasFrameRate);
+    const lens = Boolean(record.lensType?.trim() || record.lensCatalogId || hasLensRate);
+    const frameRate = frame ? record.frameRate : null;
+    const lensRate = lens ? record.lensRate : null;
+    const unknown =
+      (!frame && !lens) || (frame && frameRate === null) || (lens && lensRate === null);
 
     return {
       pricingMode: "SPLIT" as const,
-      frameRate: record.frameRate,
-      lensRate: record.lensRate,
-      mrp: totalPaise / 100,
+      frameRate,
+      lensRate,
+      mrp: unknown ? null : (toPaise(frameRate ?? 0) + toPaise(lensRate ?? 0)) / 100,
     };
   }
 

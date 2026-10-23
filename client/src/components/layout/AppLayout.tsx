@@ -14,6 +14,7 @@ import {
   ListItemText,
   Toolbar,
   Typography,
+  Tooltip,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -22,13 +23,18 @@ import DashboardOutlined from "@mui/icons-material/DashboardOutlined";
 import PeopleOutlined from "@mui/icons-material/PeopleOutlined";
 import PersonAddAltOutlined from "@mui/icons-material/PersonAddAltOutlined";
 import MenuIcon from "@mui/icons-material/Menu";
+import ChevronLeftOutlined from "@mui/icons-material/ChevronLeftOutlined";
+import ChevronRightOutlined from "@mui/icons-material/ChevronRightOutlined";
+import CloseOutlined from "@mui/icons-material/CloseOutlined";
 import StorefrontOutlined from "@mui/icons-material/StorefrontOutlined";
 import Inventory2Outlined from "@mui/icons-material/Inventory2Outlined";
+import DeleteOutline from "@mui/icons-material/DeleteOutlined";
 
 // Icons for order tracking and business analytics.
 import LocalShippingOutlined from "@mui/icons-material/LocalShippingOutlined";
 import AnalyticsOutlined from "@mui/icons-material/AnalyticsOutlined";
 import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
+import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import { logoutAdmin } from "../../services/authApi";
 
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
@@ -37,6 +43,8 @@ const drawerWidth = 250;
 
 // Keep all workspace navigation in one place.
 const navigation = [
+  { label: "Settings", path: "/settings", icon: <SettingsOutlined /> },
+  { label: "Trash", path: "/trash", icon: <DeleteOutline /> },
   {
     label: "Dashboard",
     path: "/dashboard",
@@ -72,6 +80,8 @@ const navigation = [
 
 // Display the current page name in the top bar.
 function getPageTitle(path: string): string {
+  if (path === "/settings") return "Settings";
+  if (path === "/trash") return "Trash";
   if (path === "/dashboard") {
     return "Dashboard";
   }
@@ -127,6 +137,10 @@ export default function AppLayout() {
   const theme = useTheme();
 
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const isSmallLaptop = useMediaQuery(theme.breakpoints.between("md", "lg"));
+  const [collapsed, setCollapsed] = useState<boolean | null>(null);
+  const compact = !isMobile && (collapsed ?? isSmallLaptop);
+  const navigationWidth = compact ? 72 : drawerWidth;
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -143,12 +157,19 @@ export default function AppLayout() {
       }}
     >
       {/* CRM logo and name */}
-      <Toolbar sx={{ gap: 1.5 }}>
+      <Toolbar sx={{ gap: 1.5, px: { xs: 2 }, justifyContent: compact ? "center" : "flex-start" }}>
         <StorefrontOutlined color="primary" />
 
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>
-          Optical CRM
-        </Typography>
+        {!compact && (
+          <Typography variant="h6" sx={{ fontWeight: 700, flex: 1 }}>
+            Optical CRM
+          </Typography>
+        )}
+        {isMobile && (
+          <IconButton autoFocus aria-label="Close navigation" onClick={() => setMobileOpen(false)}>
+            <CloseOutlined />
+          </IconButton>
+        )}
       </Toolbar>
 
       <Divider />
@@ -161,6 +182,9 @@ export default function AppLayout() {
           px: 3,
           pt: 3,
           display: "block",
+          ...(compact
+            ? { px: 0, pt: 2, height: 16, overflow: "hidden", visibility: "hidden" }
+            : {}),
         }}
       >
         Workspace
@@ -169,40 +193,51 @@ export default function AppLayout() {
       {/* Workspace navigation */}
       <List sx={{ px: 1.5 }}>
         {navigation.map((item) => (
-          <ListItemButton
-            key={item.path}
-            component={NavLink}
-            to={item.path}
-            end
-            onClick={() => {
-              setMobileOpen(false);
-            }}
-            sx={{
-              borderRadius: 2,
-              mb: 0.5,
+          <Tooltip key={item.path} title={compact ? item.label : ""} placement="right" arrow>
+            <ListItemButton
+              component={NavLink}
+              to={item.path}
+              aria-label={item.label}
+              selected={
+                location.pathname === item.path ||
+                (item.path === "/customers" &&
+                  location.pathname.startsWith("/customers/") &&
+                  location.pathname !== "/customers/new")
+              }
+              end
+              onClick={() => {
+                setMobileOpen(false);
+              }}
+              sx={{
+                borderRadius: 2,
+                mb: 0.5,
+                minHeight: 44,
+                px: compact ? 1 : 2,
+                justifyContent: compact ? "center" : "flex-start",
 
-              // Highlight the currently selected page.
-              "&.active": {
-                bgcolor: "primary.main",
-                color: "white",
-
-                "& .MuiListItemIcon-root": {
+                // Highlight the currently selected page.
+                "&.active, &.Mui-selected": {
+                  bgcolor: "primary.main",
                   color: "white",
-                },
-              },
 
-              "&:hover": {
-                bgcolor: "action.hover",
-                "&.active": {
-                  bgcolor: "primary.dark",
+                  "& .MuiListItemIcon-root": {
+                    color: "white",
+                  },
                 },
-              },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
 
-            <ListItemText primary={item.label} />
-          </ListItemButton>
+                "&:hover": {
+                  bgcolor: "action.hover",
+                  "&.active, &.Mui-selected": {
+                    bgcolor: "primary.dark",
+                  },
+                },
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: compact ? 0 : 40 }}>{item.icon}</ListItemIcon>
+
+              {!compact && <ListItemText primary={item.label} />}
+            </ListItemButton>
+          </Tooltip>
         ))}
       </List>
     </Box>
@@ -212,7 +247,8 @@ export default function AppLayout() {
     <Box
       sx={{
         display: "flex",
-        minHeight: "100vh",
+        minHeight: "100dvh",
+        width: "100%",
       }}
     >
       {/* Mobile drawer; permanent sidebar on desktop. */}
@@ -226,11 +262,13 @@ export default function AppLayout() {
           keepMounted: true,
         }}
         sx={{
-          width: isMobile ? 0 : drawerWidth,
+          width: isMobile ? 0 : navigationWidth,
           flexShrink: 0,
 
           "& .MuiDrawer-paper": {
-            width: drawerWidth,
+            width: isMobile ? drawerWidth : navigationWidth,
+            maxWidth: "calc(100vw - 32px)",
+            overflowX: "hidden",
             boxSizing: "border-box",
           },
         }}
@@ -254,20 +292,40 @@ export default function AppLayout() {
             borderBottom: "1px solid #E7EBF2",
           }}
         >
-          <Toolbar sx={{ gap: 2 }}>
-            {isMobile && (
-              <IconButton
-                aria-label="Open navigation"
-                onClick={() => {
+          <Toolbar sx={{ gap: { xs: 0.75, sm: 2 }, px: { xs: 1, sm: 2 }, minWidth: 0 }}>
+            <IconButton
+              aria-label={
+                isMobile ? "Open navigation" : compact ? "Expand navigation" : "Collapse navigation"
+              }
+              aria-expanded={isMobile ? mobileOpen : !compact}
+              onClick={(e) => {
+                if (isMobile) {
+                  e.currentTarget.blur();
                   setMobileOpen(true);
-                }}
-              >
+                } else {
+                  setCollapsed(!compact);
+                }
+              }}
+            >
+              {isMobile ? (
                 <MenuIcon />
-              </IconButton>
-            )}
+              ) : compact ? (
+                <ChevronRightOutlined />
+              ) : (
+                <ChevronLeftOutlined />
+              )}
+            </IconButton>
 
             {/* Current page title */}
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            <Typography
+              variant="h6"
+              sx={{
+                flexGrow: 1,
+                minWidth: 0,
+                fontSize: { xs: "0.95rem", sm: "1.15rem" },
+                overflowWrap: "anywhere",
+              }}
+            >
               {pageTitle}
             </Typography>
 
@@ -275,6 +333,12 @@ export default function AppLayout() {
               startIcon={<LogoutOutlined />}
               disabled={signingOut}
               onClick={() => void signOut()}
+              sx={{
+                flexShrink: 0,
+                minWidth: 0,
+                px: { xs: 1, sm: 2 },
+                fontSize: { xs: "0.75rem", sm: "0.875rem" },
+              }}
             >
               {signingOut ? "Signing out..." : "Sign out"}
             </Button>
@@ -284,12 +348,15 @@ export default function AppLayout() {
         {/* React Router displays the selected page here. */}
         <Box
           component="main"
+          id="main-content"
           sx={{
-            maxWidth: 1400,
+            width: "100%",
+            minWidth: 0,
+            maxWidth: 1600,
             mx: "auto",
             p: {
-              xs: 2,
-              sm: 3,
+              xs: 1.5,
+              sm: 2.5,
               lg: 4,
             },
           }}

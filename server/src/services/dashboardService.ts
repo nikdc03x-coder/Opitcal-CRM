@@ -38,7 +38,7 @@ export async function getDashboardAnalytics() {
   const currentYear = today.getUTCFullYear();
   const defaultFirstYear = currentYear - DEFAULT_HISTORY_YEARS + 1;
   const [totalCustomers, groups, recentRecords] = await Promise.all([
-    prisma.customer.count({ where: { shopId, isActive: true } }),
+    prisma.customer.count({ where: { shopId, isActive: true, deletedAt: null } }),
     prisma.$queryRaw<Aggregate[]>`
       SELECT EXTRACT(YEAR FROM r."purchaseDate")::int AS year,
              EXTRACT(MONTH FROM r."purchaseDate")::int AS month,
@@ -51,11 +51,15 @@ export async function getDashboardAnalytics() {
              COUNT(*)::bigint AS purchases, SUM(r.mrp) AS value
       FROM "CustomerRecord" AS r
       JOIN "Customer" AS c ON c.id = r."customerId"
-      WHERE c."shopId" = ${shopId} AND r."purchaseDate" <= ${today}
+      WHERE c."shopId" = ${shopId} AND c."isActive" = TRUE AND c."deletedAt" IS NULL AND r."deletionGroupId" IS NULL AND r."deletedAt" IS NULL AND r."purchaseDate" <= ${today}
       GROUP BY 1, 2, 3 ORDER BY 1, 2
     `,
     prisma.customerRecord.findMany({
-      where: { customer: { shopId } },
+      where: {
+        deletionGroupId: null,
+        deletedAt: null,
+        customer: { shopId, isActive: true, deletedAt: null },
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 5,
       select: {

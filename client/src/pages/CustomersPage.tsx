@@ -27,6 +27,7 @@ import {
   IconButton,
   InputAdornment,
   List,
+  ListItem,
   ListItemAvatar,
   ListItemButton,
   ListItemText,
@@ -44,11 +45,13 @@ import CloseOutlined from "@mui/icons-material/CloseOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
 import PeopleOutlineOutlined from "@mui/icons-material/PeopleOutlineOutlined";
 import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
+import AddOutlined from "@mui/icons-material/AddOutlined";
 
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 
 import { searchCustomers } from "../services/customerApi";
 import { type CustomerSummary } from "../models/customer";
+import { customerDetailsUrl } from "../utils/customerHistory";
 
 // Display customer registration dates consistently.
 function formatDate(value: string): string {
@@ -112,6 +115,7 @@ function CustomerListSkeleton() {
 }
 
 export default function CustomersPage() {
+  const location = useLocation();
   const [params, setParams] = useSearchParams();
 
   // The URL remembers the last customer search.
@@ -179,16 +183,12 @@ export default function CustomersPage() {
     setRetryCount((previous) => previous + 1);
   }
 
-  // Preserve the search when opening a customer.
-  function customerUrl(customerId: string): string {
-    const query = search ? `?search=${encodeURIComponent(search)}` : "";
-
-    return `/customers/${customerId}${query}`;
-  }
-
   return (
     <Box sx={{ maxWidth: 1180, mx: "auto", pb: 5 }}>
       <Stack spacing={2.5}>
+        {location.state?.success && (
+          <Alert severity="success">{String(location.state.success)}</Alert>
+        )}
         {/* PAGE HEADER */}
 
         <Stack
@@ -452,95 +452,110 @@ export default function CustomersPage() {
 
             <List disablePadding>
               {customers.map((customer, index) => (
-                <ListItemButton
+                <ListItem
                   key={customer.id}
-                  component={Link}
-                  to={customerUrl(customer.id)}
+                  disablePadding
                   divider={index !== customers.length - 1}
-                  sx={{
-                    px: { xs: 2, sm: 3 },
-                    py: 1.75,
-                    alignItems: "center",
-                    gap: 1,
-                    transition: "background-color 0.15s",
-                    "&:hover": {
-                      bgcolor: "action.hover",
-                    },
-                    "&:focus-visible": {
-                      outline: "2px solid",
-                      outlineColor: "primary.main",
-                      outlineOffset: -2,
-                    },
-                  }}
+                  sx={{ flexWrap: { xs: "wrap", sm: "nowrap" } }}
                 >
-                  {/* CUSTOMER INITIALS */}
+                  <ListItemButton
+                    component={Link}
+                    to={customerDetailsUrl(customer.id, search)}
+                    sx={{
+                      px: { xs: 2, sm: 3 },
+                      py: 1.75,
+                      alignItems: "center",
+                      gap: 1,
+                      transition: "background-color 0.15s",
+                      "&:hover": {
+                        bgcolor: "action.hover",
+                      },
+                      "&:focus-visible": {
+                        outline: "2px solid",
+                        outlineColor: "primary.main",
+                        outlineOffset: -2,
+                      },
+                    }}
+                  >
+                    {/* CUSTOMER INITIALS */}
 
-                  <ListItemAvatar sx={{ minWidth: 54 }}>
-                    <Avatar
-                      sx={{
-                        width: 42,
-                        height: 42,
-                        bgcolor: "action.selected",
-                        color: "primary.main",
-                        fontWeight: 700,
-                        fontSize: "0.9rem",
-                      }}
-                    >
-                      {getInitials(customer.name)}
-                    </Avatar>
-                  </ListItemAvatar>
-
-                  {/* CUSTOMER DETAILS */}
-
-                  <ListItemText
-                    sx={{ minWidth: 0 }}
-                    primary={
-                      <Typography
-                        variant="subtitle1"
+                    <ListItemAvatar sx={{ minWidth: 54 }}>
+                      <Avatar
                         sx={{
+                          width: 42,
+                          height: 42,
+                          bgcolor: "action.selected",
+                          color: "primary.main",
                           fontWeight: 700,
-                          overflowWrap: "anywhere",
+                          fontSize: "0.9rem",
                         }}
                       >
-                        {customer.name}
-                      </Typography>
-                    }
-                    secondary={
-                      <Stack
-                        direction="row"
+                        {getInitials(customer.name)}
+                      </Avatar>
+                    </ListItemAvatar>
 
-                        sx={{
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                          columnGap: 1.5,
-                          rowGap: 0.5,
-                          mt: 0.5,
-                        }}
-                      >
+                    {/* CUSTOMER DETAILS */}
+
+                    <ListItemText
+                      disableTypography
+                      sx={{ minWidth: 0 }}
+                      primary={
+                        <Typography
+                          variant="subtitle1"
+                          sx={{
+                            fontWeight: 700,
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {customer.name}
+                        </Typography>
+                      }
+                      secondary={
                         <Stack
                           direction="row"
 
-                          spacing={0.5}
-                          sx={{ alignItems: "center" }}
+                          sx={{
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            columnGap: 1.5,
+                            rowGap: 0.5,
+                            mt: 0.5,
+                          }}
                         >
-                          <PhoneOutlined sx={{ fontSize: 15 }} />
+                          <Stack
+                            direction="row"
 
-                          <Typography variant="body2" color="text.secondary">
-                            {customer.mobNumber || "No mobile number"}
+                            spacing={0.5}
+                            sx={{ alignItems: "center" }}
+                          >
+                            <PhoneOutlined sx={{ fontSize: 15 }} />
+
+                            <Typography variant="body2" color="text.secondary">
+                              {customer.mobNumber || "No mobile number"}
+                            </Typography>
+                          </Stack>
+
+                          <Typography variant="caption" color="text.secondary">
+                            Added {formatDate(customer.createdAt)}
                           </Typography>
                         </Stack>
+                      }
+                    />
 
-                        <Typography variant="caption" color="text.secondary">
-                          Added {formatDate(customer.createdAt)}
-                        </Typography>
-                      </Stack>
-                    }
-                  />
+                    {/* OPEN CUSTOMER */}
 
-                  {/* OPEN CUSTOMER */}
-
-                  <ArrowForwardOutlined color="action" fontSize="small" />
-                </ListItemButton>
+                    <ArrowForwardOutlined color="action" fontSize="small" />
+                  </ListItemButton>
+                  <Button
+                    component={Link}
+                    to={customerDetailsUrl(customer.id, search, true)}
+                    startIcon={<AddOutlined />}
+                    aria-label={`New Purchase for ${customer.name}`}
+                    sx={{ flexShrink: 0, mx: 2, mb: { xs: 1, sm: 0 } }}
+                  >
+                    New Purchase
+                  </Button>
+                </ListItem>
               ))}
             </List>
           )}

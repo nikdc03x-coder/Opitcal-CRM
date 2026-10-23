@@ -37,6 +37,7 @@ import PersonOutlined from "@mui/icons-material/PersonOutlined";
 import { Autocomplete, createFilterOptions } from "@mui/material";
 import { getFrames, getLenses } from "../services/catalogApi";
 import { CUSTOMER_AGE_ERROR, parseCustomerAge } from "../utils/customerAge";
+import { sortPurchases, sortPrescriptions } from "../utils/customerHistory";
 import { type FrameProduct, type LensProduct } from "../models/catalog";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import {
@@ -252,6 +253,11 @@ export default function EditCustomerPage() {
   const detailsUrl = id ? `/customers/${id}${query}` : "/customers";
   // Populate all form sections from one API response.
   function loadIntoForms(data: CustomerDetails) {
+    data = {
+      ...data,
+      records: sortPurchases(data.records),
+      prescriptions: sortPrescriptions(data.prescriptions),
+    };
     setCustomer(data);
     setPersonal(personalFrom(data));
     const firstRecord = data.records[0];
@@ -372,10 +378,8 @@ export default function EditCustomerPage() {
     setError("");
     setMessage("");
   }
-  // Refresh saved values while keeping the selected records.
-  async function refreshRecords() {
-    if (!id) return;
-    const data = await getCustomer(id);
+  // Use persisted mutation responses while keeping the selected records.
+  function applySavedRecords(data: CustomerDetails) {
     setCustomer(data);
     const selectedRecord = data.records.find((r) => r.id === recordId);
     const selectedPrescription = data.prescriptions.find((p) => p.id === prescriptionId);
@@ -412,8 +416,8 @@ export default function EditCustomerPage() {
       setSaving("personal");
       setError("");
       setMessage("");
-      await updateCustomer(id, changes);
-      await refreshRecords();
+      const saved = await updateCustomer(id, changes);
+      applySavedRecords(saved);
       setMessage("Customer information saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
@@ -422,14 +426,17 @@ export default function EditCustomerPage() {
     }
   }
   async function savePrescription() {
-    if (!id || !prescriptionId || !prescription) return;
+    if (!id || !prescriptionId || !prescription || !customer) return;
     try {
       const changes = buildPrescription(prescription);
       setSaving("prescription");
       setError("");
       setMessage("");
-      await updatePrescription(id, prescriptionId, changes);
-      await refreshRecords();
+      const saved = await updatePrescription(id, prescriptionId, changes);
+      applySavedRecords({
+        ...customer,
+        prescriptions: customer.prescriptions.map((rx) => (rx.id === saved.id ? saved : rx)),
+      });
       setMessage("Selected prescription saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
@@ -438,11 +445,13 @@ export default function EditCustomerPage() {
     }
   }
   async function savePurchase() {
-    if (!id || !recordId || !purchase) return;
+    if (!id || !recordId || !purchase || !customer) return;
     const date = purchase.purchaseDate.trim();
     if (
       date &&
-      (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`)))
+      (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        Number.isNaN(Date.parse(`${date}T00:00:00Z`)) ||
+        new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)
     ) {
       setError("Enter a valid purchase date.");
       return;
@@ -490,11 +499,14 @@ export default function EditCustomerPage() {
       setSaving("purchase");
       setError("");
       setMessage("");
-      await updatePurchase(id, recordId, {
+      const saved = await updatePurchase(id, recordId, {
         record,
         purchaseDate: date || null,
       });
-      await refreshRecords();
+      applySavedRecords({
+        ...customer,
+        records: customer.records.map((row) => (row.id === saved.id ? saved : row)),
+      });
       setMessage("Selected purchase saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");

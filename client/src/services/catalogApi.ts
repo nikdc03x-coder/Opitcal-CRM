@@ -18,6 +18,14 @@ import { apiFetch } from "./http";
 
 const BASE_URL = "/api/catalog";
 
+export function deleteFrame(id: string): Promise<{ id: string }> {
+  return request(`/frames/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function deleteLens(id: string): Promise<{ id: string }> {
+  return request(`/lenses/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 type ApiResult<T> = {
   success: boolean;
   message?: string;

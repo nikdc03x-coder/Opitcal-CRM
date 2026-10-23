@@ -49,23 +49,37 @@ export default function AnalyticsFilters({
         inputLabel: { shrink: true },
         htmlInput: type === "number" ? { min: 1, max: 9999, step: 1 } : {},
       }}
-      sx={{ minWidth: 160, flexGrow: { xs: 1, sm: 0 } }}
+      sx={{
+        minWidth: { xs: 0, sm: 160 },
+        width: { xs: "100%", sm: "auto" },
+        flexGrow: { xs: 1, sm: 0 },
+      }}
     />
   );
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Stack spacing={2}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-            <Typography variant="subtitle2" sx={{ flex: 1 }}>
+    <Card variant="outlined" sx={{ borderRadius: 2.5 }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+        <Stack spacing={1.5}>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            sx={{ alignItems: { sm: "center" }, flexWrap: "wrap" }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ flex: 1, fontWeight: 650, color: "text.secondary" }}
+            >
               {title}
             </Typography>
-            <Chip size="small" variant="outlined" label="India calendar · inclusive dates" />
+            <Typography variant="caption" color="text.secondary">
+              India calendar · inclusive dates
+            </Typography>
           </Stack>
           <Stack
             direction={{ xs: "column", sm: "row" }}
-            spacing={2}
-            sx={{ flexWrap: "wrap", gap: 1 }}
+            spacing={1.5}
+            useFlexGap
+            sx={{ flexWrap: "wrap", alignItems: { sm: "center" } }}
           >
             <TextField
               select
@@ -73,7 +87,7 @@ export default function AnalyticsFilters({
               label="Period"
               value={value.period}
               onChange={(event) => set("period", event.target.value)}
-              sx={{ minWidth: 210 }}
+              sx={{ minWidth: { xs: 0, sm: 210 }, width: { xs: "100%", sm: "auto" } }}
             >
               {periodOptions.map(([key, label]) => (
                 <MenuItem key={key} value={key}>
@@ -92,6 +106,8 @@ export default function AnalyticsFilters({
             {value.period === "selectedYear" && input("year", "Year", "number")}
             {reset && (
               <Button
+                size="small"
+                color="inherit"
                 startIcon={<RestartAltOutlined />}
                 onClick={() => onChange(defaultAnalyticsFilters())}
               >
@@ -130,7 +146,7 @@ export default function AnalyticsFilters({
                 .map((key) => (
                   <Chip
                     key={key}
-                    label={`${key}: ${value[key]}`}
+                    label={`${({ brand: "Brand", style: "Frame style", model: "Model", company: "Lens company", vision: "Vision type", lensName: "Lens name", coating: "Coating", frame: "Frame", lens: "Lens", mix: "Purchase type" } as const)[key]}: ${value[key]}`}
                     sx={{ maxWidth: "100%" }}
                     onDelete={() => onChange({ ...value, [key]: undefined })}
                   />

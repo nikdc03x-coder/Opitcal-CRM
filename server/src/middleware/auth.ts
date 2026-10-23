@@ -16,7 +16,20 @@ export function validOrigin(req: Request): boolean {
     return true;
   }
 
-  return req.headers.origin === clientOrigin();
+  const configured = clientOrigin();
+  if (req.headers.origin === configured) {
+    return true;
+  }
+
+  if (
+    process.env.NODE_ENV !== "production" &&
+    req.headers.origin &&
+    /^http:\/\/(localhost|127\.0\.0\.1):517[3-9]$/.test(req.headers.origin)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export const requireTrustedOrigin: RequestHandler = (req, _res, next) => {
@@ -53,6 +66,8 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
     }
 
     setReadProof(res, token, admin.expiresAt);
+    res.locals.adminId = admin.id;
+    res.locals.adminRole = admin.role;
     next();
   } catch (error) {
     next(error);

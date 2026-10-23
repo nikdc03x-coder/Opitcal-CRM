@@ -70,7 +70,7 @@ export async function getAnalyticsOverview(query: AnalyticsQuery): Promise<Analy
   const [summary, activeCustomers, points, mix, frames, lenses, previousSummary] =
     await Promise.all([
       summaryFor(cte),
-      prisma.customer.count({ where: { shopId, isActive: true } }),
+      prisma.customer.count({ where: { shopId, isActive: true, deletedAt: null } }),
       trend(cte, period),
       ranking(cte, "mix", 4),
       ranking(cte, "frame", 5, "frames"),
@@ -231,7 +231,7 @@ function distribution(
 
 export async function getAnalyticsCustomers(query: AnalyticsQuery): Promise<AnalyticsCustomers> {
   const { shopId, period, cte } = await context(query);
-  const registeredWhere = Prisma.sql`"shopId" = ${shopId}`;
+  const registeredWhere = Prisma.sql`"isActive" = TRUE AND "deletedAt" IS NULL AND "shopId" = ${shopId}`;
   const registrationDate = Prisma.sql`("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date`;
   const [
     summary,
@@ -365,7 +365,7 @@ export async function getAnalyticsHistorical(): Promise<AnalyticsHistorical> {
     today = shopToday(),
     currentYear = today.getUTCFullYear();
   const [totalCustomers, groups, recent] = await Promise.all([
-    prisma.customer.count({ where: { shopId, isActive: true } }),
+    prisma.customer.count({ where: { shopId, isActive: true, deletedAt: null } }),
     prisma.$queryRaw<
       {
         year: number;
@@ -384,10 +384,14 @@ export async function getAnalyticsHistorical(): Promise<AnalyticsHistorical> {
           (MAKE_DATE(EXTRACT(YEAR FROM r."purchaseDate")::int, ${today.getUTCMonth() + 1}, 1)
            + (LEAST(${today.getUTCDate()}, EXTRACT(DAY FROM (MAKE_DATE(EXTRACT(YEAR FROM r."purchaseDate")::int, ${today.getUTCMonth() + 1}, 1) + INTERVAL '1 month - 1 day'))::int) - 1))), 0)::text AS "elapsedValue"
       FROM "CustomerRecord" r JOIN "Customer" c ON c.id = r."customerId"
-      WHERE c."shopId" = ${shopId} AND r."purchaseDate" <= ${today} GROUP BY 1, 2, 3 ORDER BY 1, 2
+      WHERE c."shopId" = ${shopId} AND c."isActive" = TRUE AND c."deletedAt" IS NULL AND r."deletionGroupId" IS NULL AND r."deletedAt" IS NULL AND r."purchaseDate" <= ${today} GROUP BY 1, 2, 3 ORDER BY 1, 2
     `,
     prisma.customerRecord.findMany({
-      where: { customer: { shopId } },
+      where: {
+        deletionGroupId: null,
+        deletedAt: null,
+        customer: { shopId, isActive: true, deletedAt: null },
+      },
       take: 5,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
@@ -447,7 +451,7 @@ export async function getAnalyticsHistorical(): Promise<AnalyticsHistorical> {
       customerName: row.customer.name,
       frame: row.specsType,
       lens: row.lensType,
-      value: row.mrp.toString(),
+      value: row.mrp ? row.mrp.toString() : "—",
       purchaseDate: row.purchaseDate?.toISOString().slice(0, 10) ?? null,
     })),
   };

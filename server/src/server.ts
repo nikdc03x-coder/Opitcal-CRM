@@ -3,6 +3,7 @@ import app from "./app";
 import { prisma } from "./config/database";
 import { sessionSecret } from "./config/authConfig";
 import { logError } from "./utils/logError";
+import { getShopId } from "./services/shopService";
 
 // Read the port from the environment.
 const PORT = Number(process.env.PORT ?? 5000);
@@ -14,6 +15,9 @@ sessionSecret();
 const server = app.listen(PORT, () => {
   console.log(`Optical CRM API running on port ${PORT}`);
   console.log(`Health: http://localhost:${PORT}/api/health`);
+  // Warm one connection and the shop ID once, without blocking health checks.
+  // No periodic keep-awake queries or cached authentication are introduced.
+  void getShopId().catch((error) => logError("Database startup warm-up failed", error));
 });
 
 let stopping = false;

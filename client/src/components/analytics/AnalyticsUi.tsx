@@ -46,6 +46,18 @@ import {
 } from "../../utils/analytics";
 import { useAnalyticsRefresh } from "./reportStore";
 
+import { chartTooltipStyle } from "./chartStyles";
+function chartDate(value: string) {
+  if (!/^\d{4}-\d{2}(-\d{2})?$/.test(value)) return value;
+  const date = new Date(`${value.length === 7 ? `${value}-01` : value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-IN", {
+    month: "short",
+    ...(value.length === 10 ? { day: "numeric" as const } : { year: "2-digit" as const }),
+    timeZone: "UTC",
+  });
+}
+
 export function ReportState({ loading, error }: { loading: boolean; error?: string }) {
   const retry = useAnalyticsRefresh();
   if (error)
@@ -82,28 +94,34 @@ export function Kpi({
   value,
   detail,
   icon,
+  featured = false,
 }: {
   label: string;
   value: string;
   detail?: string;
   icon?: ReactNode;
+  featured?: boolean;
 }) {
   return (
     <Card
       variant="outlined"
       sx={{
-        borderRadius: 3,
+        borderRadius: 2.5,
         height: "100%",
-        borderTop: "3px solid",
-        borderTopColor: "primary.main",
+        bgcolor: featured ? "#EFF5FF" : "background.paper",
+        borderColor: featured ? "#C9DAFA" : "divider",
       }}
     >
-      <CardContent>
+      <CardContent sx={{ p: 2.25, "&:last-child": { pb: 2.25 } }}>
         <Stack
           direction="row"
           sx={{ justifyContent: "space-between", alignItems: "center", gap: 1 }}
         >
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ fontSize: "0.78rem", fontWeight: 600 }}
+          >
             {label}
           </Typography>
           {icon}
@@ -111,8 +129,12 @@ export function Kpi({
         <Typography
           variant="h5"
           sx={{
-            fontWeight: 800,
-            my: 1,
+            fontWeight: 750,
+            color: featured ? "primary.dark" : "text.primary",
+            fontSize: { xs: "1.45rem", md: "1.7rem" },
+            letterSpacing: "-0.035em",
+            mt: 1,
+            mb: 0.5,
             overflowWrap: "anywhere",
             fontVariantNumeric: "tabular-nums",
           }}
@@ -136,10 +158,14 @@ export function SummaryCards({
   activeCustomers?: number;
 }) {
   const cards = [
-    ["Recorded Purchase Value", analyticsMoney(summary.value), "Sum of saved purchase MRP"],
-    ["Total Purchases", analyticsCount(summary.purchases), "Matching purchase records"],
-    ["Distinct Purchasing Customers", analyticsCount(summary.customers), "Unique customer IDs"],
-    ["Average Purchase Value", analyticsMoney(summary.average), "Value divided by purchases"],
+    ["Purchase value", analyticsMoney(summary.value), "Recorded MRP · selected period"],
+    ["Purchases", analyticsCount(summary.purchases), "Purchase records · selected period"],
+    [
+      "Purchasing customers",
+      analyticsCount(summary.customers),
+      "Unique customers · selected period",
+    ],
+    ["Average purchase", analyticsMoney(summary.average), "Per matching purchase"],
   ];
   if (activeCustomers !== undefined)
     cards.push([
@@ -149,9 +175,9 @@ export function SummaryCards({
     ]);
   return (
     <Grid container spacing={2}>
-      {cards.map(([label, value, detail]) => (
+      {cards.map(([label, value, detail], index) => (
         <Grid key={label} size={{ xs: 12, sm: 6, lg: activeCustomers === undefined ? 3 : 2.4 }}>
-          <Kpi label={label} value={value} detail={detail} />
+          <Kpi label={label} value={value} detail={detail} featured={index === 0} />
         </Grid>
       ))}
     </Grid>
@@ -165,31 +191,61 @@ export function ReportNote({
   summary: AnalyticsSummary;
 }) {
   return (
-    <Alert severity="info" variant="outlined">
-      {period.label}. Recorded MRP is purchase value, not payment collection or profit.{" "}
-      {period.from
-        ? "Undated purchases are excluded."
-        : `${analyticsCount(summary.undated)} undated purchases are included in totals and excluded from time charts.`}
-    </Alert>
+    <Box
+      sx={{
+        display: "flex",
+        flexWrap: "wrap",
+        columnGap: 1.5,
+        rowGap: 0.25,
+        color: "text.secondary",
+      }}
+    >
+      <Typography variant="caption" sx={{ fontWeight: 650 }}>
+        {period.label}
+      </Typography>
+      <Typography variant="caption">
+        Purchase value uses recorded MRP, not payments or profit.{" "}
+        {period.from
+          ? "Undated purchases are excluded."
+          : `${analyticsCount(summary.undated)} undated purchases are included in totals and excluded from time charts.`}
+      </Typography>
+    </Box>
   );
 }
 export function ChartCard({
   title,
   detail,
   children,
+  action,
 }: {
   title: string;
   detail?: string;
   children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3, minWidth: 0 }}>
-      <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-        <Typography variant="h6" sx={{ fontWeight: 750 }}>
-          {title}
-        </Typography>
+    <Card variant="outlined" sx={{ borderRadius: 2.5, minWidth: 0, height: "100%" }}>
+      <CardContent sx={{ p: { xs: 2, md: 2.5 }, "&:last-child": { pb: { xs: 2, md: 2.5 } } }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1.5}
+          sx={{ justifyContent: "space-between", alignItems: { sm: "center" }, mb: detail ? 0 : 2 }}
+        >
+          <Typography
+            component="h3"
+            variant="subtitle1"
+            sx={{ fontWeight: 700, letterSpacing: "-0.015em" }}
+          >
+            {title}
+          </Typography>
+          {action}
+        </Stack>
         {detail && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ fontSize: "0.78rem", mt: 0.5, mb: 2 }}
+          >
             {detail}
           </Typography>
         )}
@@ -209,7 +265,7 @@ export function TrendChart({
 }) {
   if (!points.length) return <Alert severity="info">No dated purchases match these filters.</Alert>;
   return (
-    <Box sx={{ height: 300, width: "100%", minWidth: 0 }}>
+    <Box sx={{ height: { xs: 245, md: 285 }, width: "100%", minWidth: 0 }}>
       <ResponsiveContainer>
         <LineChart
           data={points.map((point) => ({ ...point, amount: Number(point[metric]) }))}
@@ -220,10 +276,21 @@ export function TrendChart({
               onDrill(points[index].from, points[index].to);
           }}
         >
-          <CartesianGrid vertical={false} strokeDasharray="3 3" />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={35} />
+          <CartesianGrid vertical={false} stroke="#E7EDF5" strokeDasharray="3 4" />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11, fill: "#64748B" }}
+            minTickGap={35}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={chartDate}
+          />
           <YAxis
             width={75}
+            axisLine={false}
+            tickLine={false}
+            tick={{ fontSize: 11, fill: "#64748B" }}
+            allowDecimals={metric === "value"}
             tickFormatter={(value) =>
               metric === "value"
                 ? `₹${new Intl.NumberFormat("en-IN", { notation: "compact" }).format(value)}`
@@ -231,6 +298,8 @@ export function TrendChart({
             }
           />
           <Tooltip
+            contentStyle={chartTooltipStyle}
+            labelFormatter={(label) => chartDate(String(label))}
             formatter={(_, __, item) =>
               metric === "value"
                 ? analyticsMoney(item.payload?.value)
@@ -250,8 +319,8 @@ export function TrendChart({
             dataKey="amount"
             stroke={analyticsColors[0]}
             strokeWidth={3}
-            dot={{ r: 3 }}
-            activeDot={{ r: 6 }}
+            dot={points.length < 20 ? { r: 3, strokeWidth: 2, fill: "white" } : false}
+            activeDot={{ r: 5 }}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -281,7 +350,14 @@ export function Ranking({
         </TableHead>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={row.name} hover>
+            <TableRow
+              key={row.name}
+              hover
+              sx={{
+                "&:last-child td": { borderBottom: 0 },
+                "& td": { py: 1.1, fontVariantNumeric: "tabular-nums" },
+              }}
+            >
               <TableCell sx={{ maxWidth: 300, overflowWrap: "anywhere" }}>
                 {onDrill ? (
                   <Button
@@ -307,39 +383,91 @@ export function Ranking({
 export function DistributionChart({
   rows,
   onDrill,
+  countLabel = "purchases",
 }: {
   rows: AnalyticsRank[];
   onDrill?: (row: AnalyticsRank) => void;
+  countLabel?: string;
 }) {
   if (!rows.some((row) => row.purchases))
-    return <Alert severity="info">No matching purchases.</Alert>;
+    return <Alert severity="info">No matching {countLabel}.</Alert>;
   return (
-    <Box sx={{ height: 300, minWidth: 0 }}>
-      <ResponsiveContainer>
-        <PieChart>
-          <Pie
-            isAnimationActive={false}
-            data={rows}
-            dataKey="purchases"
-            nameKey="name"
-            innerRadius="45%"
-            outerRadius="70%"
-            paddingAngle={3}
-            onClick={(_, index) => onDrill?.(rows[index])}
+    <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ height: 195 }}>
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie
+              isAnimationActive={false}
+              data={rows}
+              dataKey="purchases"
+              nameKey="name"
+              innerRadius="60%"
+              outerRadius="88%"
+              paddingAngle={2}
+              onClick={(_, index) => onDrill?.(rows[index])}
+            >
+              {rows.map((row) => (
+                <Cell key={row.name} fill={categoryColor(row.name)} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={chartTooltipStyle}
+              formatter={(value, name) => [
+                `${analyticsCount(Number(value))} ${countLabel} (${rows.find((row) => row.name === name)?.share.toFixed(1) ?? "0"}%)`,
+                name,
+              ]}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </Box>
+      <Stack spacing={0.5} sx={{ mt: 1 }}>
+        {rows.map((row) => (
+          <Box
+            key={row.name}
+            component={onDrill ? "button" : "div"}
+            aria-label={`${row.name}: ${analyticsCount(row.purchases)} ${countLabel}, ${row.share.toFixed(1)}%`}
+            onClick={onDrill ? () => onDrill(row) : undefined}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              width: "100%",
+              p: 0.75,
+              border: 0,
+              borderRadius: 1,
+              bgcolor: "transparent",
+              textAlign: "left",
+              color: "text.primary",
+              font: "inherit",
+              cursor: onDrill ? "pointer" : "default",
+              "&:hover": { bgcolor: onDrill ? "action.hover" : "transparent" },
+              "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main" },
+            }}
           >
-            {rows.map((row) => (
-              <Cell key={row.name} fill={categoryColor(row.name)} />
-            ))}
-          </Pie>
-          <Tooltip
-            formatter={(value, name) => [
-              `${analyticsCount(Number(value))} (${rows.find((row) => row.name === name)?.share.toFixed(1) ?? "0"}%)`,
-              name,
-            ]}
-          />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-        </PieChart>
-      </ResponsiveContainer>
+            <Box
+              sx={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                bgcolor: categoryColor(row.name),
+                flexShrink: 0,
+              }}
+            />
+            <Typography variant="caption" sx={{ flex: 1 }}>
+              {row.name}
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+            >
+              {analyticsCount(row.purchases)}{" "}
+              <Box component="span" sx={{ color: "text.secondary", fontWeight: 400 }}>
+                · {row.share.toFixed(1)}%
+              </Box>
+            </Typography>
+          </Box>
+        ))}
+      </Stack>
     </Box>
   );
 }
@@ -355,10 +483,21 @@ export function CountBars({
     <Box sx={{ height: 300, minWidth: 0 }}>
       <ResponsiveContainer>
         <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={30} />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
+          <CartesianGrid vertical={false} stroke="#E7EDF5" strokeDasharray="3 4" />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11 }}
+            minTickGap={30}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={chartDate}
+          />
+          <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+          <Tooltip
+            contentStyle={chartTooltipStyle}
+            labelFormatter={(label) => chartDate(String(label))}
+            formatter={(value) => analyticsCount(Number(value))}
+          />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {series.map((item, index) => (
             <Bar
@@ -366,7 +505,11 @@ export function CountBars({
               key={item.key}
               name={item.label}
               dataKey={item.key}
-              fill={analyticsColors[index % analyticsColors.length]}
+              fill={
+                ["Frame Only", "Lens Only", "Frame + Lens", "Unclassified"].includes(item.label)
+                  ? categoryColor(item.label)
+                  : analyticsColors[index % analyticsColors.length]
+              }
               radius={[4, 4, 0, 0]}
             />
           ))}

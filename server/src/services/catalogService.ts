@@ -9,6 +9,20 @@ import type {
   LensUpdateInput,
 } from "../validators/catalogValidator";
 
+// Match one catalog ID within the current shop. Purchase snapshots are retained;
+// the existing optional catalog relations use ON DELETE SET NULL.
+export async function deleteFrame(id: string) {
+  const shopId = await getShopId();
+  const result = await prisma.frameCatalog.deleteMany({ where: { id, shopId } });
+  return result.count === 1;
+}
+
+export async function deleteLens(id: string) {
+  const shopId = await getShopId();
+  const result = await prisma.lensCatalog.deleteMany({ where: { id, shopId } });
+  return result.count === 1;
+}
+
 // FRAME CATALOG
 
 export async function listFrames(filters: CatalogListInput) {
@@ -55,16 +69,12 @@ export async function updateFrame(id: string, input: FrameUpdateInput) {
   const shopId = await getShopId();
 
   // Update only a frame that belongs to this shop.
-  const result = await prisma.frameCatalog.updateMany({
+  const result = await prisma.frameCatalog.updateManyAndReturn({
     where: { id, shopId },
     data: input,
   });
 
-  if (result.count === 0) return null;
-
-  return prisma.frameCatalog.findFirst({
-    where: { id, shopId },
-  });
+  return result[0] ?? null;
 }
 
 // LENS CATALOG
@@ -114,14 +124,10 @@ export async function createLens(input: LensCreateInput) {
 export async function updateLens(id: string, input: LensUpdateInput) {
   const shopId = await getShopId();
 
-  const result = await prisma.lensCatalog.updateMany({
+  const result = await prisma.lensCatalog.updateManyAndReturn({
     where: { id, shopId },
     data: input,
   });
 
-  if (result.count === 0) return null;
-
-  return prisma.lensCatalog.findFirst({
-    where: { id, shopId },
-  });
+  return result[0] ?? null;
 }

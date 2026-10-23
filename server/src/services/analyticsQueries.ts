@@ -55,7 +55,7 @@ export function analyticsCte(shopId: string, period: AnalyticsPeriod, query: Ana
       FROM "CustomerRecord" r JOIN "Customer" c ON c.id = r."customerId"
       LEFT JOIN "FrameCatalog" f ON f.id = r."frameCatalogId" AND f."shopId" = c."shopId"
       LEFT JOIN "LensCatalog" l ON l.id = r."lensCatalogId" AND l."shopId" = c."shopId"
-      WHERE c."shopId" = ${shopId}
+      WHERE c."shopId" = ${shopId} AND c."isActive" = TRUE AND c."deletedAt" IS NULL AND r."deletionGroupId" IS NULL AND r."deletedAt" IS NULL
     ), classified AS (
       SELECT *, ${purchaseMixSql} AS mix FROM purchases
     ), filtered AS (SELECT * FROM classified WHERE ${Prisma.join(filters, " AND ")})

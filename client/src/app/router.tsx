@@ -1,27 +1,55 @@
 import { createBrowserRouter, Navigate } from "react-router";
 
 import AppLayout from "../components/layout/AppLayout";
+import AppLoadingFallback from "../components/layout/AppLoadingFallback";
 import RequireAdmin from "./RequireAdmin";
 
 // Load pages only when they are visited.
 // This keeps the initial application loading faster.
 export const router = createBrowserRouter([
   {
-    path: "/login",
-    lazy: async () => ({
-      Component: (await import("../pages/LoginPage")).default,
-    }),
+    path: "/forgot-password",
+    HydrateFallback: AppLoadingFallback,
+    lazy: async () => ({ Component: (await import("../pages/PasswordRecoveryPage")).default }),
+  },
+  {
+    path: "/reset-password",
+    HydrateFallback: AppLoadingFallback,
+    lazy: async () => {
+      const Page = (await import("../pages/PasswordRecoveryPage")).default;
+      return { Component: () => <Page reset /> };
+    },
+  },
+  {
+    element: <RequireAdmin key="guest" guestOnly />,
+    HydrateFallback: AppLoadingFallback,
+    children: [
+      {
+        path: "/login",
+        HydrateFallback: AppLoadingFallback,
+        lazy: async () => ({ Component: (await import("../pages/LoginPage")).default }),
+      },
+    ],
   },
 
   {
     path: "/",
-    element: <RequireAdmin />,
+    element: <RequireAdmin key="private" />,
+    HydrateFallback: AppLoadingFallback,
 
     children: [
       {
         element: <AppLayout />,
 
         children: [
+          {
+            path: "settings",
+            lazy: async () => ({ Component: (await import("../pages/SettingsPage")).default }),
+          },
+          {
+            path: "trash",
+            lazy: async () => ({ Component: (await import("../pages/TrashPage")).default }),
+          },
           // Open the dashboard by default.
           {
             index: true,

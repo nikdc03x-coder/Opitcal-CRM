@@ -12,7 +12,6 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   Card,
@@ -21,15 +20,12 @@ import {
   CircularProgress,
   Divider,
   Grid,
+  Stepper,
+  Step,
+  StepLabel,
   MenuItem,
   Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -38,8 +34,9 @@ import {
 
 import ArrowBackOutlined from "@mui/icons-material/ArrowBackOutlined";
 import SaveOutlined from "@mui/icons-material/SaveOutlined";
+import ArrowForwardOutlined from "@mui/icons-material/ArrowForwardOutlined";
+import ArrowBackIosNewOutlined from "@mui/icons-material/ArrowBackIosNewOutlined";
 import PersonOutlineOutlined from "@mui/icons-material/PersonOutlineOutlined";
-import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import ShoppingBagOutlined from "@mui/icons-material/ShoppingBagOutlined";
 import InfoOutlined from "@mui/icons-material/InfoOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
@@ -51,52 +48,27 @@ import { z } from "zod";
 import { useNavigate } from "react-router";
 
 import { createCustomer } from "../services/customerApi";
-import { type CustomerPayload, type EyeValues } from "../models/customer";
+import { type CustomerPayload } from "../models/customer";
 import { CUSTOMER_AGE_ERROR, parseCustomerAge } from "../utils/customerAge";
 
 import { getFrames, getLenses } from "../services/catalogApi";
 import { type FrameProduct, type LensProduct } from "../models/catalog";
-
-const eyes = [
-  {
-    prefix: "re_dist",
-    label: "RE DIST",
-    description: "Right Eye · Distance",
-  },
-  {
-    prefix: "re_near",
-    label: "RE NEAR",
-    description: "Right Eye · Near",
-  },
-  {
-    prefix: "le_dist",
-    label: "LE DIST",
-    description: "Left Eye · Distance",
-  },
-  {
-    prefix: "le_near",
-    label: "LE NEAR",
-    description: "Left Eye · Near",
-  },
-] as const;
-
-type EyePrefix = (typeof eyes)[number]["prefix"];
-type EyeMeasure = "sph" | "cyl" | "axis";
-type EyeFieldName = `${EyePrefix}_${EyeMeasure}`;
-
-// Common optical powers are offered in 0.25 steps.
-// Manual values are also accepted and validated.
-
-function createPowerOptions(min: number, max: number) {
-  return Array.from({ length: (max - min) * 4 + 1 }, (_, index) => {
-    const value = min + index / 4;
-
-    return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
-  });
-}
-
-const sphOptions = createPowerOptions(-30, 30);
-const cylOptions = createPowerOptions(-15, 15);
+import ProductAutocomplete from "../components/customers/ProductAutocomplete";
+import OpticalPrescriptionFields, {
+  PrescriptionMeasurementInput,
+} from "../components/customers/OpticalPrescriptionFields";
+import {
+  eyes,
+  opticalValueError,
+  readEye,
+  validDate,
+  validMoney,
+  frameLabel,
+  lensLabel,
+  frameSearchText,
+  lensSearchText,
+  type EyeFieldName,
+} from "../utils/opticalForm";
 
 // 2. DATE, PRICE AND PRODUCT HELPERS
 
@@ -111,23 +83,6 @@ function todayLocalDate() {
   return `${year}-${month}-${day}`;
 }
 
-// Validate real calendar dates, including leap years.
-function validDate(value: string) {
-  if (!value) return true;
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
-
-  const date = new Date(`${value}T00:00:00.000Z`);
-
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
-function validMoney(value: string) {
-  return /^\d+(\.\d{1,2})?$/.test(value) && Number(value) <= 9999999999.99;
-}
-
 function money(value: number) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -135,14 +90,6 @@ function money(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
-}
-
-function frameLabel(frame: FrameProduct) {
-  return `${frame.brand} - ${frame.model}`;
-}
-
-function lensLabel(lens: LensProduct) {
-  return [lens.company, lens.lensName, lens.visionType, lens.coating].filter(Boolean).join(" - ");
 }
 
 const formSchema = z
@@ -198,12 +145,19 @@ const formSchema = z
     le_near_axis: z.string(),
   })
   .superRefine((values, context) => {
-    // Only validate the fields used by the pricing mode.
-    const priceFields =
-      values.pricingMode === "SPLIT" ? (["frameRate", "lensRate"] as const) : (["mrp"] as const);
+    // Validate only prices for products actually selected. Hidden rates are ignored.
+    const hasFrame = Boolean(values.specsType.trim() || values.frameCatalogId);
+    const hasLens = Boolean(values.lensType.trim() || values.lensCatalogId);
+    const priceFields: Array<"frameRate" | "lensRate" | "mrp"> =
+      values.pricingMode === "MRP_ONLY"
+        ? ["mrp"]
+        : [
+            ...(hasFrame ? (["frameRate"] as const) : []),
+            ...(hasLens ? (["lensRate"] as const) : []),
+          ];
 
     for (const field of priceFields) {
-      if (!validMoney(values[field])) {
+      if (!validMoney(values[field]) || values[field].trim() === "") {
         context.addIssue({
           code: "custom",
           path: [field],
@@ -212,36 +166,12 @@ const formSchema = z
       }
     }
 
-    // Validate each optical measurement independently.
+    // Both customer creation and New Purchase use these optical rules.
     for (const eye of eyes) {
       for (const measure of ["sph", "cyl", "axis"] as const) {
         const key: EyeFieldName = `${eye.prefix}_${measure}`;
-
-        const value = values[key].trim();
-
-        if (!value) continue;
-
-        const number = Number(value);
-
-        const limit = measure === "sph" ? 30 : 15;
-
-        const valid =
-          measure === "axis"
-            ? /^\d+$/.test(value) && number <= 180
-            : /^[+-]?\d+(\.\d+)?$/.test(value) &&
-              Number.isFinite(number) &&
-              Math.abs(number) <= limit;
-
-        if (!valid) {
-          context.addIssue({
-            code: "custom",
-            path: [key],
-            message:
-              measure === "axis"
-                ? "AXIS must be between 0 and 180."
-                : `${measure.toUpperCase()} must be between -${limit} and +${limit}.`,
-          });
-        }
+        const message = opticalValueError(values[key], measure);
+        if (message) context.addIssue({ code: "custom", path: [key], message });
       }
     }
   });
@@ -342,118 +272,6 @@ function FormTextInput({
   );
 }
 
-// A visible searchable SPH/CYL dropdown.
-// Do not override Autocomplete's internal input props:
-// MUI provides those through the {...params} spread.
-
-function PowerInput({
-  control,
-  errors,
-  disabled,
-  name,
-  label,
-  options,
-}: SharedProps & {
-  name: EyeFieldName;
-  label: string;
-  options: string[];
-}) {
-  return (
-    <Controller
-      name={name}
-      control={control}
-      render={({ field }) => (
-        <Autocomplete<string, false, false, true>
-          freeSolo
-          fullWidth
-          size="small"
-          openOnFocus
-          forcePopupIcon
-          selectOnFocus
-          clearOnBlur={false}
-          options={options}
-          value={field.value}
-          inputValue={field.value}
-          disabled={disabled}
-          onInputChange={(_, next, reason) => {
-            if (reason === "input" || reason === "clear") {
-              field.onChange(next);
-            }
-          }}
-          onChange={(_, next) => {
-            field.onChange(next ?? "");
-          }}
-          onBlur={field.onBlur}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              inputRef={field.ref}
-              label={label}
-              placeholder="Select or type"
-              error={Boolean(errors[name])}
-              helperText={errors[name]?.message}
-            />
-          )}
-        />
-      )}
-    />
-  );
-}
-
-function AxisInput({
-  control,
-  errors,
-  disabled,
-  name,
-  label,
-}: SharedProps & {
-  name: EyeFieldName;
-  label: string;
-}) {
-  return (
-    <Controller
-      name={name}
-      control={control}
-      render={({ field }) => (
-        <TextField
-          {...field}
-          fullWidth
-          size="small"
-          label={label}
-          placeholder="0–180"
-          disabled={disabled}
-          error={Boolean(errors[name])}
-          helperText={errors[name]?.message}
-          onChange={(event) => {
-            const next = event.target.value.replace(/\D/g, "").slice(0, 3);
-
-            field.onChange(next);
-          }}
-          slotProps={{
-            htmlInput: {
-              inputMode: "numeric",
-            },
-          }}
-        />
-      )}
-    />
-  );
-}
-
-function readEye(values: FormValues, prefix: EyePrefix): EyeValues | undefined {
-  const eye: EyeValues = {};
-
-  for (const measure of ["sph", "cyl", "axis"] as const) {
-    const text = values[`${prefix}_${measure}`].trim();
-
-    if (text) {
-      eye[measure] = Number(text);
-    }
-  }
-
-  return Object.keys(eye).length ? eye : undefined;
-}
-
 export default function AddCustomerPage() {
   const navigate = useNavigate();
 
@@ -464,6 +282,8 @@ export default function AddCustomerPage() {
   const [catalogError, setCatalogError] = useState("");
 
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [activeStep, setActiveStep] = useState(0);
+  const [stepChecking, setStepChecking] = useState(false);
 
   const [frames, setFrames] = useState<FrameProduct[]>([]);
   const [lenses, setLenses] = useState<LensProduct[]>([]);
@@ -472,6 +292,8 @@ export default function AddCustomerPage() {
     control,
     handleSubmit,
     setValue,
+    trigger,
+    getValues,
     formState: { errors, isSubmitting, isDirty, submitCount },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -554,12 +376,18 @@ export default function AddCustomerPage() {
           ? "Lens Only"
           : "Not Specified";
 
+  // Calculate from selected products only; never count a hidden stale rate.
+  const splitRatesValid =
+    (!hasFrame || (frameRate.trim() !== "" && validMoney(frameRate))) &&
+    (!hasLens || (lensRate.trim() !== "" && validMoney(lensRate)));
   const total =
     pricingMode === "SPLIT"
-      ? validMoney(frameRate) && validMoney(lensRate)
-        ? (Math.round(Number(frameRate) * 100) + Math.round(Number(lensRate) * 100)) / 100
+      ? splitRatesValid && (hasFrame || hasLens)
+        ? (Math.round((hasFrame ? Number(frameRate) : 0) * 100) +
+            Math.round((hasLens ? Number(lensRate) : 0) * 100)) /
+          100
         : null
-      : validMoney(mrp)
+      : mrp.trim() !== "" && validMoney(mrp)
         ? Number(mrp)
         : null;
 
@@ -594,8 +422,11 @@ export default function AddCustomerPage() {
           ? {
               ...commonRecord,
               pricingMode: "SPLIT",
-              frameRate: Number(values.frameRate),
-              lensRate: Number(values.lensRate),
+              // Preserve the existing numeric API contract; unselected items cost zero.
+              frameRate:
+                values.specsType.trim() || values.frameCatalogId ? Number(values.frameRate) : 0,
+              lensRate:
+                values.lensType.trim() || values.lensCatalogId ? Number(values.lensRate) : 0,
             }
           : {
               ...commonRecord,
@@ -644,6 +475,70 @@ export default function AddCustomerPage() {
     }
   }
 
+  const stepLabels = ["Customer", "Prescription", "Purchase & Pricing", "Review & Save"];
+
+  // Validate the current section before moving forward; preserve all entered values.
+  async function nextStep() {
+    if (isSubmitting || stepChecking || activeStep >= 3) return;
+    const fields: (keyof FormValues)[] =
+      activeStep === 0
+        ? ["name", "mobNumber", "gender", "ageAtRecording", "reference"]
+        : activeStep === 1
+          ? [
+              "re_dist_sph",
+              "re_dist_cyl",
+              "re_dist_axis",
+              "re_near_sph",
+              "re_near_cyl",
+              "re_near_axis",
+              "le_dist_sph",
+              "le_dist_cyl",
+              "le_dist_axis",
+              "le_near_sph",
+              "le_near_cyl",
+              "le_near_axis",
+            ]
+          : ["purchaseDate", "specsType", "lensType", "frameRate", "lensRate", "mrp", "notes"];
+    setStepChecking(true);
+    try {
+      const valid = await trigger(fields, { shouldFocus: true });
+      if (valid) {
+        setActiveStep((current) => Math.min(3, current + 1));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    } finally {
+      setStepChecking(false);
+    }
+  }
+
+  function previousStep() {
+    setActiveStep((current) => Math.max(0, current - 1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function onInvalid(errorsFound: FieldErrors<FormValues>) {
+    const keys = Object.keys(errorsFound);
+    const customerFields = ["name", "mobNumber", "gender", "ageAtRecording", "reference"];
+    const rxFields = [
+      "re_dist_sph",
+      "re_dist_cyl",
+      "re_dist_axis",
+      "re_near_sph",
+      "re_near_cyl",
+      "re_near_axis",
+      "le_dist_sph",
+      "le_dist_cyl",
+      "le_dist_axis",
+      "le_near_sph",
+      "le_near_cyl",
+      "le_near_axis",
+    ];
+    if (keys.some((key) => customerFields.includes(key))) setActiveStep(0);
+    else if (keys.some((key) => rxFields.includes(key))) setActiveStep(1);
+    else setActiveStep(2);
+    setSaveError("Please correct the highlighted fields before saving.");
+  }
+
   const sharedProps = {
     control,
     errors,
@@ -656,7 +551,12 @@ export default function AddCustomerPage() {
       noValidate
       onSubmit={(event) => {
         // Read the form only when the user submits it.
-        void handleSubmit(onSubmit)(event);
+        if (activeStep !== 3) {
+          event.preventDefault();
+          void nextStep();
+          return;
+        }
+        void handleSubmit(onSubmit, onInvalid)(event);
       }}
       sx={{
         maxWidth: 1160,
@@ -683,7 +583,7 @@ export default function AddCustomerPage() {
           </Typography>
 
           <Typography color="text.secondary" variant="body2" sx={{ mt: 0.75 }}>
-            Register customer details, prescription and purchase information.
+            A simple guided workflow to register customer details, prescription and purchase.
           </Typography>
         </Box>
 
@@ -720,643 +620,643 @@ export default function AddCustomerPage() {
           </Alert>
         )}
 
-        {/* -----------------------------------------
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2.5 }, borderRadius: 3 }}>
+          <Stepper
+            activeStep={activeStep}
+            alternativeLabel
+            sx={{ "& .MuiStepLabel-label": { fontSize: { xs: "0.68rem", sm: "0.85rem" } } }}
+          >
+            {stepLabels.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: "center" }}>
+            Step {activeStep + 1} of 4 · {stepLabels[activeStep]}
+          </Typography>
+        </Paper>
+        {activeStep === 0 && (
+          <>
+            {/* -----------------------------------------
             PERSONAL INFORMATION
         ----------------------------------------- */}
 
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: 2.5 }}>
-            <Stack
-              direction="row"
-              spacing={1}
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Stack
+                  direction="row"
+                  spacing={1}
 
-              sx={{ alignItems: "center", mb: 2.5 }}
-            >
-              <PersonOutlineOutlined color="primary" />
+                  sx={{ alignItems: "center", mb: 2.5 }}
+                >
+                  <PersonOutlineOutlined color="primary" />
 
-              <Typography
-                variant="h6"
+                  <Typography
+                    variant="h6"
 
-                sx={{ fontWeight: 700 }}
-              >
-                Personal Information
-              </Typography>
-            </Stack>
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Personal Information
+                  </Typography>
+                </Stack>
 
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormTextInput
-                  {...sharedProps}
-                  name="name"
-                  label="Customer Name"
-                  required
-                  maxLength={150}
-                />
-              </Grid>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormTextInput
+                      {...sharedProps}
+                      name="name"
+                      label="Customer Name"
+                      required
+                      maxLength={150}
+                    />
+                  </Grid>
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormTextInput
-                  {...sharedProps}
-                  name="mobNumber"
-                  label="Mobile Number"
-                  inputMode="numeric"
-                  maxLength={10}
-                />
-              </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormTextInput
+                      {...sharedProps}
+                      name="mobNumber"
+                      label="Mobile Number"
+                      inputMode="numeric"
+                      maxLength={10}
+                    />
+                  </Grid>
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Controller
-                  name="gender"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField {...field} fullWidth select label="Gender" disabled={isSubmitting}>
-                      <MenuItem value="">Not specified</MenuItem>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Controller
+                      name="gender"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          fullWidth
+                          select
+                          label="Gender"
+                          disabled={isSubmitting}
+                        >
+                          <MenuItem value="">Not specified</MenuItem>
 
-                      <MenuItem value="Male">Male</MenuItem>
+                          <MenuItem value="Male">Male</MenuItem>
 
-                      <MenuItem value="Female">Female</MenuItem>
+                          <MenuItem value="Female">Female</MenuItem>
 
-                      <MenuItem value="Other">Other</MenuItem>
-                    </TextField>
-                  )}
-                />
-              </Grid>
+                          <MenuItem value="Other">Other</MenuItem>
+                        </TextField>
+                      )}
+                    />
+                  </Grid>
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormTextInput
-                  {...sharedProps}
-                  name="reference"
-                  label="Reference / Referred By"
-                  maxLength={255}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormTextInput
-                  {...sharedProps}
-                  name="ageAtRecording"
-                  label="Age at recording (optional)"
-                  inputMode="numeric"
-                />
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
-        {/* -----------------------------------------
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormTextInput
+                      {...sharedProps}
+                      name="reference"
+                      label="Reference / Referred By"
+                      maxLength={255}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormTextInput
+                      {...sharedProps}
+                      name="ageAtRecording"
+                      label="Age at recording (optional)"
+                      inputMode="numeric"
+                    />
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </>
+        )}
+        {activeStep === 1 && (
+          <>
+            {/* -----------------------------------------
             OPTICAL PRESCRIPTION
         ----------------------------------------- */}
 
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: 2.5 }}>
-            <Stack
-              direction="row"
-              spacing={1}
-
-              sx={{ alignItems: "center", mb: 1 }}
-            >
-              <VisibilityOutlined color="primary" />
-
-              <Typography
-                variant="h6"
-
-                sx={{ fontWeight: 700 }}
-              >
-                Optical Prescription
-              </Typography>
-
-              <Chip label="Optional" size="small" variant="outlined" />
-            </Stack>
-
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Select SPH and CYL from searchable dropdowns, or type the required power.
-            </Typography>
-
-            <TableContainer
-              component={Paper}
-              variant="outlined"
-              sx={{
-                borderRadius: 2,
-                overflowX: "auto",
-              }}
-            >
-              <Table
-                size="small"
-                sx={{
-                  minWidth: 640,
-
-                  "& .MuiTableCell-root": {
-                    px: 1.5,
-                    py: 1.5,
-                    verticalAlign: "middle",
-                  },
-                }}
-              >
-                <TableHead>
-                  <TableRow
-                    sx={{
-                      bgcolor: "background.default",
-                    }}
-                  >
-                    <TableCell sx={{ fontWeight: 700 }}>Eye / Vision</TableCell>
-
-                    <TableCell sx={{ fontWeight: 700 }}>SPH</TableCell>
-
-                    <TableCell sx={{ fontWeight: 700 }}>CYL</TableCell>
-
-                    <TableCell sx={{ fontWeight: 700 }}>AXIS</TableCell>
-                  </TableRow>
-                </TableHead>
-
-                <TableBody>
-                  {eyes.map((eye) => (
-                    <TableRow key={eye.prefix} hover>
-                      <TableCell sx={{ minWidth: 150 }}>
-                        <Typography
-                          variant="subtitle2"
-
-                          sx={{ fontWeight: 700 }}
-                        >
-                          {eye.label}
-                        </Typography>
-
-                        <Typography variant="caption" color="text.secondary">
-                          {eye.description}
-                        </Typography>
-                      </TableCell>
-
-                      <TableCell sx={{ minWidth: 170 }}>
-                        <PowerInput
-                          {...sharedProps}
-                          name={`${eye.prefix}_sph`}
-                          label="SPH"
-                          options={sphOptions}
-                        />
-                      </TableCell>
-
-                      <TableCell sx={{ minWidth: 170 }}>
-                        <PowerInput
-                          {...sharedProps}
-                          name={`${eye.prefix}_cyl`}
-                          label="CYL"
-                          options={cylOptions}
-                        />
-                      </TableCell>
-
-                      <TableCell sx={{ minWidth: 125 }}>
-                        <AxisInput {...sharedProps} name={`${eye.prefix}_axis`} label="AXIS" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
-              SPH: −30 to +30 · CYL: −15 to +15 · AXIS: 0–180
-            </Typography>
-          </CardContent>
-        </Card>
-
-        {/* -----------------------------------------
+            <OpticalPrescriptionFields
+              renderField={(name, measure, options, label) => (
+                <Controller
+                  key={name}
+                  name={name}
+                  control={control}
+                  render={({ field }) => (
+                    <PrescriptionMeasurementInput
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      inputRef={field.ref}
+                      measure={measure}
+                      options={options}
+                      label={label}
+                      disabled={isSubmitting}
+                      error={errors[name]?.message}
+                    />
+                  )}
+                />
+              )}
+            />
+          </>
+        )}
+        {activeStep === 2 && (
+          <>
+            {/* -----------------------------------------
             PURCHASE INFORMATION
         ----------------------------------------- */}
 
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: 2.5 }}>
-            <Stack
-              direction="row"
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Stack
+                  direction="row"
 
-              sx={{ justifyContent: "space-between", alignItems: "center", mb: 2.5 }}
-            >
-              <Stack
-                direction="row"
-                spacing={1}
-
-                sx={{ alignItems: "center" }}
-              >
-                <ShoppingBagOutlined color="primary" />
-
-                <Typography
-                  variant="h6"
-
-                  sx={{ fontWeight: 700 }}
+                  sx={{ justifyContent: "space-between", alignItems: "center", mb: 2.5 }}
                 >
-                  Purchase Information
-                </Typography>
-              </Stack>
+                  <Stack
+                    direction="row"
+                    spacing={1}
 
-              <Chip
-                label={purchaseType}
-                color={hasFrame || hasLens ? "primary" : "default"}
-                variant="outlined"
-                size="small"
-              />
-            </Stack>
+                    sx={{ alignItems: "center" }}
+                  >
+                    <ShoppingBagOutlined color="primary" />
 
-            <Grid container spacing={2}>
-              {/* PURCHASE DATE */}
+                    <Typography
+                      variant="h6"
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Controller
-                  name="purchaseDate"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      fullWidth
-                      type="date"
-                      label="Date of Purchase"
-                      disabled={isSubmitting}
-                      error={Boolean(errors.purchaseDate)}
-                      helperText={
-                        errors.purchaseDate?.message ?? "Defaults to today; can be changed."
-                      }
-                      slotProps={{
-                        inputLabel: { shrink: true },
-                      }}
-                    />
-                  )}
-                />
-              </Grid>
+                      sx={{ fontWeight: 700 }}
+                    >
+                      Purchase Information
+                    </Typography>
+                  </Stack>
 
-              {/* FRAME CATALOG DROPDOWN */}
+                  <Chip
+                    label={purchaseType}
+                    color={hasFrame || hasLens ? "primary" : "default"}
+                    variant="outlined"
+                    size="small"
+                  />
+                </Stack>
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Controller
-                  name="specsType"
-                  control={control}
-                  render={({ field }) => (
-                    <Autocomplete<FrameProduct, false, false, true>
-                      freeSolo
-                      fullWidth
-                      openOnFocus
-                      forcePopupIcon
-                      autoHighlight
-                      clearOnBlur={false}
-                      disabled={isSubmitting}
-                      loading={catalogLoading}
-                      options={frames}
-                      filterOptions={(options, state) =>
-                        options.filter((frame) =>
-                          [frame.brand, frame.model, frame.frameCode, frame.frameStyle]
-                            .filter(Boolean)
-                            .join(" ")
-                            .toLowerCase()
-                            .includes(state.inputValue.toLowerCase().trim()),
-                        )
-                      }
-                      getOptionLabel={(option) =>
-                        typeof option === "string" ? option : frameLabel(option)
-                      }
-                      isOptionEqualToValue={(option, value) =>
-                        typeof value !== "string" && option.id === value.id
-                      }
-                      value={frames.find((frame) => frame.id === frameCatalogId) ?? field.value}
-                      inputValue={field.value}
-                      onInputChange={(_, text, reason) => {
-                        if (reason === "input" || reason === "clear") {
-                          field.onChange(text);
+                <Grid container spacing={2}>
+                  {/* PURCHASE DATE */}
 
-                          setValue("frameCatalogId", "", { shouldDirty: true });
-                        }
-                      }}
-                      onChange={(_, selected) => {
-                        const product = typeof selected === "string" ? null : selected;
-
-                        const text =
-                          typeof selected === "string"
-                            ? selected
-                            : product
-                              ? frameLabel(product)
-                              : "";
-
-                        field.onChange(text);
-
-                        setValue("frameCatalogId", product?.id ?? "", { shouldDirty: true });
-                      }}
-                      onBlur={field.onBlur}
-                      renderInput={(params) => (
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Controller
+                      name="purchaseDate"
+                      control={control}
+                      render={({ field }) => (
                         <TextField
-                          {...params}
+                          {...field}
+                          fullWidth
+                          type="date"
+                          label="Date of Purchase"
+                          disabled={isSubmitting}
+                          error={Boolean(errors.purchaseDate)}
+                          helperText={
+                            errors.purchaseDate?.message ?? "Defaults to today; can be changed."
+                          }
+                          slotProps={{
+                            inputLabel: { shrink: true },
+                          }}
+                        />
+                      )}
+                    />
+                  </Grid>
+
+                  {/* FRAME CATALOG DROPDOWN */}
+
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Controller
+                      name="specsType"
+                      control={control}
+                      render={({ field }) => (
+                        <ProductAutocomplete
+                          options={frames}
+                          text={field.value}
+                          catalogId={frameCatalogId}
                           label="Frame / Spectacle"
                           placeholder="Search or type frame"
-                          error={Boolean(errors.specsType)}
-                          helperText={
-                            errors.specsType?.message ??
-                            (frameCatalogId ? "Selected from catalog" : "Catalog or custom name")
-                          }
+                          productLabel={frameLabel}
+                          searchText={frameSearchText}
+                          disabled={isSubmitting}
+                          loading={catalogLoading}
+                          onBlur={field.onBlur}
+                          inputRef={field.ref}
+                          error={errors.specsType?.message}
+                          onChange={(text, id) => {
+                            field.onChange(text);
+                            setValue("frameCatalogId", id, { shouldDirty: true });
+                          }}
                         />
                       )}
                     />
-                  )}
-                />
-              </Grid>
+                  </Grid>
 
-              {/* LENS CATALOG DROPDOWN */}
+                  {/* LENS CATALOG DROPDOWN */}
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Controller
-                  name="lensType"
-                  control={control}
-                  render={({ field }) => (
-                    <Autocomplete<LensProduct, false, false, true>
-                      freeSolo
-                      fullWidth
-                      openOnFocus
-                      forcePopupIcon
-                      autoHighlight
-                      clearOnBlur={false}
-                      disabled={isSubmitting}
-                      loading={catalogLoading}
-                      options={lenses}
-                      filterOptions={(options, state) =>
-                        options.filter((lens) =>
-                          [
-                            lens.company,
-                            lens.lensName,
-                            lens.visionType,
-                            lens.coating,
-                            lens.lensCode,
-                          ]
-                            .filter(Boolean)
-                            .join(" ")
-                            .toLowerCase()
-                            .includes(state.inputValue.toLowerCase().trim()),
-                        )
-                      }
-                      getOptionLabel={(option) =>
-                        typeof option === "string" ? option : lensLabel(option)
-                      }
-                      isOptionEqualToValue={(option, value) =>
-                        typeof value !== "string" && option.id === value.id
-                      }
-                      value={lenses.find((lens) => lens.id === lensCatalogId) ?? field.value}
-                      inputValue={field.value}
-                      onInputChange={(_, text, reason) => {
-                        if (reason === "input" || reason === "clear") {
-                          field.onChange(text);
-
-                          setValue("lensCatalogId", "", { shouldDirty: true });
-                        }
-                      }}
-                      onChange={(_, selected) => {
-                        const product = typeof selected === "string" ? null : selected;
-
-                        const text =
-                          typeof selected === "string"
-                            ? selected
-                            : product
-                              ? lensLabel(product)
-                              : "";
-
-                        field.onChange(text);
-
-                        setValue("lensCatalogId", product?.id ?? "", { shouldDirty: true });
-                      }}
-                      onBlur={field.onBlur}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Controller
+                      name="lensType"
+                      control={control}
+                      render={({ field }) => (
+                        <ProductAutocomplete
+                          options={lenses}
+                          text={field.value}
+                          catalogId={lensCatalogId}
                           label="Lens Type"
                           placeholder="Search or type lens"
-                          error={Boolean(errors.lensType)}
-                          helperText={
-                            errors.lensType?.message ??
-                            (lensCatalogId ? "Selected from catalog" : "Catalog or custom name")
-                          }
+                          productLabel={lensLabel}
+                          searchText={lensSearchText}
+                          disabled={isSubmitting}
+                          loading={catalogLoading}
+                          onBlur={field.onBlur}
+                          inputRef={field.ref}
+                          error={errors.lensType?.message}
+                          onChange={(text, id) => {
+                            field.onChange(text);
+                            setValue("lensCatalogId", id, { shouldDirty: true });
+                          }}
                         />
                       )}
                     />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
 
-        {/* -----------------------------------------
+            {/* -----------------------------------------
             PRICING INFORMATION
         ----------------------------------------- */}
 
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: 2.5 }}>
-            <Typography
-              variant="h6"
-
-              sx={{ fontWeight: 700, mb: 0.75 }}
-            >
-              Pricing Details
-            </Typography>
-
-            <Typography variant="body2" color="text.secondary">
-              Choose how the purchase price is entered.
-            </Typography>
-
-            <Controller
-              name="pricingMode"
-              control={control}
-              render={({ field }) => (
-                <ToggleButtonGroup
-                  exclusive
-                  color="primary"
-                  size="small"
-                  value={field.value}
-                  disabled={isSubmitting}
-                  onChange={(_, next) => {
-                    if (next !== null) {
-                      setValue("pricingMode", next as "SPLIT" | "MRP_ONLY", {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      });
-                    }
-                  }}
-                  sx={{
-                    mt: 2,
-                    mb: 2.5,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <ToggleButton value="SPLIT">Separate Rates</ToggleButton>
-
-                  <ToggleButton value="MRP_ONLY">Total MRP Only</ToggleButton>
-                </ToggleButtonGroup>
-              )}
-            />
-
-            {pricingMode === "SPLIT" ? (
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormTextInput
-                    {...sharedProps}
-                    name="frameRate"
-                    label="Frame Rate (₹)"
-                    inputMode="decimal"
-                    required
-                  />
-                </Grid>
-
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormTextInput
-                    {...sharedProps}
-                    name="lensRate"
-                    label="Lens Rate (₹)"
-                    inputMode="decimal"
-                    required
-                  />
-                </Grid>
-              </Grid>
-            ) : (
-              <FormTextInput
-                {...sharedProps}
-                name="mrp"
-                label="Total MRP (₹)"
-                inputMode="decimal"
-                required
-              />
-            )}
-
-            {/* LIVE TOTAL */}
-
-            <Paper
-              variant="outlined"
-              sx={{
-                mt: 2.5,
-                p: 2,
-                borderRadius: 2,
-                bgcolor: "action.hover",
-              }}
-            >
-              <Stack
-                direction={{
-                  xs: "column",
-                  sm: "row",
-                }}
-
-                spacing={1}
-                sx={{
-                  justifyContent: "space-between",
-                  alignItems: {
-                    sm: "center",
-                  },
-                }}
-              >
-                <Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {pricingMode === "SPLIT" ? "Calculated Total MRP" : "Purchase Total MRP"}
-                  </Typography>
-
-                  <Typography variant="caption" color="text.secondary">
-                    Based on the currently entered rates.
-                  </Typography>
-                </Box>
-
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent sx={{ p: 2.5 }}>
                 <Typography
-                  variant="h5"
-                  color="primary"
+                  variant="h6"
 
-                  sx={{ fontWeight: 800 }}
+                  sx={{ fontWeight: 700, mb: 0.75 }}
                 >
-                  {total === null ? "₹ —" : money(total)}
+                  Pricing Details
                 </Typography>
-              </Stack>
-            </Paper>
 
-            <Alert severity="info" icon={<InfoOutlined />} sx={{ mt: 2 }}>
-              Pricing mode does not decide whether the customer bought a frame, lens, or both.
-            </Alert>
-          </CardContent>
-        </Card>
+                <Typography variant="body2" color="text.secondary">
+                  Choose how the purchase price is entered.
+                </Typography>
 
-        {/* -----------------------------------------
+                <Controller
+                  name="pricingMode"
+                  control={control}
+                  render={({ field }) => (
+                    <ToggleButtonGroup
+                      exclusive
+                      color="primary"
+                      size="small"
+                      value={field.value}
+                      disabled={isSubmitting}
+                      onChange={(_, next) => {
+                        if (next !== null) {
+                          setValue("pricingMode", next as "SPLIT" | "MRP_ONLY", {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                        }
+                      }}
+                      sx={{
+                        mt: 2,
+                        mb: 2.5,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <ToggleButton value="SPLIT">Separate Rates</ToggleButton>
+
+                      <ToggleButton value="MRP_ONLY">Total MRP Only</ToggleButton>
+                    </ToggleButtonGroup>
+                  )}
+                />
+
+                {pricingMode === "SPLIT" ? (
+                  <Stack spacing={1.5}>
+                    {!hasFrame && !hasLens && (
+                      <Alert severity="info">
+                        Select a frame or lens above to enter its price.
+                      </Alert>
+                    )}
+                    <Grid container spacing={2}>
+                      {hasFrame && (
+                        <Grid size={{ xs: 12, sm: hasLens ? 6 : 12 }}>
+                          <FormTextInput
+                            {...sharedProps}
+                            name="frameRate"
+                            label="Frame MRP (₹)"
+                            inputMode="decimal"
+                            required
+                          />
+                        </Grid>
+                      )}
+                      {hasLens && (
+                        <Grid size={{ xs: 12, sm: hasFrame ? 6 : 12 }}>
+                          <FormTextInput
+                            {...sharedProps}
+                            name="lensRate"
+                            label="Lens MRP (₹)"
+                            inputMode="decimal"
+                            required
+                          />
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Stack>
+                ) : (
+                  <FormTextInput
+                    {...sharedProps}
+                    name="mrp"
+                    label="Total MRP (₹)"
+                    inputMode="decimal"
+                    required
+                  />
+                )}
+
+                {/* LIVE TOTAL */}
+
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    mt: 2.5,
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: "action.hover",
+                  }}
+                >
+                  <Stack
+                    direction={{
+                      xs: "column",
+                      sm: "row",
+                    }}
+
+                    spacing={1}
+                    sx={{
+                      justifyContent: "space-between",
+                      alignItems: {
+                        sm: "center",
+                      },
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        {pricingMode === "SPLIT" ? "Calculated Total MRP" : "Purchase Total MRP"}
+                      </Typography>
+
+                      <Typography variant="caption" color="text.secondary">
+                        {pricingMode === "SPLIT"
+                          ? "Only selected products are included."
+                          : "Total entered for this purchase."}
+                      </Typography>
+                    </Box>
+
+                    <Typography
+                      variant="h5"
+                      color="primary"
+
+                      sx={{ fontWeight: 800 }}
+                    >
+                      {total === null ? "₹ —" : money(total)}
+                    </Typography>
+                  </Stack>
+                </Paper>
+
+                <Alert severity="info" icon={<InfoOutlined />} sx={{ mt: 2 }}>
+                  Pricing mode does not decide whether the customer bought a frame, lens, or both.
+                </Alert>
+              </CardContent>
+            </Card>
+
+            {/* -----------------------------------------
             INTERNAL STAFF NOTES
         ----------------------------------------- */}
 
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: 2.5 }}>
-            <Stack
-              direction="row"
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Stack
+                  direction="row"
 
-              spacing={1}
-              sx={{ alignItems: "center", mb: 1.5 }}
-            >
-              <LockOutlined color="action" fontSize="small" />
+                  spacing={1}
+                  sx={{ alignItems: "center", mb: 1.5 }}
+                >
+                  <LockOutlined color="action" fontSize="small" />
 
-              <Typography
-                variant="subtitle1"
+                  <Typography
+                    variant="subtitle1"
 
-                sx={{ fontWeight: 700 }}
-              >
-                Private Staff Notes
-              </Typography>
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Private Staff Notes
+                  </Typography>
 
-              <Chip label="Internal" variant="outlined" size="small" />
-            </Stack>
+                  <Chip label="Internal" variant="outlined" size="small" />
+                </Stack>
 
-            <FormTextInput
-              {...sharedProps}
-              name="notes"
-              label="Internal Notes"
-              multiline
-              rows={3}
-              maxLength={5000}
-            />
+                <FormTextInput
+                  {...sharedProps}
+                  name="notes"
+                  label="Internal Notes"
+                  multiline
+                  rows={3}
+                  maxLength={5000}
+                />
 
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{
-                display: "block",
-                mt: 1,
-              }}
-            >
-              Staff only. Do not export these notes to customer PDFs or WhatsApp messages.
-            </Typography>
-          </CardContent>
-        </Card>
-
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{
+                    display: "block",
+                    mt: 1,
+                  }}
+                >
+                  Staff only. Do not export these notes to customer PDFs or WhatsApp messages.
+                </Typography>
+              </CardContent>
+            </Card>
+          </>
+        )}
+        {activeStep === 3 &&
+          (() => {
+            const values = getValues();
+            const hasRx = [
+              "re_dist_sph",
+              "re_dist_cyl",
+              "re_dist_axis",
+              "re_near_sph",
+              "re_near_cyl",
+              "re_near_axis",
+              "le_dist_sph",
+              "le_dist_cyl",
+              "le_dist_axis",
+              "le_near_sph",
+              "le_near_cyl",
+              "le_near_axis",
+            ].some((key) => Boolean(values[key as keyof FormValues]?.trim()));
+            return (
+              <Stack spacing={2}>
+                <Typography variant="h6" sx={{ fontWeight: 750 }}>
+                  Review customer registration
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Confirm the information below before saving to the database.
+                </Typography>
+                <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                  <CardContent>
+                    <Stack
+                      direction="row"
+                      sx={{ justifyContent: "space-between", alignItems: "center", mb: 1 }}
+                    >
+                      <Typography sx={{ fontWeight: 700 }}>Customer information</Typography>
+                      <Button size="small" onClick={() => setActiveStep(0)}>
+                        Edit
+                      </Button>
+                    </Stack>
+                    <Typography variant="body2">
+                      <strong>Name:</strong> {values.name || "Not provided"}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Mobile:</strong> {values.mobNumber || "Not provided"}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Gender:</strong> {values.gender || "Not specified"} ·{" "}
+                      <strong>Age:</strong> {values.ageAtRecording || "Not specified"}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Reference:</strong> {values.reference || "Not specified"}
+                    </Typography>
+                  </CardContent>
+                </Card>
+                <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                  <CardContent>
+                    <Stack
+                      direction="row"
+                      sx={{ justifyContent: "space-between", alignItems: "center", mb: 1 }}
+                    >
+                      <Typography sx={{ fontWeight: 700 }}>Optical prescription</Typography>
+                      <Button size="small" onClick={() => setActiveStep(1)}>
+                        Edit
+                      </Button>
+                    </Stack>
+                    {hasRx ? (
+                      <Grid container spacing={1}>
+                        {(["re_dist", "re_near", "le_dist", "le_near"] as const).map((eye) => (
+                          <Grid size={{ xs: 12, sm: 6 }} key={eye}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {eye
+                                .replace("re", "Right eye")
+                                .replace("le", "Left eye")
+                                .replace("_dist", " · Distance")
+                                .replace("_near", " · Near")}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              SPH: {values[`${eye}_sph`] || "—"} · CYL:{" "}
+                              {values[`${eye}_cyl`] || "—"} · AXIS: {values[`${eye}_axis`] || "—"}
+                            </Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No prescription entered
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                  <CardContent>
+                    <Stack
+                      direction="row"
+                      sx={{ justifyContent: "space-between", alignItems: "center", mb: 1 }}
+                    >
+                      <Typography sx={{ fontWeight: 700 }}>Purchase & pricing</Typography>
+                      <Button size="small" onClick={() => setActiveStep(2)}>
+                        Edit
+                      </Button>
+                    </Stack>
+                    <Typography variant="body2">
+                      <strong>Date:</strong> {values.purchaseDate}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Frame:</strong> {values.specsType || "Not selected"}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Lens:</strong> {values.lensType || "Not selected"}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Purchase type:</strong> {purchaseType}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Pricing:</strong>{" "}
+                      {values.pricingMode === "SPLIT" ? "Separate rates" : "Total MRP only"}
+                    </Typography>
+                    {values.pricingMode === "SPLIT" && values.specsType.trim() && (
+                      <Typography variant="body2">
+                        <strong>Frame MRP:</strong> {money(Number(values.frameRate))}
+                      </Typography>
+                    )}
+                    {values.pricingMode === "SPLIT" && values.lensType.trim() && (
+                      <Typography variant="body2">
+                        <strong>Lens MRP:</strong> {money(Number(values.lensRate))}
+                      </Typography>
+                    )}
+                    <Typography variant="h6" color="primary" sx={{ mt: 1, fontWeight: 800 }}>
+                      Total: {total === null ? "₹ —" : money(total)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Private notes: {values.notes.trim() ? "Added (staff only)" : "None"}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Stack>
+            );
+          })()}
         <Divider />
-
-        {/* -----------------------------------------
-            SAVE AND CANCEL
-        ----------------------------------------- */}
-
         <Stack
-          direction={{
-            xs: "column-reverse",
-            sm: "row",
-          }}
-
+          direction={{ xs: "column-reverse", sm: "row" }}
           spacing={1.5}
-          sx={{ justifyContent: "flex-end" }}
+          sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
         >
-          <Button
-            variant="outlined"
-            onClick={cancelCreation}
-            disabled={isSubmitting}
-            sx={{
-              borderRadius: 2,
-              minWidth: 115,
-            }}
-          >
-            Cancel
+          <Button variant="text" onClick={cancelCreation} disabled={isSubmitting}>
+            Cancel registration
           </Button>
-
-          <Button
-            type="submit"
-            variant="contained"
-            size="large"
-            disabled={isSubmitting}
-            startIcon={
-              isSubmitting ? <CircularProgress size={18} color="inherit" /> : <SaveOutlined />
-            }
-            sx={{
-              borderRadius: 2,
-              minWidth: 175,
-              fontWeight: 700,
-            }}
-          >
-            {isSubmitting ? "Saving..." : "Save Customer"}
-          </Button>
+          <Stack direction="row" spacing={1.5} sx={{ width: { xs: "100%", sm: "auto" } }}>
+            {activeStep > 0 && (
+              <Button
+                variant="outlined"
+                onClick={previousStep}
+                disabled={isSubmitting || stepChecking}
+                startIcon={<ArrowBackIosNewOutlined />}
+                sx={{ flex: { xs: 1, sm: "none" } }}
+              >
+                Back
+              </Button>
+            )}
+            {activeStep < 3 ? (
+              <Button
+                type="button"
+                variant="contained"
+                onClick={() => void nextStep()}
+                disabled={isSubmitting || stepChecking}
+                endIcon={<ArrowForwardOutlined />}
+                sx={{ flex: { xs: 1, sm: "none" }, minWidth: { xs: 0, sm: 170 } }}
+              >
+                Continue
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                disabled={isSubmitting || stepChecking}
+                startIcon={
+                  isSubmitting ? <CircularProgress size={18} color="inherit" /> : <SaveOutlined />
+                }
+                sx={{ flex: { xs: 1, sm: "none" }, minWidth: { xs: 0, sm: 185 }, fontWeight: 700 }}
+              >
+                {isSubmitting ? "Saving..." : "Save Customer"}
+              </Button>
+            )}
+          </Stack>
         </Stack>
       </Stack>
     </Box>

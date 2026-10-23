@@ -39,6 +39,18 @@ async function main() {
   if (missingCustomerColumns.length) {
     throw new Error("Customer age migration has not been deployed.");
   }
+  // Foreign keys ensure existence, but do not ensure a prescription belongs to
+  // the same customer as the purchase. Report integrity without exposing records.
+  const [history] = await prisma.$queryRaw<{ foreignPrescriptionLinks: number }[]>`
+    SELECT COUNT(*)::int AS "foreignPrescriptionLinks"
+    FROM "CustomerRecord" r
+    JOIN "Prescription" p ON p.id = r."prescriptionId"
+    WHERE r."customerId" <> p."customerId"
+  `;
+  console.log(JSON.stringify({ foreignPrescriptionLinks: history.foreignPrescriptionLinks }));
+  if (history.foreignPrescriptionLinks !== 0) {
+    throw new Error("Purchases are linked to prescriptions belonging to other customers.");
+  }
   const startedAt = performance.now();
   const analytics = await getDashboardAnalytics();
   console.log(

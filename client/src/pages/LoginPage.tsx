@@ -6,7 +6,7 @@
  */
 
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router";
 
 import {
   Alert,
@@ -17,6 +17,7 @@ import {
   CircularProgress,
   IconButton,
   InputAdornment,
+  Link,
   Stack,
   TextField,
   Typography,
@@ -27,6 +28,7 @@ import VisibilityOffOutlined from "@mui/icons-material/VisibilityOffOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
 
 import { loginAdmin } from "../services/authApi";
+import { loginDestination } from "../utils/loginDestination";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -58,13 +60,7 @@ export default function LoginPage() {
       await loginAdmin(username.trim(), password);
 
       // Return to the CRM after successful login.
-      const from: unknown = location.state?.from;
-      navigate(
-        typeof from === "string" && from.startsWith("/") && !from.startsWith("//")
-          ? from
-          : "/dashboard",
-        { replace: true },
-      );
+      navigate(loginDestination(location.state?.from), { replace: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to log in. Please try again.");
     } finally {
@@ -131,6 +127,9 @@ export default function LoginPage() {
             {/* Login form */}
             <Box component="form" onSubmit={handleLogin}>
               <Stack spacing={2.5}>
+                {typeof location.state?.message === "string" && (
+                  <Alert severity="success">{location.state.message}</Alert>
+                )}
                 {error && (
                   <Alert severity="error" onClose={() => setError("")}>
                     {error}
@@ -140,7 +139,7 @@ export default function LoginPage() {
                 <TextField
                   fullWidth
                   required
-                  label="Admin Username"
+                  label="Username"
                   autoComplete="username"
                   value={username}
                   disabled={loading}
@@ -174,6 +173,10 @@ export default function LoginPage() {
                   }}
                 />
 
+                <Link component={RouterLink} to="/forgot-password" sx={{ alignSelf: "flex-end" }}>
+                  Forgot Password?
+                </Link>
+
                 <Button
                   fullWidth
                   type="submit"
@@ -195,7 +198,7 @@ export default function LoginPage() {
             </Box>
 
             <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
-              Authorized Admin access only
+              Authorized CRM access only
             </Typography>
           </Stack>
         </CardContent>

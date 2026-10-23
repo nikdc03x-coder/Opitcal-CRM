@@ -37,6 +37,7 @@ async function customerStore(t: TestContext, age: number | null = null) {
     reference: null,
     notes: null,
     isActive: true,
+    deletedAt: null,
     ageAtRecording: age,
     ageRecordedAt: age === null ? null : originalDate,
     prescriptions: [],
@@ -310,6 +311,7 @@ test("search still supports shared mobile numbers and name matching without age 
   assert.deepEqual(query.where, {
     shopId: "shop-1",
     isActive: true,
+    deletedAt: null,
     mobNumber: { contains: "9876543210" },
     name: { contains: "Test", mode: "insensitive" },
   });

@@ -18,6 +18,14 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
   }
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2028") {
+      logError("Database transaction could not finish", error);
+      res.status(503).json({
+        success: false,
+        message: "The database transaction could not finish. Please try again.",
+      });
+      return;
+    }
     // nik - Missing migrations need an administrator action, not repeated customer submissions.
     if (["P2021", "P2022"].includes(error.code)) {
       logError("Database schema update required", error);

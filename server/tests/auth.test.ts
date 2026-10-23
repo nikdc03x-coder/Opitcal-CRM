@@ -103,7 +103,7 @@ test("login, session proofs, read query reduction, immediate write revocation an
     async ({ where, select }: { where: { tokenHash: string }; select: unknown }) => {
       assert.deepEqual(select, {
         expiresAt: true,
-        admin: { select: { id: true, username: true } },
+        admin: { select: { id: true, username: true, isActive: true, role: true } },
       });
       return stored && stored.tokenHash === where.tokenHash
         ? { expiresAt: stored.expiresAt, admin: { id: 1, username: "admin" } }
@@ -253,10 +253,15 @@ test("malformed tokens avoid the database and password reset revokes sessions at
           calls.push("revoke");
         },
       },
+      passwordResetToken: {
+        deleteMany: async () => {
+          calls.push("tokens");
+        },
+      },
     }),
   );
   await auth.resetAdminPassword(1, "new-hash");
-  assert.deepEqual(calls, ["password", "revoke"]);
+  assert.deepEqual(calls, ["password", "revoke", "tokens"]);
 });
 
 test("password hashes remain compatible and expired database sessions are rejected", async (t) => {

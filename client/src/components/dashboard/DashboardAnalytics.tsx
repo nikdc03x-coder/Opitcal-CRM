@@ -447,7 +447,7 @@ export default function DashboardAnalytics() {
                     label="Comparison Year"
                     value={otherYear.year}
                     onChange={(event) => setComparisonYear(Number(event.target.value))}
-                    sx={{ minWidth: 160 }}
+                    sx={{ minWidth: { xs: 0, sm: 160 }, width: { xs: "100%", sm: "auto" } }}
                   >
                     {otherYears.map((year) => (
                       <MenuItem key={year.year} value={year.year}>

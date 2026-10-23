@@ -24,6 +24,7 @@ test("production API health, authentication, origin checks and error responses w
     assert.equal((await fetch(`${base}/api/missing`)).status, 404);
     for (const path of [
       "/api/customers",
+      "/api/customers/trash",
       "/api/catalog/frames",
       "/api/dashboard",
       "/api/auth/me",
@@ -34,6 +35,34 @@ test("production API health, authentication, origin checks and error responses w
       assert.equal((await fetch(`${base}${path}`)).status, 401, path);
     }
     assert.equal((await fetch(`${base}/api/customers`, { method: "POST" })).status, 403);
+    for (const [path, method] of [
+      ["/api/customers/10000000-0000-4000-8000-000000000001", "DELETE"],
+      [
+        "/api/customers/10000000-0000-4000-8000-000000000001/records/20000000-0000-4000-8000-000000000001",
+        "DELETE",
+      ],
+      ["/api/customers/10000000-0000-4000-8000-000000000001/restore", "POST"],
+      [
+        "/api/customers/10000000-0000-4000-8000-000000000001/records/20000000-0000-4000-8000-000000000001/restore",
+        "POST",
+      ],
+    ]) {
+      assert.equal((await fetch(`${base}${path}`, { method })).status, 403);
+      assert.equal(
+        (await fetch(`${base}${path}`, { method, headers: { Origin: "https://crm.example.test" } }))
+          .status,
+        401,
+      );
+    }
+    assert.equal(
+      (
+        await fetch(`${base}/api/customers/10000000-0000-4000-8000-000000000001/records`, {
+          method: "POST",
+          headers: { Origin: "https://crm.example.test" },
+        })
+      ).status,
+      401,
+    );
     assert.equal((await fetch(`${base}/api/orders/order-1`, { method: "DELETE" })).status, 403);
     assert.equal(
       (
@@ -151,5 +180,29 @@ test("missing database migrations return actionable errors without leaking datab
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
+  }
+});
+
+test("transaction failures return retryable errors without exposing account credentials", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const app = express();
+  app.get("/", () => {
+    throw new Prisma.PrismaClientKnownRequestError("private-password-and-query", {
+      code: "P2028",
+      clientVersion: "7.10.0",
+    });
+  });
+  app.use(errorHandler);
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
+    assert.equal(response.status, 503);
+    const result = await response.json();
+    assert.match(result.message, /transaction could not finish/);
+    assert.equal(JSON.stringify(result).includes("private"), false);
+    assert.equal(JSON.stringify(logged.mock.calls).includes("private"), false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

@@ -1,3 +1,4 @@
+import ResponsiveDialog from "../layout/ResponsiveDialog";
 import { indiaDatePlusDays } from "../../utils/dates";
 
 import { useEffect, useRef, useState } from "react";
@@ -11,7 +12,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -252,7 +252,7 @@ export default function CreateOrderDialog({ onClose, onCreated }: Props) {
   }
 
   return (
-    <Dialog
+    <ResponsiveDialog
       open
       fullWidth
       maxWidth="md"
@@ -601,7 +601,7 @@ export default function CreateOrderDialog({ onClose, onCreated }: Props) {
       ---------------------------------------- */}
 
       <DialogActions sx={{ px: 2, pb: 2, pt: 1 }}>
-        <Button type="button" onClick={onClose} disabled={saving}>
+        <Button autoFocus type="button" onClick={onClose} disabled={saving}>
           Cancel
         </Button>
 
@@ -624,6 +624,6 @@ export default function CreateOrderDialog({ onClose, onCreated }: Props) {
           {saving ? "Creating Order..." : "Create Order"}
         </Button>
       </DialogActions>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }

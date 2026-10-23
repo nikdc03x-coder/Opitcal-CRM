@@ -1,5 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { loginDestination } from "../../client/src/utils/loginDestination";
+
+test("login destinations preserve private paths, queries and fragments without auth loops or external redirects", () => {
+  assert.equal(
+    loginDestination("/customers?search=Alex#history"),
+    "/customers?search=Alex#history",
+  );
+  assert.equal(loginDestination("/"), "/");
+  for (const value of [
+    undefined,
+    null,
+    123,
+    "https://example.com",
+    "//example.com",
+    "/\\example.com",
+    "/login",
+    "/login/?next=/login",
+    "/forgot-password",
+    "/reset-password#secret",
+    "/path\n",
+  ]) {
+    assert.equal(loginDestination(value), "/dashboard");
+  }
+});
 
 test("client shares simultaneous session restoration but rechecks after it completes", async (t) => {
   const { getCurrentAdmin } = await import("../../client/src/services/authApi");

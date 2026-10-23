@@ -1,3 +1,4 @@
+import ResponsiveDialog from "../components/layout/ResponsiveDialog";
 /**
  * Optical CRM — Admin Product Catalog
  *
@@ -19,7 +20,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -50,6 +50,8 @@ import {
   editLens,
   getFrames,
   getLenses,
+  deleteFrame,
+  deleteLens,
 } from "../services/catalogApi";
 import {
   type FrameProduct,
@@ -220,6 +222,22 @@ export default function AdminCatalogPage() {
     setError("");
   }
 
+  function rememberFrame(saved: FrameProduct) {
+    setFrames((current) =>
+      [...current.filter((row) => row.id !== saved.id), saved]
+        .sort((a, b) => a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model))
+        .slice(0, 100),
+    );
+  }
+
+  function rememberLens(saved: LensProduct) {
+    setLenses((current) =>
+      [...current.filter((row) => row.id !== saved.id), saved]
+        .sort((a, b) => a.company.localeCompare(b.company) || a.lensName.localeCompare(b.lensName))
+        .slice(0, 100),
+    );
+  }
+
   async function saveProduct() {
     if (saving) return;
 
@@ -244,26 +262,14 @@ export default function AdminCatalogPage() {
       if (tab === "frames") {
         const input = prepareFrame(frameForm);
 
-        if (editingId) {
-          await editFrame(editingId, input);
-        } else {
-          await addFrame(input);
-        }
+        rememberFrame(editingId ? await editFrame(editingId, input) : await addFrame(input));
       } else {
         const input = prepareLens(lensForm);
 
-        if (editingId) {
-          await editLens(editingId, input);
-        } else {
-          await addLens(input);
-        }
+        rememberLens(editingId ? await editLens(editingId, input) : await addLens(input));
       }
 
       const message = editingId ? "Product updated successfully." : "Product added successfully.";
-
-      // Refresh before closing the dialog so the
-      // catalog list reflects the saved product.
-      await refreshCatalog();
 
       setDialogOpen(false);
       setEditingId(null);
@@ -291,11 +297,11 @@ export default function AdminCatalogPage() {
     setSuccess("");
 
     try {
-      await editFrame(frame.id, {
+      const saved = await editFrame(frame.id, {
         isActive: nextStatus,
       });
 
-      await refreshCatalog();
+      rememberFrame(saved);
 
       setSuccess(nextStatus ? "Frame restored successfully." : "Frame deactivated successfully.");
     } catch (caught) {
@@ -321,15 +327,46 @@ export default function AdminCatalogPage() {
     setSuccess("");
 
     try {
-      await editLens(lens.id, {
+      const saved = await editLens(lens.id, {
         isActive: nextStatus,
       });
 
-      await refreshCatalog();
+      rememberLens(saved);
 
       setSuccess(nextStatus ? "Lens restored successfully." : "Lens deactivated successfully.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to update lens status.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteProduct(kind: CatalogTab, product: FrameProduct | LensProduct) {
+    if (saving) return;
+    const name =
+      "brand" in product
+        ? `${product.brand} ${product.model}`
+        : `${product.company} ${product.lensName}`;
+    if (
+      !window.confirm(
+        `Permanently delete only this catalog item: ${name}? Existing customer purchases will be kept. This cannot be undone.`,
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      if (kind === "frames") {
+        await deleteFrame(product.id);
+        setFrames((current) => current.filter((item) => item.id !== product.id));
+      } else {
+        await deleteLens(product.id);
+        setLenses((current) => current.filter((item) => item.id !== product.id));
+      }
+      setSuccess(`${kind === "frames" ? "Frame" : "Lens"} deleted successfully.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to delete catalog item.");
     } finally {
       setSaving(false);
     }
@@ -638,7 +675,9 @@ export default function AdminCatalogPage() {
                         <Stack
                           direction="row"
                           spacing={1}
+                          useFlexGap
                           sx={{
+                            flexWrap: "wrap",
                             justifyContent: {
                               xs: "flex-start",
                               md: "flex-end",
@@ -661,6 +700,14 @@ export default function AdminCatalogPage() {
                             onClick={() => void toggleFrame(frame)}
                           >
                             {frame.isActive ? "Deactivate" : "Restore"}
+                          </Button>
+                          <Button
+                            size="small"
+                            color="error"
+                            disabled={saving}
+                            onClick={() => void deleteProduct("frames", frame)}
+                          >
+                            Delete
                           </Button>
                         </Stack>
                       </Grid>
@@ -712,7 +759,9 @@ export default function AdminCatalogPage() {
                         <Stack
                           direction="row"
                           spacing={1}
+                          useFlexGap
                           sx={{
+                            flexWrap: "wrap",
                             justifyContent: {
                               xs: "flex-start",
                               md: "flex-end",
@@ -735,6 +784,14 @@ export default function AdminCatalogPage() {
                             onClick={() => void toggleLens(lens)}
                           >
                             {lens.isActive ? "Deactivate" : "Restore"}
+                          </Button>
+                          <Button
+                            size="small"
+                            color="error"
+                            disabled={saving}
+                            onClick={() => void deleteProduct("lenses", lens)}
+                          >
+                            Delete
                           </Button>
                         </Stack>
                       </Grid>
@@ -776,7 +833,7 @@ export default function AdminCatalogPage() {
             ADD / EDIT PRODUCT DIALOG
         ----------------------------------------- */}
 
-        <Dialog
+        <ResponsiveDialog
           open={dialogOpen}
           onClose={(_, reason) => {
             if (!saving && reason !== "backdropClick") {
@@ -914,7 +971,7 @@ export default function AdminCatalogPage() {
           </DialogContent>
 
           <DialogActions sx={{ p: 2 }}>
-            <Button variant="outlined" onClick={closeDialog} disabled={saving}>
+            <Button autoFocus variant="outlined" onClick={closeDialog} disabled={saving}>
               Cancel
             </Button>
 
@@ -927,7 +984,7 @@ export default function AdminCatalogPage() {
               {saving ? "Saving..." : "Save Product"}
             </Button>
           </DialogActions>
-        </Dialog>
+        </ResponsiveDialog>
       </Stack>
     </Box>
   );

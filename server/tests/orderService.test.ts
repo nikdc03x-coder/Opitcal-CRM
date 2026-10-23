@@ -129,8 +129,17 @@ test("eligible purchases exclude already tracked purchases and inactive or forei
     records: [],
   });
   const query = find.mock.calls[0].arguments[0];
-  assert.deepEqual(query.where, { id: "customer-1", shopId: "shop-1", isActive: true });
-  assert.deepEqual(query.select.records.where, { order: { is: null } });
+  assert.deepEqual(query.where, {
+    id: "customer-1",
+    shopId: "shop-1",
+    isActive: true,
+    deletedAt: null,
+  });
+  assert.deepEqual(query.select.records.where, {
+    deletionGroupId: null,
+    deletedAt: null,
+    order: { is: null },
+  });
   assert.equal(query.select.prescriptions, undefined);
   find.mock.mockImplementation(async () => null);
   await assert.rejects(service.getEligiblePurchases("foreign-customer"), /Customer not found/);
@@ -274,7 +283,12 @@ test("removal deletes order history and the tracking order in every status while
   const tx = {
     order: {
       findFirst: async ({ where }: { where: { id: string; shopId: string } }) => {
-        assert.deepEqual(where, { id: "order-1", shopId: "shop-1" });
+        assert.deepEqual(where, {
+          id: "order-1",
+          shopId: "shop-1",
+          customer: { isActive: true, deletedAt: null },
+          purchase: { deletionGroupId: null, deletedAt: null },
+        });
         return current;
       },
       deleteMany: async ({ where }: { where: { id: string; shopId: string } }) => {

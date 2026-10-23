@@ -49,12 +49,12 @@ export type CustomerPayload = {
   record:
     | (PurchaseProducts & {
         pricingMode: "SPLIT";
-        frameRate: number;
-        lensRate: number;
+        frameRate: number | null;
+        lensRate: number | null;
       })
     | (PurchaseProducts & {
         pricingMode: "MRP_ONLY";
-        mrp: number;
+        mrp: number | null;
       });
 };
 
@@ -115,7 +115,7 @@ export type CustomerRecord = {
   // Amounts returned by Prisma as strings.
   frameRate: string | null;
   lensRate: string | null;
-  mrp: string;
+  mrp: string | null;
 
   // Actual purchase date returned by the backend.
   // This is separate from createdAt.
@@ -124,6 +124,9 @@ export type CustomerRecord = {
   // Database record creation time.
   createdAt: string;
 };
+
+// A purchase creation response can include its exact linked prescription.
+export type CreatedPurchase = CustomerRecord & { prescription?: Prescription | null };
 
 // Small customer summary shown in search results.
 // Multiple customers may share the same mobile number.

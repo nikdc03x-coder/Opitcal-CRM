@@ -1,3 +1,4 @@
+import ResponsiveDialog from "../layout/ResponsiveDialog";
 import { dateOnly, formatDateTime } from "../../utils/dates";
 
 import { useEffect, useRef, useState } from "react";
@@ -8,7 +9,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -158,7 +158,7 @@ export default function OrderDetailsDialog({ orderId, onClose, onUpdated, onRemo
   const allowedStatuses = order ? nextStatuses[order.status] : [];
 
   return (
-    <Dialog open onClose={saving ? undefined : onClose} fullWidth maxWidth="md">
+    <ResponsiveDialog open onClose={saving ? undefined : onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ fontWeight: 700 }}>Order Details</DialogTitle>
 
       <DialogContent dividers>
@@ -396,10 +396,10 @@ export default function OrderDetailsDialog({ orderId, onClose, onUpdated, onRemo
         <Button onClick={reloadOrder} disabled={saving || loading}>
           Reload Order
         </Button>
-        <Button onClick={onClose} disabled={saving}>
+        <Button autoFocus onClick={onClose} disabled={saving}>
           Close
         </Button>
       </DialogActions>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }

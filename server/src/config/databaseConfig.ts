@@ -54,7 +54,12 @@ export function databasePoolConfig(env: Environment = process.env): PoolConfig {
     enableChannelBinding: true,
     max: boundedInteger(env.DB_POOL_MAX, 10, 50, "DB_POOL_MAX"),
     connectionTimeoutMillis: 10000,
-    idleTimeoutMillis: 30000,
+    idleTimeoutMillis: boundedInteger(
+      env.DB_POOL_IDLE_TIMEOUT_MS,
+      120000,
+      600000,
+      "DB_POOL_IDLE_TIMEOUT_MS",
+    ),
     query_timeout: 15000,
     keepAlive: true,
     application_name: "optical-crm",

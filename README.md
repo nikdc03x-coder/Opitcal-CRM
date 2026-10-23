@@ -118,6 +118,8 @@ The server build generates Prisma before compiling. Keep `rewriteRelativeImportE
 
 The audit findings, data-access inventory, security boundaries and verification results are in [docs/neon-session-audit.md](docs/neon-session-audit.md).
 
+The October 2026 CRUD audit has a [complete operation inventory](docs/crud-inventory.md) and an [evidence-based health report](docs/crud-audit-report.md). Its opt-in integration/browser harness uses a separately guarded synthetic database; it is not part of the default mock-based test suite.
+
 ## Production
 
 Build both applications, serve `client/dist` with SPA fallback to `index.html`, and proxy `/api` to the Express server on the same public origin. Set `NODE_ENV=production`, `CLIENT_URL` to the HTTPS frontend origin, `SESSION_SECRET`, both Neon connection variables, and the correct proxy-hop count on the server. Start Express from `server` using `npm start`. Production session cookies require HTTPS. After changing runtime configuration or server code, restart the API process.

@@ -14,6 +14,11 @@ import {
 } from "../validators/orderValidator";
 
 // Staff cannot accidentally reopen completed orders.
+const activeOrder = {
+  customer: { isActive: true, deletedAt: null },
+  purchase: { deletionGroupId: null, deletedAt: null },
+} as const;
+
 const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
   PLACED: ["PROCESSING", "CANCELLED"],
   PROCESSING: ["READY", "CANCELLED"],
@@ -37,6 +42,7 @@ export async function createOrder(input: CreateOrderInput) {
       id: input.customerId,
       shopId,
       isActive: true,
+      deletedAt: null,
     },
     select: { id: true },
   });
@@ -50,6 +56,8 @@ export async function createOrder(input: CreateOrderInput) {
     where: {
       id: input.purchaseRecordId,
       customerId: input.customerId,
+      deletionGroupId: null,
+      deletedAt: null,
     },
     select: { id: true },
   });
@@ -98,6 +106,7 @@ export async function createOrder(input: CreateOrderInput) {
 export async function listOrders(status?: OrderFilter, page = 1, pageSize = 20, search = "") {
   const shopId = await getShopId();
   const where: Prisma.OrderWhereInput = {
+    ...activeOrder,
     shopId,
     ...(status === "ACTIVE" || status === "OVERDUE"
       ? { status: { in: ["PLACED", "PROCESSING", "READY"] } }
@@ -159,11 +168,11 @@ export async function listOrders(status?: OrderFilter, page = 1, pageSize = 20, 
 export async function getEligiblePurchases(customerId: string) {
   const shopId = await getShopId();
   const customer = await prisma.customer.findFirst({
-    where: { id: customerId, shopId, isActive: true },
+    where: { id: customerId, shopId, isActive: true, deletedAt: null },
     select: {
       id: true,
       records: {
-        where: { order: { is: null } },
+        where: { deletionGroupId: null, deletedAt: null, order: { is: null } },
         select: { id: true, specsType: true, lensType: true, mrp: true, purchaseDate: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       },
@@ -177,7 +186,7 @@ export async function getOrderById(id: string, resolvedShopId?: string) {
   const shopId = resolvedShopId ?? (await getShopId());
 
   const order = await prisma.order.findFirst({
-    where: { id, shopId },
+    where: { id, shopId, ...activeOrder },
     include: {
       customer: {
         select: {
@@ -219,7 +228,7 @@ export async function deleteOrder(id: string) {
   return prisma.$transaction(
     async (tx) => {
       const order = await tx.order.findFirst({
-        where: { id, shopId },
+        where: { id, shopId, ...activeOrder },
         select: { id: true },
       });
       if (!order) throw new OrderInputError("Order not found.", 404);
@@ -242,6 +251,7 @@ export async function updateOrderDetails(id: string, input: UpdateOrderInput) {
     where: {
       id,
       shopId,
+      ...activeOrder,
       status: {
         notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
       },
@@ -262,7 +272,7 @@ export async function updateOrderStatus(id: string, input: UpdateOrderStatusInpu
   // Update the order and its history together.
   await prisma.$transaction(async (tx) => {
     const order = await tx.order.findFirst({
-      where: { id, shopId },
+      where: { id, shopId, ...activeOrder },
       select: { id: true, status: true },
     });
 
@@ -286,6 +296,7 @@ export async function updateOrderStatus(id: string, input: UpdateOrderStatusInpu
       where: {
         id,
         shopId,
+        ...activeOrder,
         status: order.status,
       },
       data: {
@@ -315,10 +326,15 @@ export async function updateOrderStatus(id: string, input: UpdateOrderStatusInpu
 export async function getOrderSummary() {
   const shopId = await getShopId();
   const [groups, overdue] = await Promise.all([
-    prisma.order.groupBy({ by: ["status"], where: { shopId }, _count: { _all: true } }),
+    prisma.order.groupBy({
+      by: ["status"],
+      where: { shopId, ...activeOrder },
+      _count: { _all: true },
+    }),
     prisma.order.count({
       where: {
         shopId,
+        ...activeOrder,
         status: {
           in: ["PLACED", "PROCESSING", "READY"],
         },

@@ -47,6 +47,7 @@ import {
 } from "../../utils/analytics";
 import { useAnalyticsQuery } from "./reportStore";
 import { ChartCard, Kpi, ReportState } from "./AnalyticsUi";
+import { chartTooltipStyle } from "./chartStyles";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export default function HistoricalSalesExplorer({
@@ -136,21 +137,18 @@ export default function HistoricalSalesExplorer({
     </TextField>
   );
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2.5}>
       <Box>
-        <Typography variant="h5" sx={{ fontWeight: 750 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
           Historical Sales Explorer
         </Typography>
-        <Typography color="text.secondary">
+        <Typography variant="body2" color="text.secondary">
           Explore recorded years independently of the other reports’ date filters.
         </Typography>
       </Box>
-      <Card variant="outlined" sx={{ borderRadius: 3 }}>
-        <CardContent>
+      <Card variant="outlined" sx={{ borderRadius: 2.5 }}>
+        <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Stack spacing={2}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              Analytics Explorer
-            </Typography>
             <Grid container spacing={2} sx={{ alignItems: "center" }}>
               <Grid size={{ xs: 12, md: 4 }}>
                 <ToggleButtonGroup
@@ -203,7 +201,7 @@ export default function HistoricalSalesExplorer({
                 label="Compare with another year"
               />
               {compare && (
-                <Box sx={{ minWidth: 180 }}>
+                <Box sx={{ minWidth: { xs: 0, sm: 180 }, width: { xs: "100%", sm: "auto" } }}>
                   {yearSelect(
                     "Comparison Year",
                     other.year,
@@ -324,7 +322,10 @@ export default function HistoricalSalesExplorer({
                             <Cell key={row.name} fill={categoryColor(row.name)} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(_, __, item) => analyticsMoney(item.payload?.value)} />
+                        <Tooltip
+                          contentStyle={chartTooltipStyle}
+                          formatter={(_, __, item) => analyticsMoney(item.payload?.value)}
+                        />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
                       </PieChart>
                     </ResponsiveContainer>
@@ -336,7 +337,7 @@ export default function HistoricalSalesExplorer({
             ))}
           </Grid>
         ) : (
-          <Box sx={{ height: { xs: 310, md: 400 }, minWidth: 0 }}>
+          <Box sx={{ height: { xs: 280, md: 340 }, minWidth: 0 }}>
             <ResponsiveContainer>
               {settings.chart === "bar" ? (
                 <BarChart
@@ -347,15 +348,25 @@ export default function HistoricalSalesExplorer({
                   }}
                   margin={{ top: 15, right: 15, left: 5, bottom: 15 }}
                 >
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
+                  <CartesianGrid vertical={false} stroke="#E7EDF5" strokeDasharray="3 4" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11 }}
+                    minTickGap={20}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <YAxis
                     width={80}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11 }}
                     tickFormatter={(value) =>
                       `₹${new Intl.NumberFormat("en-IN", { notation: "compact" }).format(value)}`
                     }
                   />
                   <Tooltip
+                    contentStyle={chartTooltipStyle}
                     cursor={{ fill: "#2563eb0d" }}
                     formatter={(_, name, item) =>
                       analyticsMoney(
@@ -396,15 +407,25 @@ export default function HistoricalSalesExplorer({
                   }}
                   margin={{ top: 15, right: 15, left: 5, bottom: 15 }}
                 >
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
+                  <CartesianGrid vertical={false} stroke="#E7EDF5" strokeDasharray="3 4" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11 }}
+                    minTickGap={20}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <YAxis
                     width={80}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11 }}
                     tickFormatter={(value) =>
                       `₹${new Intl.NumberFormat("en-IN", { notation: "compact" }).format(value)}`
                     }
                   />
                   <Tooltip
+                    contentStyle={chartTooltipStyle}
                     formatter={(_, name, item) =>
                       analyticsMoney(
                         name === String(other?.year) && compare

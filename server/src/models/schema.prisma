@@ -62,6 +62,9 @@ model Customer {
   reference String?
   notes     String? @db.Text
   isActive  Boolean @default(true)
+  // Soft‑delete flag for Trash integration
+  deletedAt DateTime?
+  deletionGroupId String?
 
   // nik - Age is an optional observation, not a date of birth or a current-age estimate.
   ageAtRecording Int?
@@ -90,6 +93,11 @@ model Customer {
 
 // Each customer can have multiple prescriptions.
 model Prescription {
+  // Null for historical or independently created prescriptions. Never infer provenance.
+  createdForPurchaseId String? @unique
+  deletedAt DateTime?
+  deletionGroupId String?
+  @@index([deletionGroupId])
   id         String   @id @default(uuid())
   customerId String
   createdAt  DateTime @default(now())
@@ -180,6 +188,9 @@ model LensCatalog {
 
 // Preserve purchase prices and product snapshots.
 model CustomerRecord {
+  deletedAt DateTime?
+  deletionGroupId String?
+  @@index([deletionGroupId])
   id             String  @id @default(uuid())
   customerId     String
   prescriptionId String?
@@ -197,7 +208,7 @@ model CustomerRecord {
 
   frameRate Decimal? @db.Decimal(12, 2)
   lensRate  Decimal? @db.Decimal(12, 2)
-  mrp       Decimal  @db.Decimal(12, 2)
+  mrp       Decimal? @db.Decimal(12, 2)
 
   // MongoDB migration compatibility.
   legacyMongoId String?
@@ -224,22 +235,58 @@ model CustomerRecord {
   @@index([lensCatalogId])
 }
 
-// 8. SINGLE ADMIN ACCOUNT
+// 8. CRM ACCOUNTS (existing admin IDs and password hashes are preserved)
+enum AccountRole {
+  ADMIN
+  USER
+}
 
-// One admin account for the complete database.
-// The application will always use ID 1.
-// A database constraint will enforce this during migration.
 model Admin {
-  id           Int    @id @default(1)
+  id           Int    @id @default(autoincrement())
   username     String @unique
   passwordHash String
+  email        String? @unique
+  name         String @default("")
+  role         AccountRole @default(ADMIN)
+  isActive     Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   sessions AdminSession[]
+  deletionPin AdminDeletionPin?
+  passwordResets PasswordResetToken[]
 
   @@map("admins")
+}
+
+model PasswordResetToken {
+  id String @id @default(uuid())
+  adminId Int
+  tokenHash String @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  @@index([adminId])
+  @@index([expiresAt])
+}
+
+// Shared email rate limits apply equally to known and unknown addresses.
+model AccountRateLimit {
+  key String @id
+  attempts Int @default(1)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+// Separate confirmation credential. Failed attempts survive restarts and workers.
+model AdminDeletionPin {
+  adminId Int @id
+  pinHash String
+  failedAttempts Int @default(0)
+  lockedUntil DateTime?
+  updatedAt DateTime @updatedAt
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
 }
 
 // 9. ADMIN LOGIN SESSIONS

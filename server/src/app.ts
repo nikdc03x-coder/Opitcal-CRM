@@ -3,6 +3,7 @@ import cors from "cors";
 
 import healthRoutes from "./routes/healthRoutes";
 import authRoutes from "./routes/authRoutes";
+import accountRoutes, { passwordRoutes } from "./routes/accountRoutes";
 import customerRoutes from "./routes/customerRoutes";
 import catalogRoutes from "./routes/catalogRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
@@ -29,7 +30,18 @@ const clientUrl = clientOrigin();
 // Allow the frontend to send session cookies.
 app.use(
   cors({
-    origin: clientUrl,
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        origin === clientUrl ||
+        (process.env.NODE_ENV !== "production" &&
+          /^http:\/\/(localhost|127\.0\.0\.1):517[3-9]$/.test(origin))
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS blocked"));
+      }
+    },
     credentials: true,
   }),
 );
@@ -46,6 +58,8 @@ app.use("/api/health", healthRoutes);
 
 // Login, logout and current Admin session.
 app.use("/api/auth", authRoutes);
+app.use("/api/auth", passwordRoutes);
+app.use("/api/settings", accountRoutes);
 
 // Dashboard statistics require Admin access.
 app.use("/api/dashboard", requireAdmin, dashboardRoutes);

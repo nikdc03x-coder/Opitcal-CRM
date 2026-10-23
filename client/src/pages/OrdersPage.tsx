@@ -378,7 +378,7 @@ export default function OrdersPage() {
             </Typography>
           </Box>
 
-          <Stack direction="row" spacing={1}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
             <Button
               variant="outlined"
               startIcon={<RefreshOutlined />}
@@ -803,7 +803,7 @@ export default function OrdersPage() {
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button disabled={busyOrderId !== null} onClick={() => setConfirmRemoval(null)}>
+          <Button autoFocus disabled={busyOrderId !== null} onClick={() => setConfirmRemoval(null)}>
             Keep Order
           </Button>
           <Button
@@ -835,7 +835,11 @@ export default function OrdersPage() {
         </DialogContent>
 
         <DialogActions sx={{ p: 2 }}>
-          <Button disabled={busyOrderId !== null} onClick={() => setConfirmDelivery(null)}>
+          <Button
+            autoFocus
+            disabled={busyOrderId !== null}
+            onClick={() => setConfirmDelivery(null)}
+          >
             Cancel
           </Button>
 

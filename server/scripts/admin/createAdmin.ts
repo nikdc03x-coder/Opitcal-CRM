@@ -39,7 +39,6 @@ async function main() {
 
     await prisma.admin.create({
       data: {
-        id: 1,
         username,
         passwordHash,
       },

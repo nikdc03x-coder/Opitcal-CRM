@@ -16,7 +16,35 @@ import {
   listLenses,
   createLens,
   updateLens,
+  deleteFrame,
+  deleteLens,
 } from "../services/catalogService";
+
+export async function removeFrame(req: Request, res: Response) {
+  const id = catalogIdSchema.safeParse(req.params.id);
+  if (!id.success) {
+    res.status(400).json({ success: false, message: "Invalid frame ID." });
+    return;
+  }
+  if (!(await deleteFrame(id.data))) {
+    res.status(404).json({ success: false, message: "Frame not found." });
+    return;
+  }
+  res.json({ success: true, message: "Frame deleted successfully.", data: { id: id.data } });
+}
+
+export async function removeLens(req: Request, res: Response) {
+  const id = catalogIdSchema.safeParse(req.params.id);
+  if (!id.success) {
+    res.status(400).json({ success: false, message: "Invalid lens ID." });
+    return;
+  }
+  if (!(await deleteLens(id.data))) {
+    res.status(404).json({ success: false, message: "Lens not found." });
+    return;
+  }
+  res.json({ success: true, message: "Lens deleted successfully.", data: { id: id.data } });
+}
 
 // Keep response formatting consistent with
 // the existing customer controllers.
