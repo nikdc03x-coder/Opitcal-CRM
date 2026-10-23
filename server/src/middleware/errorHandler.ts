@@ -22,6 +22,11 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
     return;
   }
 
+  if (error instanceof Error && error.message === "CORS blocked") {
+    res.status(403).json({ success: false, message: "Untrusted request origin." });
+    return;
+  }
+
   const isHttpError =
     error instanceof HttpError ||
     (typeof error === "object" &&

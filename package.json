@@ -4,9 +4,11 @@
   "version": "1.0.0",
   "description": "Optical CRM workspace tooling",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=20"
   },
   "scripts": {
+    "start": "node server/dist/server.js",
+    "db:migrate": "npm --prefix server run db:migrate",
     "dev": "concurrently -n \"server,client\" -c \"blue,cyan\" \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "npm --prefix client run dev",
     "dev:server": "npm --prefix server run dev",

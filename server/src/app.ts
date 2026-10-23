@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import fs from "node:fs";
+import path from "node:path";
 
 import healthRoutes from "./routes/healthRoutes";
 import authRoutes from "./routes/authRoutes";
@@ -77,12 +79,28 @@ app.use("/api/catalog", requireAdmin, catalogRoutes);
 app.use("/api/orders", requireAdmin, orderRoutes);
 
 // Handle unknown API routes.
-app.use((_req, res) => {
+app.use("/api", (_req, res) => {
   res.status(404).json({
     success: false,
     message: "API route not found.",
   });
 });
+
+// Serve frontend static build in production if available.
+const clientDist = process.env.CLIENT_DIST_PATH || path.resolve(__dirname, "../../client/dist");
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.use((_req, res) => {
+    res.sendFile(path.join(clientDist, "index.html"));
+  });
+} else {
+  app.use((_req, res) => {
+    res.status(404).json({
+      success: false,
+      message: "API route not found.",
+    });
+  });
+}
 
 // Keep error handling last.
 app.use(errorHandler);
