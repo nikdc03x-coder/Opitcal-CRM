@@ -53,14 +53,24 @@ export function databasePoolConfig(env: Environment = process.env): PoolConfig {
     ssl: { rejectUnauthorized: true },
     enableChannelBinding: true,
     max: boundedInteger(env.DB_POOL_MAX, 10, 50, "DB_POOL_MAX"),
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: boundedInteger(
+      env.DB_POOL_CONNECT_TIMEOUT_MS,
+      10000,
+      60000,
+      "DB_POOL_CONNECT_TIMEOUT_MS",
+    ),
     idleTimeoutMillis: boundedInteger(
       env.DB_POOL_IDLE_TIMEOUT_MS,
       120000,
       600000,
       "DB_POOL_IDLE_TIMEOUT_MS",
     ),
-    query_timeout: 15000,
+    query_timeout: boundedInteger(
+      env.DB_POOL_QUERY_TIMEOUT_MS,
+      15000,
+      60000,
+      "DB_POOL_QUERY_TIMEOUT_MS",
+    ),
     keepAlive: true,
     application_name: "optical-crm",
   };

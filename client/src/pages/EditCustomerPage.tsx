@@ -16,6 +16,7 @@ import {
   Card,
   CardContent,
   CircularProgress,
+  Divider,
   Paper,
   Table,
   TableBody,
@@ -27,6 +28,8 @@ import {
   MenuItem,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import SaveOutlined from "@mui/icons-material/SaveOutlined";
@@ -161,6 +164,14 @@ function prescriptionFrom(p: Prescription): PrescriptionForm {
 function validMoney(value: string): boolean {
   return /^\d+(\.\d{1,2})?$/.test(value) && Number(value) <= 9999999999.99;
 }
+function money(value: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 // Convert editable strings into the API prescription format.
 // Empty fields become null so staff can clear old measurements.
 function buildPrescription(form: PrescriptionForm): EditablePrescription {
@@ -226,6 +237,26 @@ export default function EditCustomerPage() {
   const [lenses, setLenses] = useState<LensProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
+
+  const hasFrame = purchase ? Boolean(purchase.specsType.trim() || purchase.frameCatalogId) : false;
+  const hasLens = purchase ? Boolean(purchase.lensType.trim() || purchase.lensCatalogId) : false;
+
+  const splitRatesValid = purchase
+    ? (!hasFrame || (purchase.frameRate.trim() !== "" && validMoney(purchase.frameRate))) &&
+      (!hasLens || (purchase.lensRate.trim() !== "" && validMoney(purchase.lensRate)))
+    : false;
+
+  const total = purchase
+    ? purchase.pricingMode === "SPLIT"
+      ? splitRatesValid && (hasFrame || hasLens)
+        ? (Math.round((hasFrame ? Number(purchase.frameRate) : 0) * 100) +
+            Math.round((hasLens ? Number(purchase.lensRate) : 0) * 100)) /
+          100
+        : null
+      : purchase.mrp.trim() !== "" && validMoney(purchase.mrp)
+        ? Number(purchase.mrp)
+        : null
+    : null;
 
   useEffect(() => {
     let mounted = true;
@@ -475,20 +506,36 @@ export default function EditCustomerPage() {
         : {}),
     };
     const isSplit = purchase.pricingMode === "SPLIT";
-    if (
-      isSplit
-        ? !validMoney(purchase.frameRate) || !validMoney(purchase.lensRate)
-        : !validMoney(purchase.mrp)
-    ) {
-      setError("Enter valid prices with at most 2 decimal places.");
+    const hasFrame = Boolean(purchase.specsType.trim() || purchase.frameCatalogId);
+    const hasLens = Boolean(purchase.lensType.trim() || purchase.lensCatalogId);
+
+    if (!hasFrame && !hasLens) {
+      setError("Select at least a frame or a lens for this purchase.");
       return;
     }
+
+    if (isSplit) {
+      if (hasFrame && (!validMoney(purchase.frameRate) || purchase.frameRate.trim() === "")) {
+        setError("Enter a valid frame price (maximum 2 decimals).");
+        return;
+      }
+      if (hasLens && (!validMoney(purchase.lensRate) || purchase.lensRate.trim() === "")) {
+        setError("Enter a valid lens price (maximum 2 decimals).");
+        return;
+      }
+    } else {
+      if (!validMoney(purchase.mrp) || purchase.mrp.trim() === "") {
+        setError("Enter a valid total MRP (maximum 2 decimals).");
+        return;
+      }
+    }
+
     const record = isSplit
       ? {
           ...common,
           pricingMode: "SPLIT" as const,
-          frameRate: Number(purchase.frameRate),
-          lensRate: Number(purchase.lensRate),
+          frameRate: hasFrame ? Number(purchase.frameRate) : 0,
+          lensRate: hasLens ? Number(purchase.lensRate) : 0,
         }
       : {
           ...common,
@@ -904,17 +951,13 @@ export default function EditCustomerPage() {
                     <Chip
                       size="small"
                       variant="outlined"
-                      color={
-                        purchase.specsType.trim() && purchase.lensType.trim()
-                          ? "primary"
-                          : "default"
-                      }
+                      color={hasFrame || hasLens ? "primary" : "default"}
                       label={
-                        purchase.specsType.trim() && purchase.lensType.trim()
+                        hasFrame && hasLens
                           ? "Frame + Lens"
-                          : purchase.specsType.trim()
+                          : hasFrame
                             ? "Frame Only"
-                            : purchase.lensType.trim()
+                            : hasLens
                               ? "Lens Only"
                               : "Not Specified"
                       }
@@ -1038,66 +1081,118 @@ export default function EditCustomerPage() {
                           )}
                         />
                       </Grid>
-                      <Grid size={{ xs: 12, md: 6 }}>
-                        <TextField
-                          select
-                          fullWidth
-                          label="Pricing Mode"
+                      <Grid size={12}>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                          Pricing Details
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                          Choose how the purchase price is entered.
+                        </Typography>
+                        <ToggleButtonGroup
+                          exclusive
+                          color="primary"
+                          size="small"
                           value={purchase.pricingMode}
-                          onChange={(e) => editPurchase("pricingMode", e.target.value)}
+                          disabled={Boolean(saving)}
+                          onChange={(_, next) => {
+                            if (next === "SPLIT" || next === "MRP_ONLY") {
+                              editPurchase("pricingMode", next);
+                            }
+                          }}
+                          sx={{ mb: 2, flexWrap: "wrap" }}
                         >
-                          <MenuItem value="SPLIT">Separate Frame / Lens Rates</MenuItem>
-                          <MenuItem value="MRP_ONLY">MRP Only</MenuItem>
-                        </TextField>
+                          <ToggleButton value="SPLIT">Separate Rates</ToggleButton>
+                          <ToggleButton value="MRP_ONLY">Total MRP Only</ToggleButton>
+                        </ToggleButtonGroup>
                       </Grid>
                       {purchase.pricingMode === "SPLIT" ? (
                         <>
-                          <Grid size={{ xs: 12, md: 6 }}>
-                            <TextField
-                              fullWidth
-                              label="Frame Rate (₹)"
-                              value={purchase.frameRate}
-                              onChange={(e) => editPurchase("frameRate", e.target.value)}
-                              slotProps={{
-                                htmlInput: { inputMode: "decimal" },
-                              }}
-                            />
-                          </Grid>
-                          <Grid size={{ xs: 12, md: 6 }}>
-                            <TextField
-                              fullWidth
-                              label="Lens Rate (₹)"
-                              value={purchase.lensRate}
-                              onChange={(e) => editPurchase("lensRate", e.target.value)}
-                              slotProps={{
-                                htmlInput: { inputMode: "decimal" },
-                              }}
-                            />
-                          </Grid>
-                          <Grid size={12}>
-                            <Alert severity="info">
-                              Calculated MRP: ₹
-                              {validMoney(purchase.frameRate) && validMoney(purchase.lensRate)
-                                ? (Number(purchase.frameRate) + Number(purchase.lensRate)).toFixed(
-                                    2,
-                                  )
-                                : "—"}
-                            </Alert>
-                          </Grid>
+                          {!hasFrame && !hasLens && (
+                            <Grid size={12}>
+                              <Alert severity="info">
+                                Select a frame or lens above to enter its price.
+                              </Alert>
+                            </Grid>
+                          )}
+                          {hasFrame && (
+                            <Grid size={{ xs: 12, sm: hasLens ? 6 : 12 }}>
+                              <TextField
+                                fullWidth
+                                required
+                                label="Frame MRP (₹)"
+                                value={purchase.frameRate}
+                                onChange={(e) => editPurchase("frameRate", e.target.value)}
+                                disabled={Boolean(saving)}
+                                slotProps={{
+                                  htmlInput: { inputMode: "decimal" },
+                                }}
+                              />
+                            </Grid>
+                          )}
+                          {hasLens && (
+                            <Grid size={{ xs: 12, sm: hasFrame ? 6 : 12 }}>
+                              <TextField
+                                fullWidth
+                                required
+                                label="Lens MRP (₹)"
+                                value={purchase.lensRate}
+                                onChange={(e) => editPurchase("lensRate", e.target.value)}
+                                disabled={Boolean(saving)}
+                                slotProps={{
+                                  htmlInput: { inputMode: "decimal" },
+                                }}
+                              />
+                            </Grid>
+                          )}
                         </>
                       ) : (
-                        <Grid size={{ xs: 12, md: 6 }}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
                           <TextField
                             fullWidth
+                            required
                             label="Total MRP (₹)"
                             value={purchase.mrp}
                             onChange={(e) => editPurchase("mrp", e.target.value)}
+                            disabled={Boolean(saving)}
                             slotProps={{
                               htmlInput: { inputMode: "decimal" },
                             }}
                           />
                         </Grid>
                       )}
+                      <Grid size={12}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 2,
+                            borderRadius: 2,
+                            bgcolor: "action.hover",
+                          }}
+                        >
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={1}
+                            sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
+                          >
+                            <Box>
+                              <Typography variant="body2" color="text.secondary">
+                                {purchase.pricingMode === "SPLIT"
+                                  ? "Calculated Total MRP"
+                                  : "Purchase Total MRP"}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {purchase.pricingMode === "SPLIT"
+                                  ? "Only selected products are included."
+                                  : "Total entered for this purchase."}
+                              </Typography>
+                            </Box>
+                            <Typography variant="h5" color="primary" sx={{ fontWeight: 800 }}>
+                              {total === null ? "₹ —" : money(total)}
+                            </Typography>
+                          </Stack>
+                        </Paper>
+                      </Grid>
                     </Grid>
                     <Button
                       variant="contained"

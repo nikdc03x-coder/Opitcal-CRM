@@ -254,6 +254,47 @@ function ClinicalPrescriptionTable({
   const reAdd = calculateAdd(prescription.reNearSph, prescription.reDistSph);
   const leAdd = calculateAdd(prescription.leNearSph, prescription.leDistSph);
 
+  const eyes = [
+    {
+      code: "OD",
+      name: "Right Eye",
+      alt: "RE",
+      color: "#1D4ED8",
+      bgColor: "#EFF6FF",
+      borderColor: "#BFDBFE",
+      dist: {
+        sph: prescription.reDistSph,
+        cyl: prescription.reDistCyl,
+        axis: prescription.reDistAxis,
+      },
+      near: {
+        sph: prescription.reNearSph,
+        cyl: prescription.reNearCyl,
+        axis: prescription.reNearAxis,
+        add: reAdd ?? "—",
+      },
+    },
+    {
+      code: "OS",
+      name: "Left Eye",
+      alt: "LE",
+      color: "#047857",
+      bgColor: "#ECFDF5",
+      borderColor: "#A7F3D0",
+      dist: {
+        sph: prescription.leDistSph,
+        cyl: prescription.leDistCyl,
+        axis: prescription.leDistAxis,
+      },
+      near: {
+        sph: prescription.leNearSph,
+        cyl: prescription.leNearCyl,
+        axis: prescription.leNearAxis,
+        add: leAdd ?? "—",
+      },
+    },
+  ];
+
   const rows = [
     {
       eye: "OD",
@@ -302,137 +343,523 @@ function ClinicalPrescriptionTable({
   ];
 
   return (
-    <TableContainer
-      component={Paper}
-      variant="outlined"
-      sx={{
-        borderRadius: 2,
-        overflowX: "auto",
-        border: "1px solid",
-        borderColor: "divider",
-      }}
-    >
-      <Table
-        size="small"
-        sx={{
-          minWidth: compact ? 420 : 540,
-          "& th": {
-            bgcolor: "action.hover",
-            fontWeight: 700,
-            fontSize: "0.78rem",
-            color: "text.secondary",
-            letterSpacing: "0.03em",
-            py: compact ? 1 : 1.25,
-          },
-          "& td": {
-            py: compact ? 1 : 1.25,
-            fontSize: "0.88rem",
-          },
-        }}
-      >
-        <TableHead>
-          <TableRow>
-            <TableCell sx={{ minWidth: 90 }}>Eye</TableCell>
-            <TableCell sx={{ minWidth: 120 }}>Vision Type</TableCell>
-            <TableCell align="center" sx={{ minWidth: 80 }}>
-              SPH
-            </TableCell>
-            <TableCell align="center" sx={{ minWidth: 80 }}>
-              CYL
-            </TableCell>
-            <TableCell align="center" sx={{ minWidth: 80 }}>
-              AXIS
-            </TableCell>
-            <TableCell align="center" sx={{ minWidth: 90 }}>
-              ADD
-            </TableCell>
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {rows.map((row, idx) => (
-            <TableRow
-              key={`${row.eye}-${row.vision}`}
+    <>
+      {/* Mobile Card / Grid Layout (Phones & small screens: xs only, no horizontal scroll) */}
+      <Box sx={{ display: { xs: "block", sm: "none" } }}>
+        <Stack spacing={compact ? 1.25 : 1.5}>
+          {eyes.map((eye) => (
+            <Paper
+              key={eye.code}
+              variant="outlined"
               sx={{
-                bgcolor:
-                  idx === 0 || idx === 1 ? "rgba(37, 99, 235, 0.02)" : "rgba(5, 150, 105, 0.02)",
-                "&:hover": { bgcolor: "action.hover" },
-                borderBottom: idx === 1 ? "2px solid" : undefined,
-                borderColor: idx === 1 ? "divider" : undefined,
+                borderRadius: 2,
+                overflow: "hidden",
+                border: "1px solid",
+                borderColor: eye.borderColor,
+                bgcolor: "background.paper",
               }}
             >
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={row.eye}
-                  sx={{
-                    fontWeight: 800,
-                    fontSize: "0.75rem",
-                    bgcolor: row.bgColor,
-                    color: row.color,
-                    border: `1px solid ${row.color}`,
-                    mr: 0.75,
-                  }}
-                />
-                {!compact && (
-                  <Typography component="span" variant="caption" color="text.secondary">
-                    {row.eyeName}
-                  </Typography>
-                )}
-              </TableCell>
-
-              <TableCell>
-                <Typography sx={{ fontWeight: 600, fontSize: "0.85rem" }}>{row.vision}</Typography>
-              </TableCell>
-
-              <TableCell
-                align="center"
-                sx={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.92rem" }}
+              {/* Eye Header Ribbon */}
+              <Box
+                sx={{
+                  px: compact ? 1.25 : 1.5,
+                  py: compact ? 0.75 : 1,
+                  bgcolor: eye.bgColor,
+                  borderBottom: "1px solid",
+                  borderColor: eye.borderColor,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1,
+                }}
               >
-                {formatPower(row.sph)}
-              </TableCell>
-
-              <TableCell
-                align="center"
-                sx={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.92rem" }}
-              >
-                {formatPower(row.cyl)}
-              </TableCell>
-
-              <TableCell
-                align="center"
-                sx={{ fontWeight: 600, fontFamily: "monospace", fontSize: "0.92rem" }}
-              >
-                {row.axis !== null && row.axis !== undefined && row.axis !== 0
-                  ? `${row.axis}°`
-                  : display(row.axis)}
-              </TableCell>
-
-              <TableCell align="center">
-                {row.add !== "—" ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
                   <Chip
                     size="small"
-                    label={row.add}
+                    label={eye.code}
                     sx={{
-                      fontWeight: 700,
+                      fontWeight: 800,
                       fontSize: "0.75rem",
-                      bgcolor: "primary.50",
-                      color: "primary.main",
-                      border: "1px solid",
-                      borderColor: "primary.200",
+                      bgcolor: eye.bgColor,
+                      color: eye.color,
+                      border: `1px solid ${eye.color}`,
+                      height: 22,
                     }}
                   />
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    —
+                  <Typography
+                    variant="subtitle2"
+                    sx={{
+                      fontWeight: 750,
+                      color: "text.primary",
+                      fontSize: "0.85rem",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {eye.name} ({eye.alt})
                   </Typography>
-                )}
+                </Box>
+              </Box>
+
+              {/* Measurements Container */}
+              <Box sx={{ p: compact ? 1.25 : 1.5 }}>
+                {/* Distance Vision (DV) */}
+                <Box sx={{ mb: compact ? 1.25 : 1.5 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontWeight: 750,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      color: "text.secondary",
+                      fontSize: "0.7rem",
+                      display: "block",
+                      mb: 0.75,
+                    }}
+                  >
+                    Distance Vision (DV)
+                  </Typography>
+
+                  <Grid container spacing={0.75}>
+                    <Grid size={{ xs: 4 }}>
+                      <Box
+                        sx={{
+                          p: compact ? 0.75 : 1,
+                          borderRadius: 1.5,
+                          bgcolor: "action.hover",
+                          textAlign: "center",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "block",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "text.secondary",
+                            letterSpacing: "0.03em",
+                            lineHeight: 1.2,
+                            mb: 0.25,
+                          }}
+                        >
+                          SPH
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            fontSize: compact ? "0.88rem" : "0.92rem",
+                            color: "text.primary",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {formatPower(eye.dist.sph)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 4 }}>
+                      <Box
+                        sx={{
+                          p: compact ? 0.75 : 1,
+                          borderRadius: 1.5,
+                          bgcolor: "action.hover",
+                          textAlign: "center",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "block",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "text.secondary",
+                            letterSpacing: "0.03em",
+                            lineHeight: 1.2,
+                            mb: 0.25,
+                          }}
+                        >
+                          CYL
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            fontSize: compact ? "0.88rem" : "0.92rem",
+                            color: "text.primary",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {formatPower(eye.dist.cyl)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 4 }}>
+                      <Box
+                        sx={{
+                          p: compact ? 0.75 : 1,
+                          borderRadius: 1.5,
+                          bgcolor: "action.hover",
+                          textAlign: "center",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "block",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "text.secondary",
+                            letterSpacing: "0.03em",
+                            lineHeight: 1.2,
+                            mb: 0.25,
+                          }}
+                        >
+                          AXIS
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 650,
+                            fontSize: compact ? "0.88rem" : "0.92rem",
+                            color: "text.primary",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {eye.dist.axis !== null &&
+                          eye.dist.axis !== undefined &&
+                          eye.dist.axis !== 0
+                            ? `${eye.dist.axis}°`
+                            : display(eye.dist.axis)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Box>
+
+                <Divider sx={{ my: compact ? 1 : 1.25, borderStyle: "dashed" }} />
+
+                {/* Near Vision (NV) */}
+                <Box>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      mb: 0.75,
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontWeight: 750,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                        color: "text.secondary",
+                        fontSize: "0.7rem",
+                      }}
+                    >
+                      Near Vision (NV)
+                    </Typography>
+
+                    {eye.near.add !== "—" ? (
+                      <Chip
+                        size="small"
+                        label={`Add: ${eye.near.add}`}
+                        sx={{
+                          fontWeight: 750,
+                          fontSize: "0.72rem",
+                          height: 20,
+                          bgcolor: "primary.50",
+                          color: "primary.main",
+                          border: "1px solid",
+                          borderColor: "primary.200",
+                        }}
+                      />
+                    ) : (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontSize: "0.7rem" }}
+                      >
+                        Add: —
+                      </Typography>
+                    )}
+                  </Box>
+
+                  <Grid container spacing={0.75}>
+                    <Grid size={{ xs: 4 }}>
+                      <Box
+                        sx={{
+                          p: compact ? 0.75 : 1,
+                          borderRadius: 1.5,
+                          bgcolor: "action.hover",
+                          textAlign: "center",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "block",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "text.secondary",
+                            letterSpacing: "0.03em",
+                            lineHeight: 1.2,
+                            mb: 0.25,
+                          }}
+                        >
+                          SPH
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            fontSize: compact ? "0.88rem" : "0.92rem",
+                            color: "text.primary",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {formatPower(eye.near.sph)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 4 }}>
+                      <Box
+                        sx={{
+                          p: compact ? 0.75 : 1,
+                          borderRadius: 1.5,
+                          bgcolor: "action.hover",
+                          textAlign: "center",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "block",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "text.secondary",
+                            letterSpacing: "0.03em",
+                            lineHeight: 1.2,
+                            mb: 0.25,
+                          }}
+                        >
+                          CYL
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            fontSize: compact ? "0.88rem" : "0.92rem",
+                            color: "text.primary",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {formatPower(eye.near.cyl)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 4 }}>
+                      <Box
+                        sx={{
+                          p: compact ? 0.75 : 1,
+                          borderRadius: 1.5,
+                          bgcolor: "action.hover",
+                          textAlign: "center",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "block",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "text.secondary",
+                            letterSpacing: "0.03em",
+                            lineHeight: 1.2,
+                            mb: 0.25,
+                          }}
+                        >
+                          AXIS
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 650,
+                            fontSize: compact ? "0.88rem" : "0.92rem",
+                            color: "text.primary",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {eye.near.axis !== null &&
+                          eye.near.axis !== undefined &&
+                          eye.near.axis !== 0
+                            ? `${eye.near.axis}°`
+                            : display(eye.near.axis)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Box>
+              </Box>
+            </Paper>
+          ))}
+        </Stack>
+      </Box>
+
+      {/* Desktop / Tablet Table Layout (Unchanged for sm and up) */}
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        sx={{
+          display: { xs: "none", sm: "block" },
+          borderRadius: 2,
+          overflowX: "auto",
+          border: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Table
+          size="small"
+          sx={{
+            minWidth: compact ? 420 : 540,
+            "& th": {
+              bgcolor: "action.hover",
+              fontWeight: 700,
+              fontSize: "0.78rem",
+              color: "text.secondary",
+              letterSpacing: "0.03em",
+              py: compact ? 1 : 1.25,
+            },
+            "& td": {
+              py: compact ? 1 : 1.25,
+              fontSize: "0.88rem",
+            },
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ minWidth: 90 }}>Eye</TableCell>
+              <TableCell sx={{ minWidth: 120 }}>Vision Type</TableCell>
+              <TableCell align="center" sx={{ minWidth: 80 }}>
+                SPH
+              </TableCell>
+              <TableCell align="center" sx={{ minWidth: 80 }}>
+                CYL
+              </TableCell>
+              <TableCell align="center" sx={{ minWidth: 80 }}>
+                AXIS
+              </TableCell>
+              <TableCell align="center" sx={{ minWidth: 90 }}>
+                ADD
               </TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+          </TableHead>
+
+          <TableBody>
+            {rows.map((row, idx) => (
+              <TableRow
+                key={`${row.eye}-${row.vision}`}
+                sx={{
+                  bgcolor:
+                    idx === 0 || idx === 1 ? "rgba(37, 99, 235, 0.02)" : "rgba(5, 150, 105, 0.02)",
+                  "&:hover": { bgcolor: "action.hover" },
+                  borderBottom: idx === 1 ? "2px solid" : undefined,
+                  borderColor: idx === 1 ? "divider" : undefined,
+                }}
+              >
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={row.eye}
+                    sx={{
+                      fontWeight: 800,
+                      fontSize: "0.75rem",
+                      bgcolor: row.bgColor,
+                      color: row.color,
+                      border: `1px solid ${row.color}`,
+                      mr: 0.75,
+                    }}
+                  />
+                  {!compact && (
+                    <Typography component="span" variant="caption" color="text.secondary">
+                      {row.eyeName}
+                    </Typography>
+                  )}
+                </TableCell>
+
+                <TableCell>
+                  <Typography sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                    {row.vision}
+                  </Typography>
+                </TableCell>
+
+                <TableCell
+                  align="center"
+                  sx={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.92rem" }}
+                >
+                  {formatPower(row.sph)}
+                </TableCell>
+
+                <TableCell
+                  align="center"
+                  sx={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.92rem" }}
+                >
+                  {formatPower(row.cyl)}
+                </TableCell>
+
+                <TableCell
+                  align="center"
+                  sx={{ fontWeight: 600, fontFamily: "monospace", fontSize: "0.92rem" }}
+                >
+                  {row.axis !== null && row.axis !== undefined && row.axis !== 0
+                    ? `${row.axis}°`
+                    : display(row.axis)}
+                </TableCell>
+
+                <TableCell align="center">
+                  {row.add !== "—" ? (
+                    <Chip
+                      size="small"
+                      label={row.add}
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: "0.75rem",
+                        bgcolor: "primary.50",
+                        color: "primary.main",
+                        border: "1px solid",
+                        borderColor: "primary.200",
+                      }}
+                    />
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      —
+                    </Typography>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </>
   );
 }
 

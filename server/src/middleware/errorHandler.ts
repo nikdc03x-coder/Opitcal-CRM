@@ -12,8 +12,28 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
     return;
   }
 
-  if (error instanceof HttpError) {
-    res.status(error.statusCode).json({ success: false, message: error.message });
+  if (error?.type === "entity.parse.failed") {
+    res.status(400).json({ success: false, message: "Invalid JSON body." });
+    return;
+  }
+
+  if (error?.type === "entity.too.large") {
+    res.status(413).json({ success: false, message: "Request body is too large." });
+    return;
+  }
+
+  const isHttpError =
+    error instanceof HttpError ||
+    (typeof error === "object" &&
+      error !== null &&
+      ("statusCode" in error || "status" in error) &&
+      ((error as any).name === "HttpError" ||
+        (error as any).name === "OrderInputError" ||
+        (error as any).name === "CatalogSelectionError"));
+
+  if (isHttpError) {
+    const statusCode = (error as any).statusCode ?? (error as any).status ?? 400;
+    res.status(statusCode).json({ success: false, message: (error as any).message });
     return;
   }
 
@@ -54,31 +74,37 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
     }
   }
 
-  if (error?.type === "entity.parse.failed") {
-    res.status(400).json({ success: false, message: "Invalid JSON body." });
-    return;
-  }
-
-  if (error?.type === "entity.too.large") {
-    res.status(413).json({ success: false, message: "Request body is too large." });
-    return;
-  }
-
   logError("API request failed", error);
 
-  if (
-    [
-      "P1001",
-      "P1002",
-      "P1008",
-      "P1017",
-      "P2024",
-      "ECONNREFUSED",
-      "ECONNRESET",
-      "ETIMEDOUT",
-      "ENOTFOUND",
-    ].includes(error?.code)
-  ) {
+  const dbCode =
+    typeof error === "object" && error !== null
+      ? ((error as any).code ??
+        (error as any).errorCode ??
+        (typeof (error as any).cause === "object" && (error as any).cause !== null
+          ? (error as any).cause.code
+          : undefined))
+      : undefined;
+
+  const isDbUnavailable =
+    (typeof dbCode === "string" &&
+      [
+        "P1000",
+        "P1001",
+        "P1002",
+        "P1008",
+        "P1017",
+        "P2024",
+        "ECONNREFUSED",
+        "ECONNRESET",
+        "ETIMEDOUT",
+        "ENOTFOUND",
+      ].includes(dbCode)) ||
+    (error instanceof Error &&
+      /timeout exceeded when trying to connect|connection terminated unexpectedly|connection timeout/i.test(
+        error.message,
+      ));
+
+  if (isDbUnavailable) {
     res.status(503).json({
       success: false,
       message: "The database is temporarily unavailable. Please try again.",
