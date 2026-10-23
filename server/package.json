@@ -1,0 +1,52 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Optical CRM API",
+  "private": true,
+  "main": "dist/server.js",
+  "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "test:build": "node --test tests/build.test.cjs",
+    "dev": "tsx watch src/server.ts",
+    "build": "node scripts/build/clean.cjs && npm run db:generate && tsc",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.tools.json",
+    "start": "node dist/server.js",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:audit": "tsx scripts/database/auditDatabase.ts",
+    "db:locks": "tsx scripts/database/check-db-lock.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "admin:create": "tsx scripts/admin/createAdmin.ts",
+    "admin:reset": "tsx scripts/admin/resetAdmin.ts",
+    "admin:sessions": "tsx scripts/admin/checkAdminSession.ts",
+    "admin:revoke": "tsx scripts/admin/revokeAdminSessions.ts",
+    "admin:pin": "tsx scripts/admin/setDeletionPin.ts",
+    "email:check": "tsx scripts/admin/checkEmailConfig.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "nodemailer": "^10.2.1",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "prisma": "^7.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

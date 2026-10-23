@@ -1,0 +1,28 @@
+{
+  "name": "optical-crm",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Optical CRM workspace tooling",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/dist/server.js",
+    "db:migrate": "npm --prefix server run db:migrate",
+    "dev": "concurrently -n \"server,client\" -c \"blue,cyan\" \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "test": "npm --prefix server test",
+    "typecheck": "npm --prefix server run typecheck",
+    "lint": "npm --prefix client run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm --prefix server run test:build && npm --prefix server run db:validate",
+    "package:source": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-clean.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "prettier": "3.9.10"
+  }
+}

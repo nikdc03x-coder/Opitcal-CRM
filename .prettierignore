@@ -1,0 +1,16 @@
+**/node_modules/**
+**/dist/**
+**/generated/**
+**/.agents/**
+**/.claude/**
+**/.windsurf/**
+**/skills-lock.json
+**/package-lock.json
+**/*.tsbuildinfo
+**/*.prisma
+**/*.sql
+artifacts/
+.env
+.env.*
+**/.env
+**/.env.*

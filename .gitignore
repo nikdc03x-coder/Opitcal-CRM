@@ -1,8 +1,32 @@
 node_modules/
 dist/
+dist-ssr/
+coverage/
+server/src/generated/
+/artifacts/
+
+# Environment values and local tooling are never source artifacts.
 .env
 .env.*
 !.env.example
+*.local
 *.log
-coverage/
+*.tsbuildinfo
+*.bak
+*.zip
 .DS_Store
+**/.neon
+server/.agents/
+server/.claude/
+server/.windsurf/
+server/skills-lock.json
+
+# Editor-specific state
+**/.vscode/*
+!**/.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
