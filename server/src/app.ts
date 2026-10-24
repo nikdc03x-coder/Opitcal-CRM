@@ -13,6 +13,7 @@ import analyticsRoutes from "./routes/analyticsRoutes";
 
 // New manual spectacle order tracking endpoints.
 import orderRoutes from "./routes/orderRoutes";
+import reminderRoutes from "./routes/reminderRoutes";
 
 import { requireAdmin } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
@@ -77,6 +78,9 @@ app.use("/api/catalog", requireAdmin, catalogRoutes);
 
 // Only authenticated admins can manage spectacle orders.
 app.use("/api/orders", requireAdmin, orderRoutes);
+
+// WhatsApp Eye-Checkup Reminders (contains public webhook/cron and authenticated endpoints)
+app.use("/api/reminders", reminderRoutes);
 
 // Handle unknown API routes.
 app.use("/api", (_req, res) => {
