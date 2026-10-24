@@ -123,7 +123,7 @@ export const DEFAULT_REMINDER_TEMPLATES = [
     stepNumber: 1,
     title: "Initial 6-Month Reminder",
     bodyText:
-      "Hello {{customerName}}, greetings from {{shopName}}! It has been 6 months since your last eye checkup on {{purchaseDate}}. We recommend an eye-checkup to ensure your vision and spectacles remain comfortable and clear. Visit us this week for a complimentary vision check!",
+      "Hello {{customerName}}, greetings from {{shopName}} It has been 6 months since your last eye checkup on {{purchaseDate}}. We recommend an eye-checkup to ensure your vision and spectacles remain comfortable and clear. Visit us this week for a complimentary vision check!",
   },
   {
     stepNumber: 2,

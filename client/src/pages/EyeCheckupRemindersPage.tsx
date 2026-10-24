@@ -38,6 +38,7 @@ import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import InfoOutlined from "@mui/icons-material/InfoOutlined";
 import PersonSearchOutlined from "@mui/icons-material/PersonSearchOutlined";
+import DeleteOutlined from "@mui/icons-material/DeleteOutlined";
 
 import {
   fetchReminderDashboard,
@@ -299,12 +300,35 @@ export default function EyeCheckupRemindersPage() {
     }
   };
 
-  const handleCancel = async (seqId: string) => {
+  const handleCancel = async (seqId: string, customerName?: string) => {
     try {
       await cancelReminderSequence(seqId);
+      setSuccessMsg(
+        customerName
+          ? `Removed ${customerName} from reminder list.`
+          : "Reminder removed from list.",
+      );
       await loadAll();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to cancel sequence");
+    }
+  };
+
+  const handleBulkRemoveSelected = async () => {
+    if (selectedDueIds.length === 0) return;
+    try {
+      setLoading(true);
+      const itemsToCancel = dueList.filter((d) => selectedDueIds.includes(d.attemptId));
+      for (const item of itemsToCancel) {
+        await cancelReminderSequence(item.sequenceId);
+      }
+      setSelectedDueIds([]);
+      setSuccessMsg(`Removed ${itemsToCancel.length} customer(s) from reminder list.`);
+      await loadAll();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to remove selected reminders");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -532,15 +556,25 @@ export default function EyeCheckupRemindersPage() {
 
             <Stack direction="row" spacing={1}>
               {selectedDueIds.length > 0 && (
-                <Button
-                  variant="contained"
-                  color="success"
-                  startIcon={<SendOutlined />}
-                  onClick={handleStartBulkSequential}
-                  disabled={dashboard?.mode === "DISABLED"}
-                >
-                  Sequential Send ({selectedDueIds.length})
-                </Button>
+                <>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={<SendOutlined />}
+                    onClick={handleStartBulkSequential}
+                    disabled={dashboard?.mode === "DISABLED"}
+                  >
+                    Sequential Send ({selectedDueIds.length})
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<DeleteOutlined />}
+                    onClick={() => void handleBulkRemoveSelected()}
+                  >
+                    Remove Selected ({selectedDueIds.length})
+                  </Button>
+                </>
               )}
             </Stack>
           </Box>
@@ -662,6 +696,18 @@ export default function EyeCheckupRemindersPage() {
                             >
                               Send WhatsApp
                             </Button>
+
+                            <Tooltip title="Remove customer from reminder list">
+                              <IconButton
+                                color="error"
+                                size="small"
+                                onClick={() =>
+                                  void handleCancel(item.sequenceId, item.customerName)
+                                }
+                              >
+                                <DeleteOutlined fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -911,43 +957,65 @@ export default function EyeCheckupRemindersPage() {
             </Stack>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closePreview}>Cancel</Button>
-
-          {previewItem && dashboard?.mode === "MANUAL_FREE" && (
-            <>
+        <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
+          <Box>
+            {previewItem && (
               <Button
+                color="error"
                 variant="outlined"
-                color="success"
-                startIcon={<WhatsAppIcon />}
-                onClick={() => window.open(dynamicClickToChatUrl, "_blank", "noopener,noreferrer")}
-              >
-                Open WhatsApp
-              </Button>
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<CheckCircleOutlined />}
+                size="small"
+                startIcon={<DeleteOutlined />}
                 onClick={() => {
-                  void handleConfirmSent(previewItem.attemptId, activeMessage);
+                  void handleCancel(previewItem.sequenceId, previewItem.customerName);
+                  closePreview();
                   if (bulkQueueIndex !== null) handleNextInBulk();
                 }}
               >
-                Confirm Sent
+                Remove from Reminders
               </Button>
-            </>
-          )}
+            )}
+          </Box>
 
-          {previewItem && dashboard?.mode === "META_TEST" && (
-            <Button
-              variant="contained"
-              color="warning"
-              startIcon={<SendOutlined />}
-              onClick={() => void handleSendMetaTest(previewItem.attemptId, activeMessage)}
-            >
-              Send Meta Test API
-            </Button>
-          )}
+          <Stack direction="row" spacing={1}>
+            <Button onClick={closePreview}>Close</Button>
+
+            {previewItem && dashboard?.mode === "MANUAL_FREE" && (
+              <>
+                <Button
+                  variant="outlined"
+                  color="success"
+                  startIcon={<WhatsAppIcon />}
+                  onClick={() =>
+                    window.open(dynamicClickToChatUrl, "_blank", "noopener,noreferrer")
+                  }
+                >
+                  Open WhatsApp
+                </Button>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<CheckCircleOutlined />}
+                  onClick={() => {
+                    void handleConfirmSent(previewItem.attemptId, activeMessage);
+                    if (bulkQueueIndex !== null) handleNextInBulk();
+                  }}
+                >
+                  Confirm Sent
+                </Button>
+              </>
+            )}
+
+            {previewItem && dashboard?.mode === "META_TEST" && (
+              <Button
+                variant="contained"
+                color="warning"
+                startIcon={<SendOutlined />}
+                onClick={() => void handleSendMetaTest(previewItem.attemptId, activeMessage)}
+              >
+                Send Meta Test API
+              </Button>
+            )}
+          </Stack>
         </DialogActions>
       </Dialog>
 
