@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Alert,
@@ -7,7 +7,9 @@ import {
   Button,
   Card,
   CardContent,
+  Collapse,
   FormControl,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Select,
@@ -33,6 +35,9 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
   useTheme,
@@ -46,6 +51,7 @@ import CheckCircleOutlineOutlined from "@mui/icons-material/CheckCircleOutlineOu
 import ContentCopyOutlined from "@mui/icons-material/ContentCopyOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import DeleteOutline from "@mui/icons-material/DeleteOutlined";
+import ExpandMoreOutlined from "@mui/icons-material/ExpandMoreOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
 import PersonOutlined from "@mui/icons-material/PersonOutlined";
 import PhoneOutlined from "@mui/icons-material/PhoneOutlined";
@@ -54,7 +60,11 @@ import PrintOutlined from "@mui/icons-material/PrintOutlined";
 import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
 import RemoveRedEyeOutlined from "@mui/icons-material/RemoveRedEyeOutlined";
+import SearchOutlined from "@mui/icons-material/SearchOutlined";
+import ShoppingBagOutlined from "@mui/icons-material/ShoppingBagOutlined";
 import TrendingUpOutlined from "@mui/icons-material/TrendingUpOutlined";
+import UnfoldMoreOutlined from "@mui/icons-material/UnfoldMoreOutlined";
+import UnfoldLessOutlined from "@mui/icons-material/UnfoldLessOutlined";
 import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 
@@ -878,9 +888,11 @@ function ClinicalPrescriptionTable({
 function PairedPrescriptionCard({
   prescription,
   onPrint,
+  onCompare,
 }: {
   prescription: Prescription;
   onPrint: () => void;
+  onCompare?: () => void;
 }) {
   const rxType = classifyRx(prescription);
 
@@ -924,7 +936,11 @@ function PairedPrescriptionCard({
 
       <ClinicalPrescriptionTable prescription={prescription} compact />
 
-      <Stack direction="row" sx={{ mt: 1.5, justifyContent: "flex-end" }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ mt: 1.5, justifyContent: "flex-end", flexWrap: "wrap", gap: 0.75 }}
+      >
         <Button
           size="small"
           variant="text"
@@ -934,21 +950,48 @@ function PairedPrescriptionCard({
         >
           Print Rx
         </Button>
+        {onCompare && (
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<CompareArrowsOutlined />}
+            onClick={onCompare}
+            sx={{ fontSize: "0.8rem", textTransform: "none" }}
+          >
+            Compare Exam
+          </Button>
+        )}
       </Stack>
     </Paper>
   );
 }
 
 // Compare two recorded exams without altering stored clinical data.
-function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription[] }) {
+function PrescriptionComparison({
+  prescriptions,
+  records = [],
+  firstIdProp,
+  secondIdProp,
+}: {
+  prescriptions: Prescription[];
+  records?: CustomerRecord[];
+  firstIdProp?: string;
+  secondIdProp?: string;
+}) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
   const sorted = sortPrescriptions(prescriptions);
-  const [selectedFirstId, setFirstId] = useState(sorted[0]?.id ?? "");
-  const [selectedSecondId, setSecondId] = useState(sorted[1]?.id ?? "");
-  const firstId = sorted.some((rx) => rx.id === selectedFirstId)
-    ? selectedFirstId
+  const [userFirstId, setUserFirstId] = useState<string | null>(null);
+  const [userSecondId, setUserSecondId] = useState<string | null>(null);
+
+  const activeFirstId = userFirstId ?? firstIdProp ?? sorted[0]?.id ?? "";
+  const firstId = sorted.some((rx) => rx.id === activeFirstId)
+    ? activeFirstId
     : (sorted[0]?.id ?? "");
-  const secondId = sorted.some((rx) => rx.id === selectedSecondId)
-    ? selectedSecondId
+
+  const activeSecondId = userSecondId ?? secondIdProp ?? sorted[1]?.id ?? "";
+  const secondId = sorted.some((rx) => rx.id === activeSecondId)
+    ? activeSecondId
     : (sorted.find((rx) => rx.id !== firstId)?.id ?? "");
   const first = sorted.find((rx) => rx.id === firstId);
   const second = sorted.find((rx) => rx.id === secondId);
@@ -995,18 +1038,28 @@ function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription
                     label={index === 0 ? "Exam A" : "Exam B"}
                     value={value}
                     onChange={(event) =>
-                      index === 0 ? setFirstId(event.target.value) : setSecondId(event.target.value)
+                      index === 0
+                        ? setUserFirstId(event.target.value)
+                        : setUserSecondId(event.target.value)
                     }
                   >
-                    {sorted.map((rx) => (
-                      <MenuItem
-                        key={rx.id}
-                        value={rx.id}
-                        disabled={rx.id === (index === 0 ? secondId : firstId)}
-                      >
-                        {formatDate(rx.createdAt)} · {rx.id}
-                      </MenuItem>
-                    ))}
+                    {sorted.map((rx) => {
+                      const linked = records.find((r) => r.prescriptionId === rx.id);
+                      const label = `${formatDate(rx.createdAt)} ${
+                        linked
+                          ? `• Order: ${linked.specsType || "Frame"} (${formatDate(linked.purchaseDate)})`
+                          : "• Independent Exam"
+                      }`;
+                      return (
+                        <MenuItem
+                          key={rx.id}
+                          value={rx.id}
+                          disabled={rx.id === (index === 0 ? secondId : firstId)}
+                        >
+                          {label}
+                        </MenuItem>
+                      );
+                    })}
                   </Select>
                 </FormControl>
               </Grid>
@@ -1016,10 +1069,128 @@ function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription
             <Alert severity="warning">Select two different examinations.</Alert>
           ) : (
             <>
+              {/* Mobile Stacked Comparison (xs only, zero horizontal scrolling) */}
+              <Box sx={{ display: { xs: "block", sm: "none" } }}>
+                <Stack spacing={1.5}>
+                  {metrics.map(([label, key]) => {
+                    const a = read(first, key);
+                    const b = read(second, key);
+                    const axis = key.endsWith("Axis");
+                    const delta = measurementDifference(a, b);
+                    const isChanged = delta !== null && delta !== 0;
+
+                    return (
+                      <Paper
+                        key={key}
+                        variant="outlined"
+                        sx={{
+                          p: 1.5,
+                          borderRadius: 2,
+                          bgcolor: isChanged
+                            ? isDark
+                              ? "rgba(59, 130, 246, 0.08)"
+                              : "#F0F7FF"
+                            : "background.paper",
+                          borderColor: isChanged
+                            ? isDark
+                              ? "rgba(59, 130, 246, 0.35)"
+                              : "#BFDBFE"
+                            : "divider",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontWeight: 750,
+                            color: "text.secondary",
+                            display: "block",
+                            mb: 0.75,
+                          }}
+                        >
+                          {label}
+                        </Typography>
+                        <Grid
+                          container
+                          spacing={1}
+                          sx={{ alignItems: "center", textAlign: "center" }}
+                        >
+                          <Grid size={{ xs: 4 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: "block", fontSize: "0.68rem" }}
+                            >
+                              EXAM A
+                            </Typography>
+                            <Typography
+                              sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.9rem" }}
+                            >
+                              {shown(a, axis)}
+                            </Typography>
+                          </Grid>
+                          <Grid size={{ xs: 4 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: "block", fontSize: "0.68rem" }}
+                            >
+                              EXAM B
+                            </Typography>
+                            <Typography
+                              sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.9rem" }}
+                            >
+                              {shown(b, axis)}
+                            </Typography>
+                          </Grid>
+                          <Grid size={{ xs: 4 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: "block", fontSize: "0.68rem" }}
+                            >
+                              CHANGE (A−B)
+                            </Typography>
+                            {isChanged ? (
+                              <Chip
+                                size="small"
+                                label={
+                                  axis
+                                    ? `${delta > 0 ? "+" : ""}${delta}°`
+                                    : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`
+                                }
+                                sx={{
+                                  fontWeight: 750,
+                                  fontSize: "0.72rem",
+                                  height: 20,
+                                  bgcolor: isDark ? "rgba(59, 130, 246, 0.2)" : "#EFF6FF",
+                                  color: isDark ? "#93C5FD" : "primary.main",
+                                }}
+                              />
+                            ) : (
+                              <Typography
+                                sx={{
+                                  fontFamily: "monospace",
+                                  fontWeight: 600,
+                                  fontSize: "0.85rem",
+                                  color: "text.secondary",
+                                }}
+                              >
+                                {delta === null ? "—" : "0.00"}
+                              </Typography>
+                            )}
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              </Box>
+
+              {/* Desktop Table (sm and up) */}
               <TableContainer
                 component={Paper}
                 variant="outlined"
-                sx={{ borderRadius: 2, overflowX: "auto" }}
+                sx={{ display: { xs: "none", sm: "block" }, borderRadius: 2, overflowX: "auto" }}
               >
                 <Table size="small" sx={{ minWidth: 530 }}>
                   <TableHead>
@@ -1027,7 +1198,7 @@ function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription
                       <TableCell>Measurement</TableCell>
                       <TableCell align="right">Exam A</TableCell>
                       <TableCell align="right">Exam B</TableCell>
-                      <TableCell align="right">A − B</TableCell>
+                      <TableCell align="right">A − B Difference</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1036,6 +1207,7 @@ function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription
                       const b = read(second, key);
                       const axis = key.endsWith("Axis");
                       const delta = measurementDifference(a, b);
+                      const isChanged = delta !== null && delta !== 0;
                       return (
                         <TableRow key={key} hover>
                           <TableCell sx={{ fontWeight: 650 }}>{label}</TableCell>
@@ -1049,11 +1221,35 @@ function PrescriptionComparison({ prescriptions }: { prescriptions: Prescription
                             align="right"
                             sx={{ fontFamily: "monospace", fontWeight: 750 }}
                           >
-                            {delta === null
-                              ? "—"
-                              : axis
-                                ? `${delta > 0 ? "+" : ""}${delta}°`
-                                : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`}
+                            {delta === null ? (
+                              "—"
+                            ) : !isChanged ? (
+                              <Typography
+                                component="span"
+                                variant="body2"
+                                sx={{ fontFamily: "monospace", color: "text.secondary" }}
+                              >
+                                0.00
+                              </Typography>
+                            ) : (
+                              <Chip
+                                size="small"
+                                label={
+                                  axis
+                                    ? `${delta > 0 ? "+" : ""}${delta}°`
+                                    : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`
+                                }
+                                sx={{
+                                  fontWeight: 800,
+                                  fontSize: "0.75rem",
+                                  height: 22,
+                                  bgcolor: isDark ? "rgba(59, 130, 246, 0.2)" : "#EFF6FF",
+                                  color: isDark ? "#93C5FD" : "#1D4ED8",
+                                  border: "1px solid",
+                                  borderColor: isDark ? "rgba(59, 130, 246, 0.4)" : "#BFDBFE",
+                                }}
+                              />
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -1382,6 +1578,15 @@ export default function CustomerDetailPage() {
   const [purchaseMessage, setPurchaseMessage] = useState("");
 
   const [selectedRecord, setSelectedRecord] = useState<CustomerRecord | null>(null);
+  const [purchaseSearch, setPurchaseSearch] = useState("");
+  const [purchaseFilter, setPurchaseFilter] = useState<
+    "ALL" | "FRAME_ONLY" | "LENS_ONLY" | "FRAME_AND_LENS"
+  >("ALL");
+  const [purchaseSort, setPurchaseSort] = useState<"NEWEST" | "OLDEST">("NEWEST");
+  const [expandedPurchaseIds, setExpandedPurchaseIds] = useState<Set<string>>(new Set());
+  const [compareFirstId, setCompareFirstId] = useState<string>("");
+  const [compareSecondId, setCompareSecondId] = useState<string>("");
+
   const purchaseDialogOpen = params.get("purchase") === "new";
   function setPurchaseDialogOpen(open: boolean) {
     setParams(
@@ -1478,7 +1683,10 @@ export default function CustomerDetailPage() {
           return;
         }
         setCustomer(result);
-
+        const sorted = sortPurchases(result.records);
+        if (sorted[0]) {
+          setExpandedPurchaseIds(new Set([sorted[0].id]));
+        }
         setError("");
       })
       .catch((err) => {
@@ -1521,6 +1729,10 @@ export default function CustomerDetailPage() {
         return;
       }
       setCustomer(result);
+      const sorted = sortPurchases(result.records);
+      if (sorted[0]) {
+        setExpandedPurchaseIds((prev) => (prev.size === 0 ? new Set([sorted[0].id]) : prev));
+      }
     } catch (err) {
       if (controller.signal.aborted || requestRef.current !== controller) {
         return;
@@ -1607,6 +1819,49 @@ export default function CustomerDetailPage() {
     }
   }
 
+  const customerRecords = customer?.records;
+  const filteredPurchases = useMemo(() => {
+    if (!customerRecords) return [];
+    let list = sortPurchases(customerRecords);
+    if (purchaseSort === "OLDEST") {
+      list.reverse();
+    }
+    if (purchaseFilter !== "ALL") {
+      list = list.filter((r) => getPurchaseFlag(r) === purchaseFilter);
+    }
+    if (purchaseSearch.trim()) {
+      const q = purchaseSearch.toLowerCase().trim();
+      list = list.filter((r) => {
+        const specs = (r.specsType || "").toLowerCase();
+        const lens = (r.lensType || "").toLowerCase();
+        const mrp = (r.mrp || "").toString();
+        const date = formatDate(r.purchaseDate).toLowerCase();
+        return specs.includes(q) || lens.includes(q) || mrp.includes(q) || date.includes(q);
+      });
+    }
+    return list;
+  }, [customerRecords, purchaseSort, purchaseFilter, purchaseSearch]);
+
+  const togglePurchaseExpand = (id: string) => {
+    setExpandedPurchaseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleAllPurchases = () => {
+    if (expandedPurchaseIds.size === filteredPurchases.length) {
+      setExpandedPurchaseIds(new Set());
+    } else {
+      setExpandedPurchaseIds(new Set(filteredPurchases.map((r) => r.id)));
+    }
+  };
+
+  const isAllExpanded =
+    filteredPurchases.length > 0 && expandedPurchaseIds.size === filteredPurchases.length;
+
   if ((loading && !customer) || (customer && customer.id !== id)) {
     return <CustomerDetailsSkeleton />;
   }
@@ -1643,6 +1898,8 @@ export default function CustomerDetailPage() {
     (sum, item) => sum + (Number(item.mrp) || 0),
     0,
   );
+
+  const latestRecord = sortedRecords[0] ?? null;
 
   return (
     <Box sx={{ maxWidth: 1320, mx: "auto", pb: 8, px: { xs: 1, sm: 2 } }}>
@@ -1789,12 +2046,12 @@ export default function CustomerDetailPage() {
                       <Chip
                         size="small"
                         variant="outlined"
-                        label={`${customer.ageAtRecording} yrs (recorded ${formatDate(customer.ageRecordedAt)})`}
+                        label={`Age - ${customer.ageAtRecording} yrs`}
                         sx={{
                           height: "auto",
                           minHeight: 22,
                           maxWidth: "100%",
-                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.50 },
                         }}
                       />
                     )}
@@ -1837,15 +2094,7 @@ export default function CustomerDetailPage() {
                 >
                   New Purchase
                 </Button>
-                <Button
-                  component={Link}
-                  to={`/reminders?search=${encodeURIComponent(customer.mobNumber || customer.name)}`}
-                  variant="outlined"
-                  color="primary"
-                  startIcon={<RemoveRedEyeOutlined />}
-                >
-                  Eye Checkup Reminder
-                </Button>
+               
                 {customer.mobNumber && (
                   <Button
                     component="a"
@@ -1876,7 +2125,7 @@ export default function CustomerDetailPage() {
                   variant="contained"
                   startIcon={<EditOutlined />}
                 >
-                  Edit Customer
+                  Edit
                 </Button>
               </Box>
             </Stack>
@@ -1896,7 +2145,7 @@ export default function CustomerDetailPage() {
             >
               <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
                 <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  CUSTOMER ID:
+                   ID:
                 </Typography>
                 <Typography
                   variant="caption"
@@ -2009,6 +2258,7 @@ export default function CustomerDetailPage() {
             {/* TAB 0: Purchases & Paired Eyewear */}
             {activeTab === 0 && (
               <Stack spacing={2.5}>
+                {/* Header Title & Actions */}
                 <Stack
                   direction={{ xs: "column", sm: "row" }}
                   spacing={1}
@@ -2019,29 +2269,425 @@ export default function CustomerDetailPage() {
                       Purchase History & Dispensed Eyewear
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Each purchase record is visually paired with its corresponding eye
-                      prescription and itemized rates.
+                      Comprehensive record of all dispensed frames, lenses, itemized pricing, and
+                      paired optometry charts.
                     </Typography>
                   </Box>
 
-                  <Chip
+                  <Button
+                    variant="contained"
                     size="small"
-                    variant="outlined"
-                    label={`${customer.records.length} Total Orders`}
-                    sx={{ fontWeight: 600, width: "fit-content" }}
-                  />
+                    startIcon={<AddOutlined />}
+                    onClick={() => setPurchaseDialogOpen(true)}
+                    sx={{ width: { xs: "100%", sm: "auto" } }}
+                  >
+                    New Purchase
+                  </Button>
                 </Stack>
 
-                {customer.records.length === 0 ? (
-                  <Alert severity="info" sx={{ borderRadius: 2 }}>
-                    No purchase records recorded for this customer yet.
-                  </Alert>
+                {/* Section A: Purchase History Overview KPI Cards */}
+                <Grid container spacing={1.5}>
+                  {/* KPI 1: Total Orders */}
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 1.75,
+                        borderRadius: 2,
+                        bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          bgcolor: isDark ? "rgba(59, 130, 246, 0.16)" : "primary.50",
+                          color: "primary.main",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <ShoppingBagOutlined sx={{ fontSize: 22 }} />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontWeight: 650, display: "block", fontSize: "0.7rem" }}
+                        >
+                          TOTAL ORDERS
+                        </Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                          {customer.records.length}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            fontSize: "0.7rem",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            display: "block",
+                          }}
+                        >
+                          {customer.records.length === 1 ? "1 order recorded" : `${customer.records.length} lifetime orders`}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+
+                  {/* KPI 2: Latest Purchase Date */}
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 1.75,
+                        borderRadius: 2,
+                        bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          bgcolor: isDark ? "rgba(16, 185, 129, 0.16)" : "success.50",
+                          color: "success.main",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CalendarTodayOutlined sx={{ fontSize: 20 }} />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontWeight: 650, display: "block", fontSize: "0.7rem" }}
+                        >
+                          LATEST VISIT
+                        </Typography>
+                        <Typography
+                          variant="subtitle1"
+                          sx={{
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {latestRecord ? formatDate(latestRecord.purchaseDate) : "None"}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            fontSize: "0.7rem",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            display: "block",
+                          }}
+                        >
+                          Last store purchase
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+
+                  {/* KPI 3: Latest Purchase Category */}
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 1.75,
+                        borderRadius: 2,
+                        bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          bgcolor: isDark ? "rgba(245, 158, 11, 0.16)" : "warning.50",
+                          color: "warning.main",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <VisibilityOutlined sx={{ fontSize: 22 }} />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontWeight: 650, display: "block", fontSize: "0.7rem" }}
+                        >
+                          LATEST TYPE
+                        </Typography>
+                        <Typography
+                          variant="subtitle1"
+                          sx={{
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {latestRecord ? purchaseFlagInfo[getPurchaseFlag(latestRecord)].label : "None"}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            fontSize: "0.7rem",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            display: "block",
+                          }}
+                        >
+                          {latestRecord?.prescriptionId ? "Linked with Rx" : "OTC / No Rx"}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+
+                  {/* KPI 4: Recent Amount & Lifetime Spend */}
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 1.75,
+                        borderRadius: 2,
+                        bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          bgcolor: isDark ? "rgba(139, 92, 246, 0.16)" : "secondary.50",
+                          color: "secondary.main",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <ReceiptLongOutlined sx={{ fontSize: 22 }} />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontWeight: 650, display: "block", fontSize: "0.7rem" }}
+                        >
+                          RECENT ORDER
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                            color: "primary.main",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {latestRecord ? formatMoney(latestRecord.mrp) : "—"}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            fontSize: "0.7rem",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            display: "block",
+                          }}
+                        >
+                          Total: {formatMoney(totalPurchaseValue)}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                {/* Section B & E: Search, Filter, Sort and Expand/Collapse Controls */}
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "action.hover",
+                  }}
+                >
+                  <Stack
+                    direction={{ xs: "column", md: "row" }}
+                    spacing={1.5}
+                    sx={{
+                      alignItems: { xs: "stretch", md: "center" },
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    {/* Search Field */}
+                    <TextField
+                      size="small"
+                      placeholder="Search frame, lens, model, price..."
+                      value={purchaseSearch}
+                      onChange={(e) => setPurchaseSearch(e.target.value)}
+                      slotProps={{
+                        input: {
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <SearchOutlined sx={{ fontSize: 18, color: "text.secondary" }} />
+                            </InputAdornment>
+                          ),
+                        },
+                      }}
+                      sx={{ maxWidth: { xs: "100%", md: 300 } }}
+                    />
+
+                    {/* Filter, Sort & Bulk Expand Controls */}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: 1,
+                        justifyContent: { xs: "flex-start", md: "flex-end" },
+                      }}
+                    >
+                      <ToggleButtonGroup
+                        size="small"
+                        value={purchaseFilter}
+                        exclusive
+                        onChange={(_, val) => {
+                          if (val) setPurchaseFilter(val);
+                        }}
+                        sx={{
+                          flexWrap: "wrap",
+                          "& .MuiToggleButton-root": {
+                            fontSize: "0.75rem",
+                            px: 1.25,
+                            py: 0.5,
+                            fontWeight: 650,
+                          },
+                        }}
+                      >
+                        <ToggleButton value="ALL">All ({customer.records.length})</ToggleButton>
+                        <ToggleButton value="FRAME_AND_LENS">Frame + Lens</ToggleButton>
+                        <ToggleButton value="FRAME_ONLY">Frame Only</ToggleButton>
+                        <ToggleButton value="LENS_ONLY">Lens Only</ToggleButton>
+                      </ToggleButtonGroup>
+
+                      {/* Sort Selector */}
+                      <FormControl size="small" sx={{ minWidth: 125 }}>
+                        <Select
+                          value={purchaseSort}
+                          onChange={(e) =>
+                            setPurchaseSort(e.target.value as "NEWEST" | "OLDEST")
+                          }
+                          sx={{ fontSize: "0.8rem", height: 32 }}
+                        >
+                          <MenuItem value="NEWEST">Newest First</MenuItem>
+                          <MenuItem value="OLDEST">Oldest First</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      {/* Expand / Collapse All Toggle */}
+                      {filteredPurchases.length > 0 && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="inherit"
+                          startIcon={
+                            isAllExpanded ? <UnfoldLessOutlined /> : <UnfoldMoreOutlined />
+                          }
+                          onClick={handleToggleAllPurchases}
+                          sx={{ fontSize: "0.78rem", height: 32, whiteSpace: "nowrap" }}
+                        >
+                          {isAllExpanded ? "Collapse All" : "Expand All"}
+                        </Button>
+                      )}
+                    </Stack>
+                  </Stack>
+                </Paper>
+
+                {/* Section B, C & D: Responsive Expandable Purchase History List */}
+                {filteredPurchases.length === 0 ? (
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 4,
+                      borderRadius: 2.5,
+                      textAlign: "center",
+                      bgcolor: "background.paper",
+                    }}
+                  >
+                    <ShoppingBagOutlined
+                      sx={{ fontSize: 44, color: "text.secondary", mb: 1, opacity: 0.6 }}
+                    />
+                    <Typography variant="subtitle1" sx={{ fontWeight: 750, mb: 0.5 }}>
+                      No Matching Purchase Records
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {purchaseSearch || purchaseFilter !== "ALL"
+                        ? "No orders match your active search or category filter. Try clearing your search."
+                        : "No purchase records recorded for this customer yet."}
+                    </Typography>
+                    {(purchaseSearch || purchaseFilter !== "ALL") && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        sx={{ mt: 1.5 }}
+                        onClick={() => {
+                          setPurchaseSearch("");
+                          setPurchaseFilter("ALL");
+                        }}
+                      >
+                        Clear Filters
+                      </Button>
+                    )}
+                  </Paper>
                 ) : (
-                  sortedRecords.map((record, index) => {
+                  filteredPurchases.map((record) => {
+                    const isLatest = record.id === sortedRecords[0]?.id;
+                    const isExpanded = expandedPurchaseIds.has(record.id);
                     const flag = purchaseFlagInfo[getPurchaseFlag(record)];
                     const linkedRx = customer.prescriptions.find(
                       (p) => p.id === record.prescriptionId,
                     );
+                    const orderNumber =
+                      sortedRecords.length - sortedRecords.findIndex((r) => r.id === record.id);
 
                     return (
                       <Card
@@ -2050,287 +2696,406 @@ export default function CustomerDetailPage() {
                         variant="outlined"
                         sx={{
                           borderRadius: 2.5,
-                          borderColor: index === 0 ? (isDark ? "primary.main" : "#2563EB") : "divider",
-                          boxShadow:
-                            index === 0
-                              ? isDark
-                                ? "0 2px 10px rgba(59,130,246,0.18)"
-                                : "0 2px 8px rgba(37,99,235,0.06)"
-                              : "none",
+                          border: "1px solid",
+                          borderColor: isLatest
+                            ? isDark
+                              ? "primary.main"
+                              : "#2563EB"
+                            : "divider",
+                          boxShadow: isLatest
+                            ? isDark
+                              ? "0 4px 16px rgba(59, 130, 246, 0.16)"
+                              : "0 3px 12px rgba(37, 99, 235, 0.08)"
+                            : "none",
+                          transition: "border-color 0.2s, box-shadow 0.2s",
                           overflow: "hidden",
                         }}
                       >
-                        {/* Order Header Ribbon */}
+                        {/* Interactive Clickable Header Ribbon */}
                         <Box
+                          onClick={() => togglePurchaseExpand(record.id)}
                           sx={{
-                            p: 2,
-                            bgcolor:
-                              index === 0
-                                ? isDark
-                                  ? "rgba(59, 130, 246, 0.12)"
-                                  : "#EAF2FF"
-                                : isDark
-                                  ? "action.hover"
-                                  : "#F1F5F9",
-                            borderBottom: "1px solid",
+                            p: { xs: 1.5, sm: 2 },
+                            cursor: "pointer",
+                            bgcolor: isLatest
+                              ? isDark
+                                ? "rgba(59, 130, 246, 0.12)"
+                                : "#EAF2FF"
+                              : isDark
+                                ? "action.hover"
+                                : "#F8FAFC",
+                            borderBottom: isExpanded ? "1px solid" : "none",
                             borderColor: "divider",
+                            userSelect: "none",
+                            "&:hover": {
+                              bgcolor: isLatest
+                                ? isDark
+                                  ? "rgba(59, 130, 246, 0.18)"
+                                  : "#E0ECFE"
+                                : isDark
+                                  ? "rgba(255, 255, 255, 0.06)"
+                                  : "#F1F5F9",
+                            },
                           }}
                         >
                           <Stack
                             direction={{ xs: "column", sm: "row" }}
-                            spacing={1.5}
+                            spacing={1.25}
                             sx={{
                               justifyContent: "space-between",
-                              alignItems: { sm: "center" },
+                              alignItems: { xs: "flex-start", sm: "center" },
                             }}
                           >
+                            {/* Left Side: Order Badge, Date, Flag, Summary */}
                             <Stack
                               direction="row"
                               spacing={1}
-                              sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.75 }}
+                              sx={{
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: 0.75,
+                                minWidth: 0,
+                                flex: 1,
+                              }}
                             >
-                              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                                {index === 0 ? "Most recent order" : `Previous order ${index}`}
-                              </Typography>
-
-                              {index === 0 && (
+                              {isLatest ? (
                                 <Chip
                                   size="small"
                                   color="primary"
                                   label="LATEST PURCHASE"
-                                  sx={{ fontWeight: 700, height: 22 }}
+                                  icon={<CheckCircleOutlineOutlined sx={{ fontSize: 14 }} />}
+                                  sx={{ fontWeight: 800, height: 24, fontSize: "0.72rem" }}
                                 />
-                              )}
-
-                              {index > 0 && (
+                              ) : (
                                 <Chip
                                   size="small"
-                                  label="PREVIOUS PURCHASE"
+                                  label={`ORDER #${orderNumber}`}
                                   sx={{
                                     bgcolor: isDark ? "rgba(255, 255, 255, 0.08)" : "#E2E8F0",
                                     color: isDark ? "text.primary" : "#334155",
                                     fontWeight: 750,
-                                    height: 22,
+                                    height: 24,
+                                    fontSize: "0.72rem",
                                   }}
                                 />
                               )}
+
                               <Chip
                                 size="small"
-                                icon={<CalendarTodayOutlined sx={{ fontSize: 14 }} />}
+                                icon={<CalendarTodayOutlined sx={{ fontSize: 13 }} />}
                                 label={formatDate(record.purchaseDate)}
                                 variant="outlined"
-                                sx={{ height: 22 }}
+                                sx={{ height: 24, fontSize: "0.75rem", fontWeight: 600 }}
                               />
 
                               <Chip
                                 label={flag.label}
                                 color={flag.color}
                                 size="small"
-                                sx={{ height: 22, fontWeight: 600 }}
+                                sx={{ height: 24, fontWeight: 700, fontSize: "0.72rem" }}
                               />
 
-                              <Chip
-                                size="small"
-                                variant="outlined"
-                                label={
-                                  record.pricingMode === "SPLIT" ? "Itemized Split" : "Standard MRP"
-                                }
-                                sx={{ height: 22 }}
-                              />
+                              {/* Quick Specs Model & Lens preview text */}
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontWeight: 650,
+                                  color: "text.primary",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  maxWidth: { xs: "100%", md: 260, lg: 340 },
+                                  display: { xs: "none", md: "inline-block" },
+                                }}
+                              >
+                                {record.specsType || "Frame"}{" "}
+                                {record.lensType ? `• ${record.lensType}` : ""}
+                              </Typography>
                             </Stack>
 
+                            {/* Right Side: Rx indicator, Price & Chevron */}
                             <Stack
                               direction="row"
-                              spacing={1}
-                              sx={{ alignItems: "center", flexShrink: 0 }}
+                              spacing={1.25}
+                              sx={{
+                                alignItems: "center",
+                                flexShrink: 0,
+                                width: { xs: "100%", sm: "auto" },
+                                justifyContent: { xs: "space-between", sm: "flex-end" },
+                              }}
                             >
-                              <Tooltip title="Delete Purchase">
-                                <span>
-                                  <IconButton
-                                    color="error"
-                                    size="small"
-                                    aria-label="Delete Purchase"
-                                    disabled={deleting}
-                                    onClick={(e) => {
-                                      e.currentTarget.blur();
-                                      setDeleteError("");
-                                      setDeleteTarget(record);
-                                    }}
-                                  >
-                                    <DeleteOutline />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
+                              {linkedRx ? (
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  color="info"
+                                  icon={<VisibilityOutlined sx={{ fontSize: 13 }} />}
+                                  label="Linked Rx"
+                                  sx={{ height: 22, fontSize: "0.7rem", fontWeight: 650 }}
+                                />
+                              ) : (
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  label="No Rx"
+                                  sx={{
+                                    height: 22,
+                                    fontSize: "0.7rem",
+                                    color: "text.secondary",
+                                  }}
+                                />
+                              )}
+
                               <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{ fontWeight: 600, whiteSpace: "nowrap" }}
-                              >
-                                TOTAL:
-                              </Typography>
-                              <Typography
-                                variant="h6"
+                                variant="subtitle1"
                                 sx={{
                                   fontWeight: 800,
                                   color: "primary.main",
-                                  whiteSpace: "nowrap",
+                                  lineHeight: 1.1,
                                 }}
                               >
                                 {formatMoney(record.mrp)}
                               </Typography>
+
+                              <IconButton
+                                size="small"
+                                sx={{
+                                  transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                                  transition: "transform 0.2s ease-in-out",
+                                  p: 0.5,
+                                }}
+                                aria-label={
+                                  isExpanded ? "Collapse order details" : "Expand order details"
+                                }
+                              >
+                                <ExpandMoreOutlined fontSize="small" />
+                              </IconButton>
                             </Stack>
                           </Stack>
                         </Box>
 
-                        <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
-                          <Grid container spacing={3}>
-                            {/* Product & Pricing Breakdown */}
-                            <Grid size={{ xs: 12, md: 6 }}>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{
-                                  fontWeight: 750,
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.04em",
-                                  display: "block",
-                                  mb: 1.5,
-                                }}
-                              >
-                                Dispensed Eyewear Specifications
-                              </Typography>
-
-                              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                                <Grid container spacing={2}>
-                                  <Grid size={{ xs: 12 }}>
-                                    <DetailItem
-                                      label="Frame / Spectacle Model"
-                                      value={record.specsType}
-                                      highlight
-                                    />
-                                  </Grid>
-
-                                  <Grid size={{ xs: 12 }}>
-                                    <DetailItem
-                                      label="Lens Type / Coating / Design"
-                                      value={record.lensType}
-                                      highlight
-                                    />
-                                  </Grid>
-
-                                  {record.pricingMode === "SPLIT" && (
-                                    <>
-                                      <Grid size={{ xs: 6 }}>
-                                        <DetailItem
-                                          label="Frame Rate"
-                                          value={formatMoney(record.frameRate)}
-                                        />
-                                      </Grid>
-
-                                      <Grid size={{ xs: 6 }}>
-                                        <DetailItem
-                                          label="Lens Rate"
-                                          value={formatMoney(record.lensRate)}
-                                        />
-                                      </Grid>
-                                    </>
-                                  )}
-
-                                  <Grid size={{ xs: 6 }}>
-                                    <DetailItem
-                                      label="Purchase Date"
-                                      value={formatDate(record.purchaseDate)}
-                                    />
-                                  </Grid>
-
-                                  <Grid size={{ xs: 6 }}>
-                                    <DetailItem
-                                      label="Recorded At"
-                                      value={formatDate(record.createdAt)}
-                                    />
-                                  </Grid>
-                                </Grid>
-                              </Paper>
-                            </Grid>
-
-                            {/* Linked Optical Prescription */}
-                            <Grid size={{ xs: 12, md: 6 }}>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{
-                                  fontWeight: 750,
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.04em",
-                                  display: "block",
-                                  mb: 1.5,
-                                }}
-                              >
-                                Paired Prescription Data
-                              </Typography>
-
-                              {linkedRx ? (
-                                <PairedPrescriptionCard
-                                  prescription={linkedRx}
-                                  onPrint={() =>
-                                    handlePrint(
-                                      prescriptionHtml(customer, linkedRx),
-                                      "Optical Prescription",
-                                    )
-                                  }
-                                />
-                              ) : (
-                                <Paper
-                                  variant="outlined"
+                        {/* Collapsible Order Drawer */}
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                          <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                            <Grid container spacing={2.5}>
+                              {/* Product Specifications */}
+                              <Grid size={{ xs: 12, md: 6 }}>
+                                <Box
                                   sx={{
-                                    p: 3,
-                                    borderRadius: 2,
-                                    bgcolor: "action.hover",
-                                    textAlign: "center",
-                                    minHeight: 140,
                                     display: "flex",
-                                    flexDirection: "column",
                                     alignItems: "center",
-                                    justifyContent: "center",
-                                    gap: 1,
+                                    justifyContent: "space-between",
+                                    mb: 1,
                                   }}
                                 >
-                                  <RemoveRedEyeOutlined
-                                    sx={{ color: "text.secondary", fontSize: 28 }}
-                                  />
                                   <Typography
-                                    variant="body2"
-                                    sx={{ fontWeight: 650, color: "text.primary" }}
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{
+                                      fontWeight: 750,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.04em",
+                                    }}
                                   >
-                                    No Prescription Linked to This Purchase
+                                    Eyewear Specifications
                                   </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    This purchase was registered as an over-the-counter sale or
-                                    without eye test data.
-                                  </Typography>
+                                  <Chip
+                                    size="small"
+                                    variant="outlined"
+                                    label={
+                                      record.pricingMode === "SPLIT"
+                                        ? "Itemized Split"
+                                        : "Standard MRP"
+                                    }
+                                    sx={{ height: 20, fontSize: "0.68rem" }}
+                                  />
+                                </Box>
+
+                                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                  <Grid container spacing={1.75}>
+                                    <Grid size={{ xs: 12 }}>
+                                      <DetailItem
+                                        label="Frame / Spectacle Model"
+                                        value={record.specsType || "Not recorded"}
+                                        highlight
+                                      />
+                                    </Grid>
+
+                                    <Grid size={{ xs: 12 }}>
+                                      <DetailItem
+                                        label="Lens Type / Coating / Design"
+                                        value={record.lensType || "Not recorded"}
+                                        highlight
+                                      />
+                                    </Grid>
+
+                                    {record.pricingMode === "SPLIT" && (
+                                      <>
+                                        <Grid size={{ xs: 6 }}>
+                                          <DetailItem
+                                            label="Frame Rate"
+                                            value={formatMoney(record.frameRate)}
+                                          />
+                                        </Grid>
+
+                                        <Grid size={{ xs: 6 }}>
+                                          <DetailItem
+                                            label="Lens Rate"
+                                            value={formatMoney(record.lensRate)}
+                                          />
+                                        </Grid>
+                                      </>
+                                    )}
+
+                                    <Grid size={{ xs: 6 }}>
+                                      <DetailItem
+                                        label="Purchase Date"
+                                        value={formatDate(record.purchaseDate)}
+                                      />
+                                    </Grid>
+
+                                    <Grid size={{ xs: 6 }}>
+                                      <DetailItem
+                                        label="System Log Date"
+                                        value={formatDate(record.createdAt)}
+                                      />
+                                    </Grid>
+                                  </Grid>
                                 </Paper>
-                              )}
+                              </Grid>
+
+                              {/* Linked Optical Prescription */}
+                              <Grid size={{ xs: 12, md: 6 }}>
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    mb: 1,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{
+                                      fontWeight: 750,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.04em",
+                                    }}
+                                  >
+                                    Paired Optical Prescription
+                                  </Typography>
+                                  {linkedRx && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Recorded: {formatDate(linkedRx.createdAt)}
+                                    </Typography>
+                                  )}
+                                </Box>
+
+                                {linkedRx ? (
+                                  <PairedPrescriptionCard
+                                    prescription={linkedRx}
+                                    onPrint={() =>
+                                      handlePrint(
+                                        prescriptionHtml(customer, linkedRx),
+                                        "Optical Prescription",
+                                      )
+                                    }
+                                    onCompare={() => {
+                                      setCompareFirstId(linkedRx.id);
+                                      const otherRx = customer.prescriptions.find(
+                                        (p) => p.id !== linkedRx.id,
+                                      );
+                                      if (otherRx) setCompareSecondId(otherRx.id);
+                                      setActiveTab(3);
+                                    }}
+                                  />
+                                ) : (
+                                  <Paper
+                                    variant="outlined"
+                                    sx={{
+                                      p: 3,
+                                      borderRadius: 2,
+                                      bgcolor: "action.hover",
+                                      textAlign: "center",
+                                      minHeight: 140,
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      gap: 1,
+                                    }}
+                                  >
+                                    <RemoveRedEyeOutlined
+                                      sx={{ color: "text.secondary", fontSize: 28 }}
+                                    />
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 650, color: "text.primary" }}
+                                    >
+                                      No Prescription Linked to This Purchase
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      This purchase was registered as an over-the-counter sale or
+                                      without eye test data.
+                                    </Typography>
+                                  </Paper>
+                                )}
+                              </Grid>
                             </Grid>
-                          </Grid>
 
-                          <Divider sx={{ my: 2.5 }} />
+                            <Divider sx={{ my: 2 }} />
 
-                          {/* Order Actions */}
-                          <Stack
-                            direction={{ xs: "column", sm: "row" }}
-                            spacing={1.5}
-                            sx={{ justifyContent: "flex-end", alignItems: { sm: "center" } }}
-                          >
-                            <Button
-                              variant="contained"
-                              startIcon={<ReceiptLongOutlined />}
-                              onClick={() => setSelectedRecord(record)}
-                              sx={{ fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
+                            {/* Bottom Actions of Expanded Card */}
+                            <Stack
+                              direction={{ xs: "column", sm: "row" }}
+                              spacing={1.5}
+                              sx={{
+                                justifyContent: "space-between",
+                                alignItems: { sm: "center" },
+                              }}
                             >
-                              Prepare Receipt & WhatsApp PDF
-                            </Button>
-                          </Stack>
-                        </CardContent>
+                              <Button
+                                color="error"
+                                variant="outlined"
+                                size="small"
+                                startIcon={<DeleteOutline />}
+                                disabled={deleting}
+                                onClick={() => {
+                                  setDeleteError("");
+                                  setDeleteTarget(record);
+                                }}
+                                sx={{ width: { xs: "100%", sm: "auto" } }}
+                              >
+                                Delete Purchase
+                              </Button>
+
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1}
+                                sx={{ width: { xs: "100%", sm: "auto" } }}
+                              >
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  onClick={() => togglePurchaseExpand(record.id)}
+                                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                                >
+                                  Collapse Details
+                                </Button>
+                                <Button
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={<ReceiptLongOutlined />}
+                                  onClick={() => setSelectedRecord(record)}
+                                  sx={{ fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
+                                >
+                                  Prepare Receipt & WhatsApp PDF
+                                </Button>
+                              </Stack>
+                            </Stack>
+                          </CardContent>
+                        </Collapse>
                       </Card>
                     );
                   })
@@ -2450,7 +3215,7 @@ export default function CustomerDetailPage() {
                               />
                             </Stack>
 
-                            <Stack direction="row" spacing={1}>
+                            <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
                               <Button
                                 size="small"
                                 variant="outlined"
@@ -2479,6 +3244,18 @@ export default function CustomerDetailPage() {
                                 }}
                               >
                                 PDF
+                              </Button>
+
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<CompareArrowsOutlined />}
+                                onClick={() => {
+                                  setCompareFirstId(prescription.id);
+                                  setActiveTab(3);
+                                }}
+                              >
+                                Compare
                               </Button>
                             </Stack>
                           </Stack>
@@ -2905,7 +3682,14 @@ export default function CustomerDetailPage() {
             )}
 
             {/* TAB 3: Side-by-side comparison of any two prescriptions. */}
-            {activeTab === 3 && <PrescriptionComparison prescriptions={customer.prescriptions} />}
+            {activeTab === 3 && (
+              <PrescriptionComparison
+                prescriptions={customer.prescriptions}
+                records={customer.records}
+                firstIdProp={compareFirstId}
+                secondIdProp={compareSecondId}
+              />
+            )}
 
             {/* TAB 4: Confidential Staff & Clinical Notes */}
             {activeTab === 4 && (
@@ -2947,7 +3731,18 @@ export default function CustomerDetailPage() {
                   </Typography>
                 </Paper>
 
-                <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  sx={{
+                    justifyContent: "space-between",
+                    alignItems: { xs: "flex-start", sm: "center" },
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Last modified: {formatDate(customer.updatedAt)}
+                  </Typography>
+
                   <Button
                     component={Link}
                     to={editUrl}

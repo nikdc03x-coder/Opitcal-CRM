@@ -536,7 +536,7 @@ export default function CustomersPage() {
                           </Stack>
 
                           <Typography variant="caption" color="text.secondary">
-                            Added {formatDate(customer.createdAt)}
+                                {formatDate(customer.createdAt)}
                           </Typography>
                         </Stack>
                       }
