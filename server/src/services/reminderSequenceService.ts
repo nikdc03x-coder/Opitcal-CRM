@@ -6,6 +6,7 @@ import { sendMetaCloudApiTest } from "./metaWhatsAppTestService";
 export interface ConfirmManualSendParams {
   attemptId: string;
   adminUsername: string;
+  customMessage?: string;
 }
 
 /**
@@ -47,6 +48,7 @@ export async function confirmManualReminderSend(params: ConfirmManualSendParams)
       sentAt: sentTime,
       channel: "MANUAL_CLICK_TO_CHAT",
       manualConfirmedBy: adminUsername,
+      ...(params.customMessage?.trim() ? { messageContent: params.customMessage.trim() } : {}),
     },
   });
 

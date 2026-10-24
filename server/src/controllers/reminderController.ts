@@ -253,7 +253,7 @@ export async function syncRemindersHandler(req: Request, res: Response, next: Ne
  */
 export async function confirmManualSendHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    const { attemptId } = req.body;
+    const { attemptId, customMessage } = req.body;
     if (!attemptId) {
       throw new HttpError("attemptId is required", 400);
     }
@@ -261,6 +261,7 @@ export async function confirmManualSendHandler(req: Request, res: Response, next
     const result = await confirmManualReminderSend({
       attemptId,
       adminUsername: adminUser,
+      customMessage: typeof customMessage === "string" ? customMessage : undefined,
     });
     res.json({ success: true, data: result });
   } catch (err) {
@@ -274,7 +275,7 @@ export async function confirmManualSendHandler(req: Request, res: Response, next
  */
 export async function sendTestMetaApiHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    const { attemptId } = req.body;
+    const { attemptId, customMessage } = req.body;
     if (!attemptId) {
       throw new HttpError("attemptId is required", 400);
     }
@@ -282,6 +283,7 @@ export async function sendTestMetaApiHandler(req: Request, res: Response, next: 
     const result = await sendMetaCloudApiTest({
       attemptId,
       adminUsername: adminUser,
+      customMessage: typeof customMessage === "string" ? customMessage : undefined,
     });
 
     if (result.success) {

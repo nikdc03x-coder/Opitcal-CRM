@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -80,8 +80,31 @@ export default function EyeCheckupRemindersPage() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [dueSearchQuery, setDueSearchQuery] = useState<string>("");
 
-  // Preview Dialog
+  // Preview & Edit Dialog
   const [previewItem, setPreviewItem] = useState<DueReminderItem | null>(null);
+  const [customMessageOverride, setCustomMessageOverride] = useState<string | null>(null);
+
+  const activeMessage =
+    customMessageOverride !== null ? customMessageOverride : previewItem?.renderedMessage || "";
+
+  const dynamicClickToChatUrl = useMemo(() => {
+    if (!previewItem) return "";
+    const phone =
+      previewItem.normalizedPhone ||
+      (previewItem.mobNumber ? previewItem.mobNumber.replace(/\D/g, "") : "");
+    const encoded = encodeURIComponent(activeMessage);
+    return `https://wa.me/${phone}?text=${encoded}`;
+  }, [previewItem, activeMessage]);
+
+  const openPreview = (item: DueReminderItem) => {
+    setCustomMessageOverride(null);
+    setPreviewItem(item);
+  };
+
+  const closePreview = () => {
+    setPreviewItem(null);
+    setCustomMessageOverride(null);
+  };
 
   // Early Send Dialog
   const [earlySendOpen, setEarlySendOpen] = useState(false);
@@ -200,26 +223,25 @@ export default function EyeCheckupRemindersPage() {
   };
 
   const handleManualSendClick = (item: DueReminderItem) => {
-    window.open(item.clickToChatUrl, "_blank", "noopener,noreferrer");
-    setPreviewItem(item);
+    openPreview(item);
   };
 
-  const handleConfirmSent = async (attemptId: string) => {
+  const handleConfirmSent = async (attemptId: string, customMessage?: string) => {
     setError(null);
     try {
-      await confirmManualSend(attemptId);
+      await confirmManualSend(attemptId, customMessage);
       setSuccessMsg("Reminder marked as SENT! Follow-up (Day 3) scheduled automatically.");
-      setPreviewItem(null);
+      closePreview();
       await loadAll();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to confirm manual send");
     }
   };
 
-  const handleSendMetaTest = async (attemptId: string) => {
+  const handleSendMetaTest = async (attemptId: string, customMessage?: string) => {
     setError(null);
     try {
-      const res = await sendMetaTestApi(attemptId);
+      const res = await sendMetaTestApi(attemptId, customMessage);
       if (res.success) {
         setSuccessMsg(
           `Meta Cloud API Test sent successfully to ${res.data?.recipientPhone}! (Message ID: ${res.data?.messageId || "N/A"})`,
@@ -227,7 +249,7 @@ export default function EyeCheckupRemindersPage() {
       } else {
         setError(`Meta Cloud API Test failed: ${res.data?.error || "Unknown error"}`);
       }
-      setPreviewItem(null);
+      closePreview();
       await loadAll();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Meta API test send failed");
@@ -239,7 +261,7 @@ export default function EyeCheckupRemindersPage() {
     setBulkQueueIndex(0);
     const firstItem = dueList.find((d) => d.attemptId === selectedDueIds[0]);
     if (firstItem) {
-      handleManualSendClick(firstItem);
+      openPreview(firstItem);
     }
   };
 
@@ -250,7 +272,7 @@ export default function EyeCheckupRemindersPage() {
       setBulkQueueIndex(nextIdx);
       const nextItem = dueList.find((d) => d.attemptId === selectedDueIds[nextIdx]);
       if (nextItem) {
-        handleManualSendClick(nextItem);
+        openPreview(nextItem);
       }
     } else {
       setBulkQueueIndex(null);
@@ -343,7 +365,7 @@ export default function EyeCheckupRemindersPage() {
       setLoading(true);
       const reminderItem = await sendEarlyReminder(customerId);
       setEarlySendOpen(false);
-      setPreviewItem(reminderItem);
+      openPreview(reminderItem);
       setSuccessMsg(`Prepared reminder message for ${reminderItem.customerName}!`);
       await loadAll();
     } catch (err: unknown) {
@@ -624,7 +646,7 @@ export default function EyeCheckupRemindersPage() {
                               <IconButton
                                 color="primary"
                                 size="small"
-                                onClick={() => setPreviewItem(item)}
+                                onClick={() => openPreview(item)}
                               >
                                 <VisibilityOutlined fontSize="small" />
                               </IconButton>
@@ -638,7 +660,7 @@ export default function EyeCheckupRemindersPage() {
                               onClick={() => handleManualSendClick(item)}
                               disabled={dashboard?.mode === "DISABLED" || !item.isValidPhone}
                             >
-                              Open Chat
+                              Send WhatsApp
                             </Button>
                           </Stack>
                         </TableCell>
@@ -832,21 +854,57 @@ export default function EyeCheckupRemindersPage() {
               </Box>
 
               <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Personalized Message Preview
-                </Typography>
-                <Card variant="outlined" sx={{ p: 2, bgcolor: "#F0FDF4", borderColor: "#86EFAC" }}>
-                  <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-                    {previewItem.renderedMessage}
+                <Stack
+                  direction="row"
+                  sx={{ justifyContent: "space-between", alignItems: "center", mb: 0.75 }}
+                >
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Personalized Message (Editable)
                   </Typography>
-                </Card>
+                  {customMessageOverride !== null &&
+                    customMessageOverride !== previewItem.renderedMessage && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="primary"
+                        sx={{ fontSize: "0.75rem", py: 0, textTransform: "none" }}
+                        onClick={() => setCustomMessageOverride(null)}
+                      >
+                        Reset to Default
+                      </Button>
+                    )}
+                </Stack>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  maxRows={8}
+                  value={activeMessage}
+                  onChange={(e) => setCustomMessageOverride(e.target.value)}
+                  placeholder="Type WhatsApp reminder message..."
+                  helperText={`${activeMessage.length} characters — you can freely customize this message before sending`}
+                  sx={{
+                    bgcolor: "#F0FDF4",
+                    "& .MuiOutlinedInput-root": {
+                      "& fieldset": {
+                        borderColor: "#86EFAC",
+                      },
+                      "&:hover fieldset": {
+                        borderColor: "#4ADE80",
+                      },
+                      "&.Mui-focused fieldset": {
+                        borderColor: "#22C55E",
+                      },
+                    },
+                  }}
+                />
               </Box>
 
               <Alert severity="info" icon={<InfoOutlined fontSize="inherit" />}>
                 {dashboard?.mode === "MANUAL_FREE" &&
-                  "In MANUAL FREE mode, click 'Open WhatsApp' to chat directly with no API charges. Click 'Confirm Sent' after sending to advance to Step 2 (3 days later)."}
+                  "You can edit the message above if needed. Click 'Open WhatsApp' to chat directly with no API charges. Click 'Confirm Sent' after sending to advance to Step 2 (3 days later)."}
                 {dashboard?.mode === "META_TEST" &&
-                  "In META_TEST mode, you can test via official Meta Cloud API strictly for registered allowlisted test numbers."}
+                  "You can edit the message above if needed, then test via official Meta Cloud API strictly for registered allowlisted test numbers."}
                 {dashboard?.mode === "DISABLED" &&
                   "Messaging is currently DISABLED. Change mode in Settings to enable WhatsApp sending."}
               </Alert>
@@ -854,7 +912,7 @@ export default function EyeCheckupRemindersPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPreviewItem(null)}>Close</Button>
+          <Button onClick={closePreview}>Cancel</Button>
 
           {previewItem && dashboard?.mode === "MANUAL_FREE" && (
             <>
@@ -862,7 +920,7 @@ export default function EyeCheckupRemindersPage() {
                 variant="outlined"
                 color="success"
                 startIcon={<WhatsAppIcon />}
-                onClick={() => window.open(previewItem.clickToChatUrl, "_blank")}
+                onClick={() => window.open(dynamicClickToChatUrl, "_blank", "noopener,noreferrer")}
               >
                 Open WhatsApp
               </Button>
@@ -871,7 +929,7 @@ export default function EyeCheckupRemindersPage() {
                 color="primary"
                 startIcon={<CheckCircleOutlined />}
                 onClick={() => {
-                  void handleConfirmSent(previewItem.attemptId);
+                  void handleConfirmSent(previewItem.attemptId, activeMessage);
                   if (bulkQueueIndex !== null) handleNextInBulk();
                 }}
               >
@@ -885,7 +943,7 @@ export default function EyeCheckupRemindersPage() {
               variant="contained"
               color="warning"
               startIcon={<SendOutlined />}
-              onClick={() => void handleSendMetaTest(previewItem.attemptId)}
+              onClick={() => void handleSendMetaTest(previewItem.attemptId, activeMessage)}
             >
               Send Meta Test API
             </Button>

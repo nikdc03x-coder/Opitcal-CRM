@@ -5,6 +5,7 @@ import { HttpError } from "../utils/errors";
 export interface MetaTestSendOptions {
   attemptId: string;
   adminUsername: string;
+  customMessage?: string;
 }
 
 export interface MetaSendResult {
@@ -131,6 +132,14 @@ export async function sendMetaCloudApiTest(options: MetaTestSendOptions): Promis
     throw new HttpError(errorMsg, 500);
   }
 
+  const messageToSend = options.customMessage?.trim() || attempt.messageContent;
+  if (options.customMessage?.trim() && options.customMessage.trim() !== attempt.messageContent) {
+    await prisma.reminderAttempt.update({
+      where: { id: attempt.id },
+      data: { messageContent: messageToSend },
+    });
+  }
+
   // In official Meta test mode, we send a text message or approved template to the test number
   // https://graph.facebook.com/v21.0/{phone-number-id}/messages
   try {
@@ -151,7 +160,7 @@ export async function sendMetaCloudApiTest(options: MetaTestSendOptions): Promis
           type: "text",
           text: {
             preview_url: false,
-            body: attempt.messageContent,
+            body: messageToSend,
           },
         };
 

@@ -115,11 +115,14 @@ export async function syncReminders(): Promise<{
   return (await res.json()) as { data: { sequencesCreated: number; dueRemindersCount: number } };
 }
 
-export async function confirmManualSend(attemptId: string): Promise<{ success: boolean }> {
+export async function confirmManualSend(
+  attemptId: string,
+  customMessage?: string,
+): Promise<{ success: boolean }> {
   const res = await apiFetch("/api/reminders/confirm-manual", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ attemptId }),
+    body: JSON.stringify({ attemptId, customMessage }),
   });
   if (!res.ok) {
     const errData = (await res.json().catch(() => ({}))) as { message?: string };
@@ -128,14 +131,17 @@ export async function confirmManualSend(attemptId: string): Promise<{ success: b
   return (await res.json()) as { success: boolean };
 }
 
-export async function sendMetaTestApi(attemptId: string): Promise<{
+export async function sendMetaTestApi(
+  attemptId: string,
+  customMessage?: string,
+): Promise<{
   success: boolean;
   data?: { recipientPhone: string; messageId?: string; error?: string };
 }> {
   const res = await apiFetch("/api/reminders/send-test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ attemptId }),
+    body: JSON.stringify({ attemptId, customMessage }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     success: boolean;
