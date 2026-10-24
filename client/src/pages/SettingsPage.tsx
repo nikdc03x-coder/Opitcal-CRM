@@ -21,7 +21,10 @@ import {
   Typography,
 } from "@mui/material";
 import PersonAddAltOutlined from "@mui/icons-material/PersonAddAltOutlined";
+import DarkModeOutlined from "@mui/icons-material/DarkModeOutlined";
+import LightModeOutlined from "@mui/icons-material/LightModeOutlined";
 import ResponsiveDialog from "../components/layout/ResponsiveDialog";
+import { useColorMode } from "../theme/colorMode";
 import {
   accountRequest,
   loadAccount,
@@ -37,6 +40,7 @@ const errorText = (error: unknown) =>
 
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const { isDark, toggleColorMode } = useColorMode();
   const [account, setAccount] = useState<Account | null>(null);
   const [users, setUsers] = useState<Account[]>([]);
   const [tab, setTab] = useState(0);
@@ -166,145 +170,180 @@ export default function SettingsPage() {
             {account.role === "ADMIN" && <Tab label="User Management" />}
           </Tabs>
           {tab === 0 && (
-            <Stack
-              direction={{ xs: "column", lg: "row" }}
-              spacing={3}
-              sx={{ alignItems: "flex-start" }}
-            >
-              <Card variant="outlined" sx={{ flex: 1, width: "100%" }}>
-                <CardContent>
+            <Stack spacing={3}>
+              <Stack
+                direction={{ xs: "column", lg: "row" }}
+                spacing={3}
+                sx={{ alignItems: "flex-start" }}
+              >
+                <Card variant="outlined" sx={{ flex: 1, width: "100%" }}>
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Typography variant="h6">Account details</Typography>
+                      <Typography color="text.secondary">
+                        {account.username} ·{" "}
+                        {account.role === "ADMIN" ? "Administrator" : "CRM User"}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Joined {new Date(account.createdAt).toLocaleDateString()}
+                      </Typography>
+                      {!account.email && (
+                        <Alert severity="warning">
+                          Add an email address to enable password recovery.
+                        </Alert>
+                      )}
+                      <Box
+                        component="form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void perform(async () => {
+                            const result = await accountRequest<{
+                              account: Account;
+                              message: string;
+                            }>("/api/settings/me", "PATCH", {
+                              name,
+                              email,
+                              currentPassword: profilePassword,
+                            });
+                            setAccount(result.account);
+                            setProfilePassword("");
+                            setMessage(result.message);
+                          });
+                        }}
+                      >
+                        <Stack spacing={2}>
+                          <TextField
+                            label="Full name"
+                            required
+                            value={name}
+                            disabled={busy}
+                            onChange={(e) => setName(e.target.value)}
+                          />
+                          <TextField
+                            label="Email address"
+                            type="email"
+                            required
+                            value={email}
+                            disabled={busy}
+                            onChange={(e) => setEmail(e.target.value)}
+                          />
+                          <TextField
+                            label="Current password to save details"
+                            type="password"
+                            autoComplete="current-password"
+                            required
+                            value={profilePassword}
+                            disabled={busy}
+                            onChange={(e) => setProfilePassword(e.target.value)}
+                          />
+                          <Button type="submit" variant="contained" disabled={busy}>
+                            Save account details
+                          </Button>
+                        </Stack>
+                      </Box>
+                    </Stack>
+                  </CardContent>
+                </Card>
+                <Card variant="outlined" sx={{ flex: 1, width: "100%" }}>
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Typography variant="h6">Change password</Typography>
+                      <Typography color="text.secondary">
+                        Use at least 12 characters. Changing your password signs you out on all
+                        devices.
+                      </Typography>
+                      <Box
+                        component="form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void perform(async () => {
+                            if (newPassword !== confirmation)
+                              throw new Error("Passwords do not match.");
+                            await accountRequest("/api/settings/me/password", "POST", {
+                              currentPassword,
+                              newPassword,
+                              confirmation,
+                            });
+                            setCurrentPassword("");
+                            setNewPassword("");
+                            setConfirmation("");
+                            navigate("/login", {
+                              replace: true,
+                              state: {
+                                message:
+                                  "Password changed successfully. Sign in with your new password.",
+                              },
+                            });
+                          });
+                        }}
+                      >
+                        <Stack spacing={2}>
+                          <TextField
+                            label="Current password"
+                            type="password"
+                            autoComplete="current-password"
+                            required
+                            value={currentPassword}
+                            disabled={busy}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                          />
+                          <TextField
+                            label="New password"
+                            type="password"
+                            autoComplete="new-password"
+                            required
+                            value={newPassword}
+                            disabled={busy}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            slotProps={{ htmlInput: { minLength: 12, maxLength: 1024 } }}
+                          />
+                          <TextField
+                            label="Confirm new password"
+                            type="password"
+                            autoComplete="new-password"
+                            required
+                            value={confirmation}
+                            disabled={busy}
+                            onChange={(e) => setConfirmation(e.target.value)}
+                          />
+                          <Button type="submit" variant="contained" disabled={busy}>
+                            Change password
+                          </Button>
+                        </Stack>
+                      </Box>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Stack>
+
+              <Card variant="outlined" sx={{ width: "100%", mt: 3, borderRadius: 3 }}>
+                <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
                   <Stack spacing={2}>
-                    <Typography variant="h6">Account details</Typography>
-                    <Typography color="text.secondary">
-                      {account.username} · {account.role === "ADMIN" ? "Administrator" : "CRM User"}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Joined {new Date(account.createdAt).toLocaleDateString()}
-                    </Typography>
-                    {!account.email && (
-                      <Alert severity="warning">
-                        Add an email address to enable password recovery.
-                      </Alert>
-                    )}
-                    <Box
-                      component="form"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void perform(async () => {
-                          const result = await accountRequest<{
-                            account: Account;
-                            message: string;
-                          }>("/api/settings/me", "PATCH", {
-                            name,
-                            email,
-                            currentPassword: profilePassword,
-                          });
-                          setAccount(result.account);
-                          setProfilePassword("");
-                          setMessage(result.message);
-                        });
-                      }}
-                    >
-                      <Stack spacing={2}>
-                        <TextField
-                          label="Full name"
-                          required
-                          value={name}
-                          disabled={busy}
-                          onChange={(e) => setName(e.target.value)}
-                        />
-                        <TextField
-                          label="Email address"
-                          type="email"
-                          required
-                          value={email}
-                          disabled={busy}
-                          onChange={(e) => setEmail(e.target.value)}
-                        />
-                        <TextField
-                          label="Current password to save details"
-                          type="password"
-                          autoComplete="current-password"
-                          required
-                          value={profilePassword}
-                          disabled={busy}
-                          onChange={(e) => setProfilePassword(e.target.value)}
-                        />
-                        <Button type="submit" variant="contained" disabled={busy}>
-                          Save account details
-                        </Button>
-                      </Stack>
-                    </Box>
-                  </Stack>
-                </CardContent>
-              </Card>
-              <Card variant="outlined" sx={{ flex: 1, width: "100%" }}>
-                <CardContent>
-                  <Stack spacing={2}>
-                    <Typography variant="h6">Change password</Typography>
-                    <Typography color="text.secondary">
-                      Use at least 12 characters. Changing your password signs you out on all
-                      devices.
-                    </Typography>
-                    <Box
-                      component="form"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void perform(async () => {
-                          if (newPassword !== confirmation)
-                            throw new Error("Passwords do not match.");
-                          await accountRequest("/api/settings/me/password", "POST", {
-                            currentPassword,
-                            newPassword,
-                            confirmation,
-                          });
-                          setCurrentPassword("");
-                          setNewPassword("");
-                          setConfirmation("");
-                          navigate("/login", {
-                            replace: true,
-                            state: {
-                              message:
-                                "Password changed successfully. Sign in with your new password.",
-                            },
-                          });
-                        });
-                      }}
-                    >
-                      <Stack spacing={2}>
-                        <TextField
-                          label="Current password"
-                          type="password"
-                          autoComplete="current-password"
-                          required
-                          value={currentPassword}
-                          disabled={busy}
-                          onChange={(e) => setCurrentPassword(e.target.value)}
-                        />
-                        <TextField
-                          label="New password"
-                          type="password"
-                          autoComplete="new-password"
-                          required
-                          value={newPassword}
-                          disabled={busy}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          slotProps={{ htmlInput: { minLength: 12, maxLength: 1024 } }}
-                        />
-                        <TextField
-                          label="Confirm new password"
-                          type="password"
-                          autoComplete="new-password"
-                          required
-                          value={confirmation}
-                          disabled={busy}
-                          onChange={(e) => setConfirmation(e.target.value)}
-                        />
-                        <Button type="submit" variant="contained" disabled={busy}>
-                          Change password
-                        </Button>
-                      </Stack>
-                    </Box>
+                    <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+                      {isDark ? (
+                        <DarkModeOutlined sx={{ color: "primary.main" }} />
+                      ) : (
+                        <LightModeOutlined sx={{ color: "#F59E0B" }} />
+                      )}
+                      <Box>
+                        <Typography variant="h6" sx={{ fontSize: "1.05rem", fontWeight: 700 }}>
+                          Appearance & Dark Mode
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Customize visual theme preference. You can also toggle anytime using the
+                          top bar icon or keyboard shortcut (Ctrl+Shift+D).
+                        </Typography>
+                      </Box>
+                    </Stack>
+
+                    <FormControlLabel
+                      control={
+                        <Switch checked={isDark} onChange={toggleColorMode} color="primary" />
+                      }
+                      label={
+                        isDark ? "Dark Mode (Currently Active)" : "Light Mode (Currently Active)"
+                      }
+                    />
                   </Stack>
                 </CardContent>
               </Card>

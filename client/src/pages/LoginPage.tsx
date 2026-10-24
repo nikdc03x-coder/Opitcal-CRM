@@ -20,19 +20,24 @@ import {
   Link,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 
 import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import VisibilityOffOutlined from "@mui/icons-material/VisibilityOffOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
+import DarkModeOutlined from "@mui/icons-material/DarkModeOutlined";
+import LightModeOutlined from "@mui/icons-material/LightModeOutlined";
 
+import { useColorMode } from "../theme/colorMode";
 import { loginAdmin } from "../services/authApi";
 import { loginDestination } from "../utils/loginDestination";
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { mode, toggleColorMode } = useColorMode();
 
   // Keep credentials only in the form while logging in.
   const [username, setUsername] = useState("");
@@ -78,8 +83,31 @@ export default function LoginPage() {
         px: 2,
         py: 4,
         bgcolor: "background.default",
+        position: "relative",
       }}
     >
+      <Box sx={{ position: "absolute", top: 16, right: 16 }}>
+        <Tooltip title={mode === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}>
+          <IconButton
+            onClick={toggleColorMode}
+            aria-label="Toggle dark mode"
+            sx={{
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 2,
+              p: 1,
+              bgcolor: "background.paper",
+            }}
+          >
+            {mode === "dark" ? (
+              <LightModeOutlined fontSize="small" sx={{ color: "#FBBF24" }} />
+            ) : (
+              <DarkModeOutlined fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
+      </Box>
+
       <Card
         variant="outlined"
         sx={{

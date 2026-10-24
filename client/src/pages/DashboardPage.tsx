@@ -390,7 +390,10 @@ export default function DashboardPage() {
           sx={{
             borderRadius: 3.5,
             borderColor: "divider",
-            background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
+            background: (theme) =>
+              theme.palette.mode === "dark"
+                ? "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)"
+                : "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
             boxShadow: "0 2px 12px -2px rgba(0, 0, 0, 0.04)",
             overflow: "hidden",
             position: "relative",

@@ -1,20 +1,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-
-import { ThemeProvider } from "@mui/material/styles";
-import CssBaseline from "@mui/material/CssBaseline";
 import { RouterProvider } from "react-router";
 
-import { theme } from "./theme/theme";
+import { AppThemeProvider } from "./theme/ThemeContext";
 import { router } from "./app/router";
 
-// Start React with one shared theme and router.
-// All pages receive Material UI styling automatically.
+// Start React with shared dynamic ThemeProvider (light & dark mode support) and router.
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <AppThemeProvider>
       <RouterProvider router={router} />
-    </ThemeProvider>
+    </AppThemeProvider>
   </React.StrictMode>,
 );

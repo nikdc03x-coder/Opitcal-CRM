@@ -36,6 +36,9 @@ import AnalyticsOutlined from "@mui/icons-material/AnalyticsOutlined";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
+import DarkModeOutlined from "@mui/icons-material/DarkModeOutlined";
+import LightModeOutlined from "@mui/icons-material/LightModeOutlined";
+import { useColorMode } from "../../theme/colorMode";
 import { logoutAdmin } from "../../services/authApi";
 
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
@@ -147,6 +150,7 @@ export default function AppLayout() {
     }
   }
   const theme = useTheme();
+  const { mode, toggleColorMode } = useColorMode();
 
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const isSmallLaptop = useMediaQuery(theme.breakpoints.between("md", "lg"));
@@ -301,7 +305,9 @@ export default function AppLayout() {
           color="inherit"
           elevation={0}
           sx={{
-            borderBottom: "1px solid #E7EBF2",
+            bgcolor: "background.paper",
+            borderBottom: 1,
+            borderColor: "divider",
           }}
         >
           <Toolbar sx={{ gap: { xs: 0.75, sm: 2 }, px: { xs: 1, sm: 2 }, minWidth: 0 }}>
@@ -340,6 +346,34 @@ export default function AppLayout() {
             >
               {pageTitle}
             </Typography>
+
+            {/* Dark Mode Toggle */}
+            <Tooltip
+              title={
+                mode === "dark"
+                  ? "Switch to Light Mode (Ctrl+Shift+D)"
+                  : "Switch to Dark Mode (Ctrl+Shift+D)"
+              }
+            >
+              <IconButton
+                onClick={toggleColorMode}
+                color="inherit"
+                aria-label="Toggle dark mode"
+                sx={{
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  p: 1,
+                  bgcolor: "action.hover",
+                }}
+              >
+                {mode === "dark" ? (
+                  <LightModeOutlined fontSize="small" sx={{ color: "#FBBF24" }} />
+                ) : (
+                  <DarkModeOutlined fontSize="small" />
+                )}
+              </IconButton>
+            </Tooltip>
 
             <Button
               startIcon={<LogoutOutlined />}
