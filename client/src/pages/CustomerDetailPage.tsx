@@ -2264,22 +2264,14 @@ export default function CustomerDetailPage() {
                   spacing={1}
                   sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
                 >
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                      Purchase History & Dispensed Eyewear
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Comprehensive record of all dispensed frames, lenses, itemized pricing, and
-                      paired optometry charts.
-                    </Typography>
-                  </Box>
+                  
 
                   <Button
                     variant="contained"
                     size="small"
                     startIcon={<AddOutlined />}
                     onClick={() => setPurchaseDialogOpen(true)}
-                    sx={{ width: { xs: "100%", sm: "auto" } }}
+                    sx={{ width: {alignItems: { sm: "center" },  xs: "70%",  } }}
                   >
                     New Purchase
                   </Button>
@@ -2795,24 +2787,9 @@ export default function CustomerDetailPage() {
                                 sx={{ height: 24, fontWeight: 700, fontSize: "0.72rem" }}
                               />
 
-                              {/* Quick Specs Model & Lens preview text */}
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 650,
-                                  color: "text.primary",
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  maxWidth: { xs: "100%", md: 260, lg: 340 },
-                                  display: { xs: "none", md: "inline-block" },
-                                }}
-                              >
-                                {record.specsType || "Frame"}{" "}
-                                {record.lensType ? `• ${record.lensType}` : ""}
-                              </Typography>
+                              
                             </Stack>
-
+ 
                             {/* Right Side: Rx indicator, Price & Chevron */}
                             <Stack
                               direction="row"
@@ -3055,7 +3032,14 @@ export default function CustomerDetailPage() {
                                 alignItems: { sm: "center" },
                               }}
                             >
-                              <Button
+                             
+
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1}
+                                sx={{ width: { xs: "100%", sm: "auto" } }}
+                              >
+                                <Button
                                 color="error"
                                 variant="outlined"
                                 size="small"
@@ -3069,12 +3053,6 @@ export default function CustomerDetailPage() {
                               >
                                 Delete Purchase
                               </Button>
-
-                              <Stack
-                                direction={{ xs: "column", sm: "row" }}
-                                spacing={1}
-                                sx={{ width: { xs: "100%", sm: "auto" } }}
-                              >
                                 <Button
                                   variant="outlined"
                                   size="small"
