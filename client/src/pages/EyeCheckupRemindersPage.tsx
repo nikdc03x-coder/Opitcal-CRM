@@ -37,6 +37,7 @@ import SendOutlined from "@mui/icons-material/SendOutlined";
 import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import InfoOutlined from "@mui/icons-material/InfoOutlined";
+import PersonSearchOutlined from "@mui/icons-material/PersonSearchOutlined";
 
 import {
   fetchReminderDashboard,
@@ -51,6 +52,8 @@ import {
   updateReminderSettings,
   updateReminderTemplate,
   updateCustomerConsent,
+  searchCustomersForReminder,
+  sendEarlyReminder,
   type DueReminderItem,
   type ReminderSequenceItem,
   type ReminderDashboardData,
@@ -79,6 +82,24 @@ export default function EyeCheckupRemindersPage() {
 
   // Preview Dialog
   const [previewItem, setPreviewItem] = useState<DueReminderItem | null>(null);
+
+  // Early Send Dialog
+  const [earlySendOpen, setEarlySendOpen] = useState(false);
+  const [earlyQuery, setEarlyQuery] = useState("");
+  const [earlySearchResults, setEarlySearchResults] = useState<
+    Array<{
+      id: string;
+      name: string;
+      mobNumber: string | null;
+      normalizedPhone?: string;
+      isValidPhone: boolean;
+      phoneError?: string;
+      consentStatus: "OPTED_IN" | "OPTED_OUT" | "UNSPECIFIED";
+      latestPurchaseDate: string | null;
+      specsType: string | null;
+    }>
+  >([]);
+  const [earlySearching, setEarlySearching] = useState(false);
 
   // Settings & Templates Dialog
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -304,6 +325,34 @@ export default function EyeCheckupRemindersPage() {
     }
   };
 
+  const handleSearchEarly = async () => {
+    if (!earlyQuery.trim()) return;
+    setEarlySearching(true);
+    try {
+      const res = await searchCustomersForReminder(earlyQuery);
+      setEarlySearchResults(res);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to search customers");
+    } finally {
+      setEarlySearching(false);
+    }
+  };
+
+  const handleSelectCustomerForEarlySend = async (customerId: string) => {
+    try {
+      setLoading(true);
+      const reminderItem = await sendEarlyReminder(customerId);
+      setEarlySendOpen(false);
+      setPreviewItem(reminderItem);
+      setSuccessMsg(`Prepared reminder message for ${reminderItem.customerName}!`);
+      await loadAll();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to prepare early reminder");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getModeBadge = (mode: string) => {
     if (mode === "MANUAL_FREE") {
       return <Chip label="MANUAL FREE (₹0 Click-to-Chat)" color="success" size="small" />;
@@ -341,6 +390,19 @@ export default function EyeCheckupRemindersPage() {
         </Box>
 
         <Stack direction="row" spacing={1.5}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PersonSearchOutlined />}
+            onClick={() => {
+              setEarlySendOpen(true);
+              setEarlyQuery("");
+              setEarlySearchResults([]);
+            }}
+          >
+            Send Reminder Early
+          </Button>
+
           <Button
             variant="outlined"
             startIcon={<RefreshOutlined />}
@@ -429,7 +491,7 @@ export default function EyeCheckupRemindersPage() {
               gap: 1.5,
             }}
           >
-            <Stack direction="row" spacing={1.5} alignItems="center">
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 Pending Reminders Ready to Send
               </Typography>
@@ -1014,6 +1076,101 @@ export default function EyeCheckupRemindersPage() {
           <Button variant="contained" onClick={() => void handleSaveConsent()}>
             Save Consent
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Early Send Search Customer Dialog */}
+      <Dialog open={earlySendOpen} onClose={() => setEarlySendOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Send Reminder Early (Search Any Customer)</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary">
+              Search any active customer by name or mobile number to send an immediate eye checkup
+              reminder, even if 6 months hasn't elapsed.
+            </Typography>
+
+            <Stack direction="row" spacing={1}>
+              <TextField
+                fullWidth
+                size="small"
+                autoFocus
+                placeholder="Type customer name or mobile number..."
+                value={earlyQuery}
+                onChange={(e) => setEarlyQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void handleSearchEarly()}
+              />
+              <Button
+                variant="contained"
+                onClick={() => void handleSearchEarly()}
+                disabled={earlySearching || !earlyQuery.trim()}
+              >
+                {earlySearching ? "Searching..." : "Search"}
+              </Button>
+            </Stack>
+
+            {earlySearchResults.length > 0 && (
+              <Card variant="outlined" sx={{ mt: 1, maxHeight: 320, overflowY: "auto" }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Customer</TableCell>
+                      <TableCell>Phone</TableCell>
+                      <TableCell>Last Purchase</TableCell>
+                      <TableCell align="right">Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {earlySearchResults.map((cust) => (
+                      <TableRow key={cust.id} hover>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {cust.name}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                            {cust.mobNumber || "No Phone"}
+                          </Typography>
+                          {!cust.isValidPhone && (
+                            <Typography
+                              variant="caption"
+                              sx={{ color: "error.main", display: "block" }}
+                            >
+                              {cust.phoneError}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {cust.latestPurchaseDate
+                            ? new Date(cust.latestPurchaseDate).toLocaleDateString("en-GB")
+                            : "No purchases"}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            startIcon={<WhatsAppIcon />}
+                            disabled={!cust.isValidPhone || cust.consentStatus === "OPTED_OUT"}
+                            onClick={() => void handleSelectCustomerForEarlySend(cust.id)}
+                          >
+                            Send
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+
+            {earlySearchResults.length === 0 && earlyQuery.trim() && !earlySearching && (
+              <Alert severity="info">No matching customers found for "{earlyQuery}".</Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEarlySendOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

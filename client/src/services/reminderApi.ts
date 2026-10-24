@@ -210,3 +210,49 @@ export async function updateCustomerConsent(
   if (!res.ok) throw new ApiError("Failed to update customer consent", res.status);
   return (await res.json()) as { success: boolean };
 }
+
+export async function searchCustomersForReminder(query: string): Promise<
+  Array<{
+    id: string;
+    name: string;
+    mobNumber: string | null;
+    normalizedPhone?: string;
+    isValidPhone: boolean;
+    phoneError?: string;
+    consentStatus: "OPTED_IN" | "OPTED_OUT" | "UNSPECIFIED";
+    latestPurchaseDate: string | null;
+    specsType: string | null;
+  }>
+> {
+  const params = new URLSearchParams({ q: query.trim() });
+  const res = await apiFetch(`/api/reminders/search-customers?${params.toString()}`);
+  if (!res.ok) throw new ApiError("Failed to search customers", res.status);
+  const data = (await res.json()) as ApiResponse<
+    Array<{
+      id: string;
+      name: string;
+      mobNumber: string | null;
+      normalizedPhone?: string;
+      isValidPhone: boolean;
+      phoneError?: string;
+      consentStatus: "OPTED_IN" | "OPTED_OUT" | "UNSPECIFIED";
+      latestPurchaseDate: string | null;
+      specsType: string | null;
+    }>
+  >;
+  return data.data;
+}
+
+export async function sendEarlyReminder(customerId: string): Promise<DueReminderItem> {
+  const res = await apiFetch("/api/reminders/send-early", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ customerId }),
+  });
+  if (!res.ok) {
+    const errData = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new ApiError(errData.message || "Failed to trigger early reminder", res.status);
+  }
+  const data = (await res.json()) as ApiResponse<DueReminderItem>;
+  return data.data;
+}

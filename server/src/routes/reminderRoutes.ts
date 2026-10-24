@@ -13,6 +13,8 @@ import {
   updateReminderSettingsHandler,
   updateReminderTemplateHandler,
   updateCustomerConsentHandler,
+  sendEarlyReminderHandler,
+  searchCustomersForReminderHandler,
   getMetaWebhookHandler,
   postMetaWebhookHandler,
   scheduledCronHandler,
@@ -33,6 +35,8 @@ router.use(requireAdmin);
 router.get("/dashboard", getReminderDashboardHandler);
 router.get("/due", getDueRemindersHandler);
 router.get("/sequences", getReminderSequencesHandler);
+router.get("/search-customers", searchCustomersForReminderHandler);
+router.post("/send-early", sendEarlyReminderHandler);
 router.post("/sync", syncRemindersHandler);
 router.post("/confirm-manual", confirmManualSendHandler);
 router.post("/send-test", sendTestMetaApiHandler);
@@ -44,4 +48,3 @@ router.put("/templates/:id", updateReminderTemplateHandler);
 router.post("/consent", updateCustomerConsentHandler);
 
 export default router;
-

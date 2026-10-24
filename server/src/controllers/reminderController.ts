@@ -18,6 +18,7 @@ import {
   buildWhatsAppClickToChatUrl,
   renderReminderTemplate,
   normalizeWhatsAppNumber,
+  DEFAULT_REMINDER_TEMPLATES,
 } from "../services/reminderUtils";
 import { HttpError } from "../utils/errors";
 import { shopToday } from "../utils/date";
@@ -512,6 +513,206 @@ export async function postMetaWebhookHandler(req: Request, res: Response, next: 
 
     const result = await processMetaWebhookEvent(req.body);
     res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/reminders/send-early
+ * Allows staff to send a reminder immediately to ANY customer (even if 6 months hasn't elapsed yet).
+ * Prepares or retrieves the active sequence/attempt, marks it due immediately, and generates the click-to-chat URL.
+ */
+export async function sendEarlyReminderHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const shopId = await getShopIdForRequest(req);
+    const { customerId } = req.body;
+
+    if (!customerId) {
+      throw new HttpError("customerId is required", 400);
+    }
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, shopId, deletedAt: null, isActive: true },
+      include: {
+        consent: true,
+        records: {
+          where: { deletedAt: null },
+          orderBy: [{ purchaseDate: "desc" }, { createdAt: "desc" }],
+          take: 1,
+        },
+        reminderSequences: {
+          where: { status: { in: ["SCHEDULED", "IN_PROGRESS", "PAUSED"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            attempts: {
+              where: { status: "PENDING" },
+              orderBy: { stepNumber: "asc" },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!customer) {
+      throw new HttpError("Active customer not found in this shop", 404);
+    }
+
+    if (customer.consent?.status === "OPTED_OUT") {
+      throw new HttpError("Customer has opted out of WhatsApp messages", 400);
+    }
+
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    const shopName = shop?.name || "Harshu Chasma Ghar";
+    const latestPurchase = customer.records[0];
+
+    let sequence = customer.reminderSequences[0];
+    let pendingAttempt = sequence?.attempts[0];
+
+    // If no active sequence or attempt exists, create one immediately
+    if (!sequence) {
+      sequence = await prisma.reminderSequence.create({
+        data: {
+          shopId,
+          customerId: customer.id,
+          purchaseRecordId: latestPurchase?.id || "",
+          status: "IN_PROGRESS",
+          currentStep: 1,
+          eligibilityDate: new Date(),
+        },
+        include: {
+          attempts: true,
+        },
+      });
+    }
+
+    if (!pendingAttempt) {
+      const stepNumber = sequence.currentStep || 1;
+      const template = await prisma.reminderTemplate.findUnique({
+        where: { shopId_stepNumber: { shopId, stepNumber } },
+      });
+
+      const message = renderReminderTemplate(
+        template?.bodyText || DEFAULT_REMINDER_TEMPLATES[0].bodyText,
+        {
+          customerName: customer.name,
+          shopName,
+          purchaseDate: latestPurchase?.purchaseDate?.toISOString().slice(0, 10),
+          specsType: latestPurchase?.specsType || undefined,
+          stepNumber,
+        },
+      );
+
+      pendingAttempt = await prisma.reminderAttempt.create({
+        data: {
+          sequenceId: sequence.id,
+          stepNumber,
+          templateId: template?.id,
+          status: "PENDING",
+          scheduledFor: new Date(), // Due immediately!
+          recipientPhone: customer.mobNumber || "",
+          messageContent: message,
+        },
+      });
+    } else {
+      // Make scheduled date today so it appears in Due table
+      pendingAttempt = await prisma.reminderAttempt.update({
+        where: { id: pendingAttempt.id },
+        data: { scheduledFor: new Date() },
+      });
+    }
+
+    const bodyTemplate = pendingAttempt.messageContent;
+    const rendered = renderReminderTemplate(bodyTemplate, {
+      customerName: customer.name,
+      shopName,
+      purchaseDate: latestPurchase?.purchaseDate?.toISOString().slice(0, 10),
+      specsType: latestPurchase?.specsType || undefined,
+      stepNumber: pendingAttempt.stepNumber,
+    });
+
+    const clickToChatUrl = buildWhatsAppClickToChatUrl(customer.mobNumber || "", rendered);
+    const phoneNorm = normalizeWhatsAppNumber(customer.mobNumber || "");
+
+    res.json({
+      success: true,
+      data: {
+        attemptId: pendingAttempt.id,
+        sequenceId: sequence.id,
+        stepNumber: pendingAttempt.stepNumber,
+        scheduledFor: pendingAttempt.scheduledFor,
+        customerId: customer.id,
+        customerName: customer.name,
+        mobNumber: customer.mobNumber,
+        normalizedPhone: phoneNorm.normalized,
+        isValidPhone: phoneNorm.isValid,
+        phoneError: phoneNorm.error,
+        consentStatus: customer.consent?.status || "UNSPECIFIED",
+        purchaseDate: latestPurchase?.purchaseDate,
+        renderedMessage: rendered,
+        clickToChatUrl,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/reminders/search-customers
+ * Search any customer in the shop by name or mobile number to allow immediate sending.
+ */
+export async function searchCustomersForReminderHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const shopId = await getShopIdForRequest(req);
+    const q = (req.query.q as string | undefined)?.trim();
+
+    if (!q) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+
+    const customers = await prisma.customer.findMany({
+      where: {
+        shopId,
+        deletedAt: null,
+        isActive: true,
+        OR: [{ name: { contains: q, mode: "insensitive" } }, { mobNumber: { contains: q } }],
+      },
+      include: {
+        consent: true,
+        records: {
+          where: { deletedAt: null },
+          orderBy: [{ purchaseDate: "desc" }, { createdAt: "desc" }],
+          take: 1,
+        },
+      },
+      take: 20,
+    });
+
+    const results = customers.map((c) => {
+      const phoneNorm = normalizeWhatsAppNumber(c.mobNumber || "");
+      const latest = c.records[0];
+      return {
+        id: c.id,
+        name: c.name,
+        mobNumber: c.mobNumber,
+        normalizedPhone: phoneNorm.normalized,
+        isValidPhone: phoneNorm.isValid,
+        phoneError: phoneNorm.error,
+        consentStatus: c.consent?.status || "UNSPECIFIED",
+        latestPurchaseDate: latest?.purchaseDate,
+        specsType: latest?.specsType,
+      };
+    });
+
+    res.json({ success: true, data: results });
   } catch (err) {
     next(err);
   }
