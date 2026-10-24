@@ -75,6 +75,7 @@ export default function EyeCheckupRemindersPage() {
   // Search & Filter
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [dueSearchQuery, setDueSearchQuery] = useState<string>("");
 
   // Preview Dialog
   const [previewItem, setPreviewItem] = useState<DueReminderItem | null>(null);
@@ -106,7 +107,7 @@ export default function EyeCheckupRemindersPage() {
     try {
       const [dash, due, seqs] = await Promise.all([
         fetchReminderDashboard(),
-        fetchDueReminders(),
+        fetchDueReminders(dueSearchQuery || undefined),
         fetchReminderSequences(statusFilter || undefined, searchQuery || undefined),
       ]);
       setDashboard(dash);
@@ -119,7 +120,7 @@ export default function EyeCheckupRemindersPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, searchQuery]);
+  }, [statusFilter, searchQuery, dueSearchQuery]);
 
   useEffect(() => {
     let active = true;
@@ -425,12 +426,25 @@ export default function EyeCheckupRemindersPage() {
               alignItems: "center",
               mb: 2,
               flexWrap: "wrap",
-              gap: 1,
+              gap: 1.5,
             }}
           >
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Pending Reminders Ready to Send
-            </Typography>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                Pending Reminders Ready to Send
+              </Typography>
+              <TextField
+                size="small"
+                placeholder="Search due customer name or phone..."
+                value={dueSearchQuery}
+                onChange={(e) => setDueSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void loadAll()}
+                sx={{ width: 280 }}
+              />
+              <Button variant="outlined" size="small" onClick={() => void loadAll()}>
+                Search
+              </Button>
+            </Stack>
 
             <Stack direction="row" spacing={1}>
               {selectedDueIds.length > 0 && (

@@ -44,3 +44,4 @@ router.put("/templates/:id", updateReminderTemplateHandler);
 router.post("/consent", updateCustomerConsentHandler);
 
 export default router;
+

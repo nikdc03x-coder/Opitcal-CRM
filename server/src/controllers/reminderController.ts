@@ -111,13 +111,25 @@ export async function getDueRemindersHandler(req: Request, res: Response, next: 
   try {
     const shopId = await getShopIdForRequest(req);
     const today = shopToday();
+    const search = req.query.search as string | undefined;
+
+    const where: any = {
+      sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+      status: "PENDING",
+      scheduledFor: { lte: today },
+    };
+
+    if (search && search.trim()) {
+      where.sequence.customer = {
+        OR: [
+          { name: { contains: search.trim(), mode: "insensitive" } },
+          { mobNumber: { contains: search.trim() } },
+        ],
+      };
+    }
 
     const dueAttempts = await prisma.reminderAttempt.findMany({
-      where: {
-        sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
-        status: "PENDING",
-        scheduledFor: { lte: today },
-      },
+      where,
       include: {
         sequence: {
           include: {

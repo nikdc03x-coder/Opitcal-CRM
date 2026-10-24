@@ -120,3 +120,4 @@ CREATE INDEX "ReminderAttempt_status_scheduledFor_idx" ON "ReminderAttempt"("sta
 
 ALTER TABLE "ReminderAttempt" ADD CONSTRAINT "ReminderAttempt_sequenceId_fkey" FOREIGN KEY ("sequenceId") REFERENCES "ReminderSequence"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ReminderAttempt" ADD CONSTRAINT "ReminderAttempt_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ReminderTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+

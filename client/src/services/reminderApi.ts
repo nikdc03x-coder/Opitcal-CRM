@@ -85,8 +85,10 @@ export async function fetchReminderDashboard(): Promise<ReminderDashboardData> {
   return data.data;
 }
 
-export async function fetchDueReminders(): Promise<DueReminderItem[]> {
-  const res = await apiFetch("/api/reminders/due");
+export async function fetchDueReminders(search?: string): Promise<DueReminderItem[]> {
+  const params = new URLSearchParams();
+  if (search && search.trim()) params.set("search", search.trim());
+  const res = await apiFetch(`/api/reminders/due?${params.toString()}`);
   if (!res.ok) throw new ApiError("Failed to load due reminders", res.status);
   const data = (await res.json()) as ApiResponse<DueReminderItem[]>;
   return data.data;
