@@ -1627,13 +1627,12 @@ export default function EyeCheckupRemindersPage() {
         <Stack spacing={3}>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              Eye Checkup Reminder Templates (Harshu Chasma Ghar)
+              Eye Checkup Reminder Templates
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Personalized variables available: <code>{"{{customerName}}"}</code>,{" "}
-              <code>{"{{shopName}}"}</code>, <code>{"{{purchaseDate}}"}</code>,{" "}
-              <code>{"{{specsType}}"}</code>. Messages resolve shop name to{" "}
-              <strong>Harshu Chasma Ghar</strong>.
+              <code>{"{{purchaseDate}}"}</code>, <code>{"{{specsType}}"}</code>. You can write your
+              custom greeting, message, or shop name directly in the template.
             </Typography>
           </Box>
 
@@ -1733,7 +1732,6 @@ export default function EyeCheckupRemindersPage() {
                   >
                     {tpl.bodyText
                       .replace(/\{\{customerName\}\}/g, "Ramesh Kumar")
-                      .replace(/\{\{shopName\}\}/g, "Harshu Chasma Ghar")
                       .replace(/\{\{purchaseDate\}\}/g, "2026-04-15")
                       .replace(/\{\{specsType\}\}/g, "Spectacles")}
                   </Box>
@@ -2081,7 +2079,7 @@ export default function EyeCheckupRemindersPage() {
                 onChange={(e) =>
                   setEditingTemplate({ ...editingTemplate, bodyText: e.target.value })
                 }
-                helperText="Variables: {{customerName}}, {{shopName}}, {{purchaseDate}}, {{specsType}}"
+                helperText="Variables: {{customerName}}, {{purchaseDate}}, {{specsType}}"
               />
             </Stack>
           )}

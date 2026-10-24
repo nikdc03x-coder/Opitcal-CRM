@@ -85,16 +85,16 @@ export function buildWhatsAppClickToChatUrl(phone: string, text: string): string
 
 /**
  * Fills variable placeholders in template text.
- * e.g. {{customerName}}, {{shopName}}, {{purchaseDate}}, {{latestSpecs}}
+ * e.g. {{customerName}}, {{purchaseDate}}, {{specsType}}
  */
 export function renderReminderTemplate(
   bodyTemplate: string,
   variables: {
-    customerName: string;
-    shopName: string;
+    customerName?: string;
     purchaseDate?: string;
     specsType?: string;
     stepNumber?: number;
+    shopName?: string;
   },
 ): string {
   let result = bodyTemplate;
@@ -102,39 +102,32 @@ export function renderReminderTemplate(
     /\{\{\s*customerName\s*\}\}/g,
     variables.customerName || "Valued Customer",
   );
-  const resolvedShopName =
-    variables.shopName &&
-    !variables.shopName.includes("Demo") &&
-    variables.shopName !== "Optical Shop"
-      ? variables.shopName
-      : "Harshu Chasma Ghar";
-  result = result.replace(/\{\{\s*shopName\s*\}\}/g, resolvedShopName);
+  result = result.replace(/\{\{\s*shopName\s*\}\}/g, variables.shopName || "");
   result = result.replace(/\{\{\s*purchaseDate\s*\}\}/g, variables.purchaseDate || "6 months ago");
   result = result.replace(/\{\{\s*specsType\s*\}\}/g, variables.specsType || "spectacles");
-  result = result.replace(/Optical CRM Demo Shop/g, "Harshu Chasma Ghar");
   return result;
 }
 
 /**
- * Standard default templates for Harshu Chasma Ghar
+ * Standard default templates for eye checkup reminders
  */
 export const DEFAULT_REMINDER_TEMPLATES = [
   {
     stepNumber: 1,
     title: "Initial 6-Month Reminder",
     bodyText:
-      "Hello {{customerName}}, greetings from {{shopName}} It has been 6 months since your last eye checkup on {{purchaseDate}}. We recommend an eye-checkup to ensure your vision and spectacles remain comfortable and clear. Visit us this week for a complimentary vision check!",
+      "Hello {{customerName}}, greetings! It has been 6 months since your last eye checkup on {{purchaseDate}}. We recommend an eye-checkup to ensure your vision and spectacles remain comfortable and clear. Visit us this week for a complimentary vision check!",
   },
   {
     stepNumber: 2,
     title: "Second Follow-Up (Day 3)",
     bodyText:
-      "Hi {{customerName}}, gentle follow-up from {{shopName}}. Regular eye checkups help maintain healthy eyes and optimal comfort with your glasses. You can drop by at your convenience for a quick prescription check.",
+      "Hi {{customerName}}, gentle follow-up regarding your eye checkup. Regular eye checkups help maintain healthy eyes and optimal comfort with your glasses. You can drop by at your convenience for a quick prescription check.",
   },
   {
     stepNumber: 3,
     title: "Final Checkup Notice (Day 6)",
     bodyText:
-      "Dear {{customerName}}, this is our final reminder regarding your recommended 6-month eye evaluation from {{shopName}}. Let us know if you'd like to schedule an appointment or stop by our store. Thank you!",
+      "Dear {{customerName}}, this is our final reminder regarding your recommended 6-month eye evaluation. Let us know if you'd like to schedule an appointment or stop by our store. Thank you!",
   },
 ];

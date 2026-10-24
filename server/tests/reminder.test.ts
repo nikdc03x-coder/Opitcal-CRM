@@ -79,28 +79,26 @@ test("Scenario 8: Rejection of invalid phone numbers (too short, alpha, empty, n
 // Scenario 9: Template rendering with all personalization variables
 test("Scenario 9: Template rendering replaces all supported variables", () => {
   const tpl =
-    "Hello {{customerName}}, greetings from {{shopName}}! Checkup due from {{purchaseDate}} for your {{specsType}}.";
+    "Hello {{customerName}}, greetings! Checkup due from {{purchaseDate}} for your {{specsType}}.";
   const rendered = renderReminderTemplate(tpl, {
     customerName: "Nikhil Sharma",
-    shopName: "Harshu Chasma Ghar",
     purchaseDate: "2026-04-15",
     specsType: "Progressive Eyeglasses",
   });
 
   assert.equal(
     rendered,
-    "Hello Nikhil Sharma, greetings from Harshu Chasma Ghar! Checkup due from 2026-04-15 for your Progressive Eyeglasses.",
+    "Hello Nikhil Sharma, greetings! Checkup due from 2026-04-15 for your Progressive Eyeglasses.",
   );
 });
 
-// Scenario 10: Forced resolution of shopName to Harshu Chasma Ghar
-test("Scenario 10: Forced resolution to Harshu Chasma Ghar when shop has Demo in name", () => {
-  const tpl = "Welcome to {{shopName}}!";
+// Scenario 10: Optional shopName parameter handling
+test("Scenario 10: Template safely clears {{shopName}} tag if not specified", () => {
+  const tpl = "Hello {{customerName}}{{shopName}}!";
   const rendered = renderReminderTemplate(tpl, {
     customerName: "Ramesh",
-    shopName: "Optical CRM Demo Shop",
   });
-  assert.equal(rendered, "Welcome to Harshu Chasma Ghar!");
+  assert.equal(rendered, "Hello Ramesh!");
 });
 
 // Scenario 11: WhatsApp click-to-chat URL encoding with special characters and spaces
@@ -119,13 +117,15 @@ test("Scenario 12: 3-day interval accurately calculates the next due date", () =
   assert.equal(step2Date.toISOString().slice(0, 10), "2026-10-27");
 });
 
-// Scenario 13: 3 default templates exist with valid steps
-test("Scenario 13: System provides exactly 3 structured default reminder templates", () => {
+// Scenario 13: 3 default templates exist with valid steps without hardcoded shopName
+test("Scenario 13: System provides exactly 3 structured default reminder templates without hardcoded shopName", () => {
   assert.equal(DEFAULT_REMINDER_TEMPLATES.length, 3);
   assert.equal(DEFAULT_REMINDER_TEMPLATES[0].stepNumber, 1);
   assert.equal(DEFAULT_REMINDER_TEMPLATES[1].stepNumber, 2);
   assert.equal(DEFAULT_REMINDER_TEMPLATES[2].stepNumber, 3);
-  assert.ok(DEFAULT_REMINDER_TEMPLATES[0].bodyText.includes("{{shopName}}"));
+  assert.equal(DEFAULT_REMINDER_TEMPLATES[0].bodyText.includes("{{shopName}}"), false);
+  assert.ok(DEFAULT_REMINDER_TEMPLATES[0].bodyText.includes("{{customerName}}"));
+  assert.ok(DEFAULT_REMINDER_TEMPLATES[0].bodyText.includes("{{purchaseDate}}"));
 });
 
 // Scenario 14: Meta Cloud API test sandbox allowlist parsing and enforcement

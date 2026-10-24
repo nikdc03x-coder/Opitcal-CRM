@@ -175,10 +175,6 @@ export async function getDueRemindersHandler(req: Request, res: Response, next: 
       const bodyTemplate = att.template?.bodyText || att.messageContent;
       const rendered = renderReminderTemplate(bodyTemplate, {
         customerName: cust.name,
-        shopName:
-          att.sequence.shop?.name && !att.sequence.shop.name.includes("Demo")
-            ? att.sequence.shop.name
-            : "Harshu Chasma Ghar",
         purchaseDate: purchase.purchaseDate
           ? purchase.purchaseDate.toISOString().slice(0, 10)
           : undefined,
@@ -264,10 +260,6 @@ export async function getUpcomingRemindersHandler(req: Request, res: Response, n
       const bodyTemplate = att.template?.bodyText || att.messageContent;
       const rendered = renderReminderTemplate(bodyTemplate, {
         customerName: cust.name,
-        shopName:
-          att.sequence.shop?.name && !att.sequence.shop.name.includes("Demo")
-            ? att.sequence.shop.name
-            : "Harshu Chasma Ghar",
         purchaseDate: purchase.purchaseDate
           ? purchase.purchaseDate.toISOString().slice(0, 10)
           : undefined,
@@ -872,8 +864,6 @@ export async function sendEarlyReminderHandler(req: Request, res: Response, next
       throw new HttpError("Customer has opted out of WhatsApp messages", 400);
     }
 
-    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-    const shopName = shop?.name && !shop.name.includes("Demo") ? shop.name : "Harshu Chasma Ghar";
     const latestPurchase = customer.records[0];
 
     let sequence = customer.reminderSequences[0];
@@ -906,7 +896,6 @@ export async function sendEarlyReminderHandler(req: Request, res: Response, next
         template?.bodyText || DEFAULT_REMINDER_TEMPLATES[0].bodyText,
         {
           customerName: customer.name,
-          shopName,
           purchaseDate: latestPurchase?.purchaseDate?.toISOString().slice(0, 10),
           specsType: latestPurchase?.specsType || undefined,
           stepNumber,
@@ -935,7 +924,6 @@ export async function sendEarlyReminderHandler(req: Request, res: Response, next
     const bodyTemplate = pendingAttempt.messageContent;
     const rendered = renderReminderTemplate(bodyTemplate, {
       customerName: customer.name,
-      shopName,
       purchaseDate: latestPurchase?.purchaseDate?.toISOString().slice(0, 10),
       specsType: latestPurchase?.specsType || undefined,
       stepNumber: pendingAttempt.stepNumber,

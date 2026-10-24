@@ -70,17 +70,12 @@ export async function confirmManualReminderSend(params: ConfirmManualSendParams)
       },
     });
 
-    const shopName =
-      sequence.shop?.name && !sequence.shop.name.includes("Demo")
-        ? sequence.shop.name
-        : "Harshu Chasma Ghar";
     const renderedMessage = template
       ? renderReminderTemplate(template.bodyText, {
           customerName: sequence.customer.name,
-          shopName,
           stepNumber: nextStep,
         })
-      : `Eye checkup reminder follow up from ${shopName}`;
+      : `Eye checkup reminder follow up.`;
 
     // Create next step attempt
     await prisma.reminderAttempt.create({
