@@ -48,6 +48,11 @@ model Shop {
 
   // A shop can manage multiple spectacle orders.
   orders Order[]
+
+  // WhatsApp reminder settings per shop
+  reminderSetting ShopReminderSetting?
+  reminderSequences ReminderSequence[]
+  reminderTemplates ReminderTemplate[]
 }
 
 // 3. CUSTOMER
@@ -82,6 +87,10 @@ model Customer {
 
   // Customer orders are separate from purchase history.
   orders Order[]
+
+  // WhatsApp communications & consent
+  consent           CustomerCommunicationConsent?
+  reminderSequences ReminderSequence[]
 
   @@unique([shopId, legacyMongoId])
   // Multiple customers can share a phone number.
@@ -229,6 +238,9 @@ model CustomerRecord {
   // A purchase can have one manually created tracking order.
   order Order?
 
+  // Sequence triggered by this purchase
+  reminderSequences ReminderSequence[]
+
   @@unique([customerId, legacyMongoId])
   @@index([customerId, createdAt])
   @@index([frameCatalogId])
@@ -364,4 +376,145 @@ model OrderStatusHistory {
   order Order @relation(fields: [orderId], references: [id])
 
   @@index([orderId, createdAt])
+}
+
+// ==========================================
+// 12. WHATSAPP EYE-CHECKUP REMINDER SYSTEM
+// ==========================================
+
+enum WhatsAppMode {
+  DISABLED
+  MANUAL_FREE
+  META_TEST
+}
+
+enum SequenceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  PAUSED
+}
+
+enum SequenceCancellationReason {
+  NEW_PURCHASE
+  CUSTOMER_OPT_OUT
+  MANUALLY_CANCELLED
+  INVALID_PHONE
+  CUSTOMER_DELETED
+}
+
+enum AttemptStatus {
+  PENDING
+  ACCEPTED
+  SENT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum SendingChannel {
+  MANUAL_CLICK_TO_CHAT
+  META_CLOUD_API_TEST
+}
+
+enum ConsentStatus {
+  OPTED_IN
+  OPTED_OUT
+  UNSPECIFIED
+}
+
+model ShopReminderSetting {
+  id              String       @id @default(uuid())
+  shopId          String       @unique
+  mode            WhatsAppMode @default(DISABLED)
+  optOutKeywords  String       @default("STOP,UNSUBSCRIBE,CANCEL")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+}
+
+model CustomerCommunicationConsent {
+  id              String        @id @default(uuid())
+  customerId      String        @unique
+  status          ConsentStatus @default(UNSPECIFIED)
+  source          String?       // IN_PERSON, IMPORT, WHATSAPP_REPLY, etc.
+  notes           String?
+  optedOutAt      DateTime?
+  optedInAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model ReminderTemplate {
+  id              String   @id @default(uuid())
+  shopId          String
+  stepNumber      Int      // 1, 2, or 3
+  title           String
+  bodyText        String   @db.Text
+  metaTemplateName String? // If mapped to an approved Meta template for testing
+  languageCode    String   @default("en")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  reminders ReminderAttempt[]
+
+  @@unique([shopId, stepNumber])
+}
+
+model ReminderSequence {
+  id                 String                      @id @default(uuid())
+  shopId             String
+  customerId         String
+  purchaseRecordId   String
+  status             SequenceStatus              @default(SCHEDULED)
+  currentStep        Int                         @default(1)
+  eligibilityDate    DateTime                    @db.Date
+  cancellationReason SequenceCancellationReason?
+  pausedAt           DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+
+  shop           Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer       Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  purchaseRecord CustomerRecord    @relation(fields: [purchaseRecordId], references: [id], onDelete: Cascade)
+  attempts       ReminderAttempt[]
+
+  @@unique([purchaseRecordId])
+  @@index([shopId, status])
+  @@index([customerId, status])
+  @@index([eligibilityDate])
+}
+
+model ReminderAttempt {
+  id               String          @id @default(uuid())
+  sequenceId       String
+  stepNumber       Int             // 1, 2, or 3
+  templateId       String?
+  status           AttemptStatus   @default(PENDING)
+  channel          SendingChannel?
+  scheduledFor     DateTime
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  failedAt         DateTime?
+  failureReason    String?
+  recipientPhone   String
+  messageContent   String          @db.Text
+  metaMessageId    String?         @unique
+  manualConfirmedBy String?        // Admin username who marked manual link sent
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  sequence ReminderSequence  @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  template ReminderTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([sequenceId, stepNumber])
+  @@index([status, scheduledFor])
 }
