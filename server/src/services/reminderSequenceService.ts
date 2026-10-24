@@ -128,7 +128,10 @@ export async function advanceSequenceAfterMetaApiSend(attemptId: string) {
     },
   });
 
-  if (!attempt || (attempt.status !== "ACCEPTED" && attempt.status !== "SENT" && attempt.status !== "DELIVERED")) {
+  if (
+    !attempt ||
+    (attempt.status !== "ACCEPTED" && attempt.status !== "SENT" && attempt.status !== "DELIVERED")
+  ) {
     return;
   }
 

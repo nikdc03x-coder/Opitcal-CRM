@@ -80,6 +80,14 @@ export const router = createBrowserRouter([
             }),
           },
 
+          // Eye Checkup WhatsApp Reminders
+          {
+            path: "reminders",
+            lazy: async () => ({
+              Component: (await import("../pages/EyeCheckupRemindersPage")).default,
+            }),
+          },
+
           // Customer list.
           {
             path: "customers",

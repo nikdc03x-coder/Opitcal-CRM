@@ -66,12 +66,18 @@ export async function sendMetaCloudApiTest(options: MetaTestSendOptions): Promis
   // Safety check: Shop mode must be META_TEST
   const mode = attempt.sequence.shop.reminderSetting?.mode || "DISABLED";
   if (mode !== "META_TEST") {
-    throw new HttpError(`Sending via Meta Cloud API is blocked because shop mode is ${mode}. Set mode to META_TEST.`, 403);
+    throw new HttpError(
+      `Sending via Meta Cloud API is blocked because shop mode is ${mode}. Set mode to META_TEST.`,
+      403,
+    );
   }
 
   // Opt-out / Consent check
   if (attempt.sequence.customer.consent?.status === "OPTED_OUT") {
-    throw new HttpError("Cannot send reminder: Customer has opted out of WhatsApp communications.", 400);
+    throw new HttpError(
+      "Cannot send reminder: Customer has opted out of WhatsApp communications.",
+      400,
+    );
   }
 
   // Normalize phone number
@@ -112,7 +118,8 @@ export async function sendMetaCloudApiTest(options: MetaTestSendOptions): Promis
   const phoneNumberId = process.env.META_WHATSAPP_PHONE_NUMBER_ID;
 
   if (!token || !phoneNumberId) {
-    const errorMsg = "Meta WhatsApp Cloud API credentials (META_WHATSAPP_ACCESS_TOKEN, META_WHATSAPP_PHONE_NUMBER_ID) are not configured on server.";
+    const errorMsg =
+      "Meta WhatsApp Cloud API credentials (META_WHATSAPP_ACCESS_TOKEN, META_WHATSAPP_PHONE_NUMBER_ID) are not configured on server.";
     await prisma.reminderAttempt.update({
       where: { id: attemptId },
       data: {

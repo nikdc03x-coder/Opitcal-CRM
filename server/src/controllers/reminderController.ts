@@ -1,14 +1,24 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../config/database";
 import { syncReminderEligibility } from "../services/reminderEligibilityService";
-import { confirmManualReminderSend, advanceSequenceAfterMetaApiSend } from "../services/reminderSequenceService";
-import { sendMetaCloudApiTest, getMetaTestAllowedRecipients } from "../services/metaWhatsAppTestService";
+import {
+  confirmManualReminderSend,
+  advanceSequenceAfterMetaApiSend,
+} from "../services/reminderSequenceService";
+import {
+  sendMetaCloudApiTest,
+  getMetaTestAllowedRecipients,
+} from "../services/metaWhatsAppTestService";
 import {
   verifyMetaWebhookHandshake,
   verifyMetaSignature,
   processMetaWebhookEvent,
 } from "../services/metaWhatsAppWebhookService";
-import { buildWhatsAppClickToChatUrl, renderReminderTemplate, normalizeWhatsAppNumber } from "../services/reminderUtils";
+import {
+  buildWhatsAppClickToChatUrl,
+  renderReminderTemplate,
+  normalizeWhatsAppNumber,
+} from "../services/reminderUtils";
 import { HttpError } from "../utils/errors";
 import { shopToday } from "../utils/date";
 
@@ -34,34 +44,41 @@ export async function getReminderDashboardHandler(req: Request, res: Response, n
     const shopId = await getShopIdForRequest(req);
     const today = shopToday();
 
-    const [setting, templates, dueCount, upcomingCount, completedCount, pausedCount, cancelledCount] =
-      await Promise.all([
-        prisma.shopReminderSetting.findUnique({ where: { shopId } }),
-        prisma.reminderTemplate.findMany({ where: { shopId }, orderBy: { stepNumber: "asc" } }),
-        prisma.reminderAttempt.count({
-          where: {
-            sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
-            status: "PENDING",
-            scheduledFor: { lte: today },
-          },
-        }),
-        prisma.reminderAttempt.count({
-          where: {
-            sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
-            status: "PENDING",
-            scheduledFor: { gt: today },
-          },
-        }),
-        prisma.reminderSequence.count({
-          where: { shopId, status: "COMPLETED" },
-        }),
-        prisma.reminderSequence.count({
-          where: { shopId, status: "PAUSED" },
-        }),
-        prisma.reminderSequence.count({
-          where: { shopId, status: "CANCELLED" },
-        }),
-      ]);
+    const [
+      setting,
+      templates,
+      dueCount,
+      upcomingCount,
+      completedCount,
+      pausedCount,
+      cancelledCount,
+    ] = await Promise.all([
+      prisma.shopReminderSetting.findUnique({ where: { shopId } }),
+      prisma.reminderTemplate.findMany({ where: { shopId }, orderBy: { stepNumber: "asc" } }),
+      prisma.reminderAttempt.count({
+        where: {
+          sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+          status: "PENDING",
+          scheduledFor: { lte: today },
+        },
+      }),
+      prisma.reminderAttempt.count({
+        where: {
+          sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+          status: "PENDING",
+          scheduledFor: { gt: today },
+        },
+      }),
+      prisma.reminderSequence.count({
+        where: { shopId, status: "COMPLETED" },
+      }),
+      prisma.reminderSequence.count({
+        where: { shopId, status: "PAUSED" },
+      }),
+      prisma.reminderSequence.count({
+        where: { shopId, status: "CANCELLED" },
+      }),
+    ]);
 
     const allowedTestRecipients = getMetaTestAllowedRecipients();
 
@@ -125,7 +142,9 @@ export async function getDueRemindersHandler(req: Request, res: Response, next: 
       const rendered = renderReminderTemplate(bodyTemplate, {
         customerName: cust.name,
         shopName: att.sequence.shop.name,
-        purchaseDate: purchase.purchaseDate ? purchase.purchaseDate.toISOString().slice(0, 10) : undefined,
+        purchaseDate: purchase.purchaseDate
+          ? purchase.purchaseDate.toISOString().slice(0, 10)
+          : undefined,
         specsType: purchase.specsType || undefined,
         stepNumber: att.stepNumber,
       });
@@ -331,7 +350,11 @@ export async function cancelSequenceHandler(req: Request, res: Response, next: N
  * PUT /api/reminders/settings
  * Updates sending mode and opt-out keywords.
  */
-export async function updateReminderSettingsHandler(req: Request, res: Response, next: NextFunction) {
+export async function updateReminderSettingsHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   try {
     const shopId = await getShopIdForRequest(req);
     const { mode, optOutKeywords } = req.body;
@@ -362,7 +385,11 @@ export async function updateReminderSettingsHandler(req: Request, res: Response,
 /**
  * PUT /api/reminders/templates/:id
  */
-export async function updateReminderTemplateHandler(req: Request, res: Response, next: NextFunction) {
+export async function updateReminderTemplateHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     if (!id) throw new HttpError("ID parameter is required", 400);
@@ -388,11 +415,18 @@ export async function updateReminderTemplateHandler(req: Request, res: Response,
  * POST /api/reminders/consent
  * Set consent status for a customer.
  */
-export async function updateCustomerConsentHandler(req: Request, res: Response, next: NextFunction) {
+export async function updateCustomerConsentHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   try {
     const { customerId, status, notes } = req.body;
     if (!customerId || !["OPTED_IN", "OPTED_OUT", "UNSPECIFIED"].includes(status)) {
-      throw new HttpError("customerId and valid status (OPTED_IN, OPTED_OUT, UNSPECIFIED) are required", 400);
+      throw new HttpError(
+        "customerId and valid status (OPTED_IN, OPTED_OUT, UNSPECIFIED) are required",
+        400,
+      );
     }
 
     const consent = await prisma.customerCommunicationConsent.upsert({

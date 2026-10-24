@@ -7,7 +7,10 @@ import {
   buildWhatsAppClickToChatUrl,
 } from "../src/services/reminderUtils";
 import { getMetaTestAllowedRecipients } from "../src/services/metaWhatsAppTestService";
-import { verifyMetaWebhookHandshake, verifyMetaSignature } from "../src/services/metaWhatsAppWebhookService";
+import {
+  verifyMetaWebhookHandshake,
+  verifyMetaSignature,
+} from "../src/services/metaWhatsAppWebhookService";
 
 test("WhatsApp phone normalization formats Indian mobile numbers to E.164 without leading plus", () => {
   // 10 digits
@@ -63,7 +66,8 @@ test("Six calendar months eligibility calculation handles mid-month and month-en
 });
 
 test("Template rendering replaces variables safely", () => {
-  const tpl = "Hello {{customerName}}, greetings from {{shopName}}! Checkup due from {{purchaseDate}}.";
+  const tpl =
+    "Hello {{customerName}}, greetings from {{shopName}}! Checkup due from {{purchaseDate}}.";
   const rendered = renderReminderTemplate(tpl, {
     customerName: "Ramesh Kumar",
     shopName: "Harshu Chasma Ghar",
@@ -72,7 +76,7 @@ test("Template rendering replaces variables safely", () => {
 
   assert.equal(
     rendered,
-    "Hello Ramesh Kumar, greetings from Harshu Chasma Ghar! Checkup due from 2026-04-15."
+    "Hello Ramesh Kumar, greetings from Harshu Chasma Ghar! Checkup due from 2026-04-15.",
   );
 });
 

@@ -60,7 +60,9 @@ export async function ensureShopReminderDefaults(shopId: string) {
  * 3. Identifies customers whose latest active purchase is 6 calendar months old, and creates a SCHEDULED ReminderSequence if none exists.
  * 4. Ensures attempt for step 1 is initialized if needed.
  */
-export async function syncReminderEligibility(options: SyncReminderOptions): Promise<SyncReminderResult> {
+export async function syncReminderEligibility(
+  options: SyncReminderOptions,
+): Promise<SyncReminderResult> {
   const { shopId } = options;
   const refDate = options.referenceDate ?? shopToday();
 
@@ -185,10 +187,7 @@ export async function syncReminderEligibility(options: SyncReminderOptions): Pro
       consent: true,
       records: {
         where: { deletedAt: null },
-        orderBy: [
-          { purchaseDate: "desc" },
-          { createdAt: "desc" },
-        ],
+        orderBy: [{ purchaseDate: "desc" }, { createdAt: "desc" }],
         take: 1,
       },
       reminderSequences: {

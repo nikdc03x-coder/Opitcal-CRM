@@ -47,7 +47,9 @@ export function verifyMetaSignature(rawBody: string, signatureHeader?: string): 
  * Updates message status to DELIVERED, SENT, or FAILED.
  * Also checks for inbound opt-out keyword messages (e.g. STOP, UNSUBSCRIBE).
  */
-export async function processMetaWebhookEvent(payload: any): Promise<{ handled: boolean; detail?: string }> {
+export async function processMetaWebhookEvent(
+  payload: any,
+): Promise<{ handled: boolean; detail?: string }> {
   if (payload.object !== "whatsapp_business_account") {
     return { handled: false, detail: "Not a whatsapp_business_account payload" };
   }
@@ -80,7 +82,10 @@ export async function processMetaWebhookEvent(payload: any): Promise<{ handled: 
                 },
               });
             } else if (statusString === "failed") {
-              const errMsg = st.errors?.[0]?.message || st.errors?.[0]?.title || "Meta reported delivery failure";
+              const errMsg =
+                st.errors?.[0]?.message ||
+                st.errors?.[0]?.title ||
+                "Meta reported delivery failure";
               await prisma.reminderAttempt.update({
                 where: { id: attempt.id },
                 data: {

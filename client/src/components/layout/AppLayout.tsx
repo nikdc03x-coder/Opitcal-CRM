@@ -33,6 +33,7 @@ import DeleteOutline from "@mui/icons-material/DeleteOutlined";
 // Icons for order tracking and business analytics.
 import LocalShippingOutlined from "@mui/icons-material/LocalShippingOutlined";
 import AnalyticsOutlined from "@mui/icons-material/AnalyticsOutlined";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import { logoutAdmin } from "../../services/authApi";
@@ -76,6 +77,13 @@ const navigation = [
     path: "/analytics",
     icon: <AnalyticsOutlined />,
   },
+
+  // WhatsApp Customer Reminder System
+  {
+    label: "Eye Checkup Reminders",
+    path: "/reminders",
+    icon: <WhatsAppIcon />,
+  },
 ];
 
 // Display the current page name in the top bar.
@@ -96,6 +104,10 @@ function getPageTitle(path: string): string {
 
   if (path === "/orders") {
     return "Order Tracking";
+  }
+
+  if (path === "/reminders") {
+    return "Eye Checkup Reminders";
   }
 
   if (path === "/analytics") {
