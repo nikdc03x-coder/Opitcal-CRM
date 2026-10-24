@@ -991,8 +991,40 @@ export async function shareOrDownloadPdf(
   return "downloaded";
 }
 
-function whatsappNumber(mobile: string | null | undefined): string {
-  const digits = (mobile ?? "").replace(/\D/g, "");
+// Check whether the browser natively supports sharing PDF files (e.g. mobile share sheet).
+export function canShareFilesDirectly(): boolean {
+  if (
+    typeof navigator === "undefined" ||
+    typeof navigator.share !== "function" ||
+    typeof navigator.canShare !== "function"
+  ) {
+    return false;
+  }
+  try {
+    const dummyFile = new File([""], "test.pdf", { type: "application/pdf" });
+    return navigator.canShare({ files: [dummyFile] });
+  } catch {
+    return false;
+  }
+}
+
+// Normalize phone numbers for Indian WhatsApp:
+// - Strips spaces, dashes, parentheses, non-digits
+// - Strips international prefix '00' or trunk prefix '0'
+// - Prepends 91 to 10-digit Indian numbers starting with 6-9
+// - Preserves valid 12-digit Indian numbers starting with 91[6-9]
+// - Returns null if missing or invalid
+export function normalizeWhatsAppNumber(mobile: string | null | undefined): string | null {
+  if (!mobile) return null;
+  let digits = mobile.replace(/\D/g, "");
+
+  if (digits.startsWith("00")) {
+    digits = digits.slice(2);
+  }
+
+  if (/^0[6-9]\d{9}$/.test(digits)) {
+    digits = digits.slice(1);
+  }
 
   if (/^[6-9]\d{9}$/.test(digits)) {
     return `91${digits}`;
@@ -1002,7 +1034,33 @@ function whatsappNumber(mobile: string | null | undefined): string {
     return digits;
   }
 
+  return null;
+}
+
+export function whatsappNumber(mobile: string | null | undefined): string {
+  const normalized = normalizeWhatsAppNumber(mobile);
+  if (normalized) {
+    return normalized;
+  }
   throw new Error("Please enter a valid Indian customer mobile number.");
+}
+
+// Standard WhatsApp bill delivery message with customer name and shop branding.
+export function buildWhatsAppBillMessage(customerName: string): string {
+  const name = customerName.trim() || "Customer";
+  return `Hello ${name},
+
+Greetings from Harshu Chasma Ghar.
+
+Please find your purchase bill attached.
+
+Thank you for choosing Harshu Chasma Ghar.`;
+}
+
+// Standard WhatsApp click-to-chat API URL format.
+export function buildWhatsAppBillUrl(phone: string, customerName: string): string {
+  const message = buildWhatsAppBillMessage(customerName);
+  return `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`;
 }
 
 // Show prescription measurements in correct order.
@@ -1068,10 +1126,22 @@ export function whatsappReceiptMessage(
   return message.join("\n");
 }
 
-export function openCustomerWhatsApp(mobile: string | null, message: string): void {
-  const number = whatsappNumber(mobile);
+export function openCustomerWhatsApp(
+  mobile: string | null | undefined,
+  message: string,
+  targetWindow?: Window | null,
+): void {
+  const number = normalizeWhatsAppNumber(mobile);
+  if (!number) {
+    throw new Error("Please enter a valid Indian customer mobile number.");
+  }
 
-  const url = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
+  const url = `https://api.whatsapp.com/send/?phone=${number}&text=${encodeURIComponent(message)}`;
+
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.href = url;
+    return;
+  }
 
   const anchor = document.createElement("a");
 
