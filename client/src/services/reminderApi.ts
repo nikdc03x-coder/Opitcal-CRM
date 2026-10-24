@@ -5,11 +5,14 @@ export interface ReminderDashboardData {
   optOutKeywords: string;
   allowedTestRecipients: string[];
   stats: {
+    totalEligible: number;
     due: number;
     upcoming: number;
-    completed: number;
+    confirmedSent: number;
     paused: number;
     cancelled: number;
+    completed: number;
+    failedOrUnresolved: number;
   };
   templates: Array<{
     id: string;
@@ -36,6 +39,29 @@ export interface DueReminderItem {
   purchaseDate: string | null;
   renderedMessage: string;
   clickToChatUrl: string;
+}
+
+export interface ReminderHistoryItem {
+  id: string;
+  sequenceId: string;
+  stepNumber: number;
+  status: "PENDING" | "ACCEPTED" | "SENT" | "DELIVERED" | "FAILED" | "CANCELLED";
+  channel: string | null;
+  scheduledFor: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  failedAt: string | null;
+  failureReason: string | null;
+  recipientPhone: string;
+  messageContent: string;
+  manualConfirmedBy: string | null;
+  customer: {
+    id: string;
+    name: string;
+    mobNumber: string | null;
+  };
+  purchaseDate: string | null;
+  specsType: string | null;
 }
 
 export interface ReminderSequenceItem {
@@ -261,4 +287,60 @@ export async function sendEarlyReminder(customerId: string): Promise<DueReminder
   }
   const data = (await res.json()) as ApiResponse<DueReminderItem>;
   return data.data;
+}
+
+export async function fetchUpcomingReminders(search?: string): Promise<DueReminderItem[]> {
+  const params = new URLSearchParams();
+  if (search && search.trim()) params.set("search", search.trim());
+  const res = await apiFetch(`/api/reminders/upcoming?${params.toString()}`);
+  if (!res.ok) throw new ApiError("Failed to load upcoming reminders", res.status);
+  const data = (await res.json()) as ApiResponse<DueReminderItem[]>;
+  return data.data;
+}
+
+export async function fetchReminderHistory(
+  search?: string,
+  status?: string,
+): Promise<ReminderHistoryItem[]> {
+  const params = new URLSearchParams();
+  if (search && search.trim()) params.set("search", search.trim());
+  if (status && status.trim()) params.set("status", status.trim());
+  const res = await apiFetch(`/api/reminders/history?${params.toString()}`);
+  if (!res.ok) throw new ApiError("Failed to load reminder history", res.status);
+  const data = (await res.json()) as ApiResponse<ReminderHistoryItem[]>;
+  return data.data;
+}
+
+export async function rescheduleReminderAttempt(
+  attemptId: string,
+  newDate: string,
+): Promise<{ success: boolean }> {
+  const res = await apiFetch(`/api/reminders/attempts/${attemptId}/reschedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ newDate }),
+  });
+  if (!res.ok) throw new ApiError("Failed to reschedule reminder", res.status);
+  return (await res.json()) as { success: boolean };
+}
+
+export async function bulkCancelReminderSequences(
+  sequenceIds: string[],
+  reason?: string,
+): Promise<{ success: boolean; data: { cancelled: number } }> {
+  const res = await apiFetch("/api/reminders/sequences/bulk-cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sequenceIds, reason }),
+  });
+  if (!res.ok) throw new ApiError("Failed to bulk cancel sequences", res.status);
+  return (await res.json()) as { success: boolean; data: { cancelled: number } };
+}
+
+export async function restoreDefaultTemplate(id: string): Promise<{ success: boolean }> {
+  const res = await apiFetch(`/api/reminders/templates/${id}/restore-default`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new ApiError("Failed to restore default template", res.status);
+  return (await res.json()) as { success: boolean };
 }

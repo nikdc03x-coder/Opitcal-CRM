@@ -1811,6 +1811,15 @@ export default function CustomerDetailPage() {
                 >
                   New Purchase
                 </Button>
+                <Button
+                  component={Link}
+                  to={`/reminders?search=${encodeURIComponent(customer.mobNumber || customer.name)}`}
+                  variant="outlined"
+                  color="primary"
+                  startIcon={<RemoveRedEyeOutlined />}
+                >
+                  Eye Checkup Reminder
+                </Button>
                 {customer.mobNumber && (
                   <Button
                     component="a"

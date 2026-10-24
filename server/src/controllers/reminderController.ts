@@ -53,6 +53,9 @@ export async function getReminderDashboardHandler(req: Request, res: Response, n
       completedCount,
       pausedCount,
       cancelledCount,
+      totalEligibleCount,
+      confirmedSentCount,
+      failedCount,
     ] = await Promise.all([
       prisma.shopReminderSetting.findUnique({ where: { shopId } }),
       prisma.reminderTemplate.findMany({ where: { shopId }, orderBy: { stepNumber: "asc" } }),
@@ -79,6 +82,21 @@ export async function getReminderDashboardHandler(req: Request, res: Response, n
       prisma.reminderSequence.count({
         where: { shopId, status: "CANCELLED" },
       }),
+      prisma.reminderSequence.count({
+        where: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS", "PAUSED"] } },
+      }),
+      prisma.reminderAttempt.count({
+        where: {
+          sequence: { shopId },
+          status: { in: ["SENT", "DELIVERED"] },
+        },
+      }),
+      prisma.reminderAttempt.count({
+        where: {
+          sequence: { shopId },
+          status: "FAILED",
+        },
+      }),
     ]);
 
     const allowedTestRecipients = getMetaTestAllowedRecipients();
@@ -91,11 +109,14 @@ export async function getReminderDashboardHandler(req: Request, res: Response, n
         templates,
         allowedTestRecipients,
         stats: {
+          totalEligible: totalEligibleCount,
           due: dueCount,
           upcoming: upcomingCount,
-          completed: completedCount,
+          confirmedSent: confirmedSentCount,
           paused: pausedCount,
           cancelled: cancelledCount,
+          completed: completedCount,
+          failedOrUnresolved: failedCount,
         },
       },
     });
@@ -193,6 +214,95 @@ export async function getDueRemindersHandler(req: Request, res: Response, next: 
 }
 
 /**
+ * GET /api/reminders/upcoming
+ * Retrieves upcoming reminder attempts ready in future (scheduledFor > today).
+ */
+export async function getUpcomingRemindersHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const shopId = await getShopIdForRequest(req);
+    const today = shopToday();
+    const search = req.query.search as string | undefined;
+
+    const where: any = {
+      sequence: { shopId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+      status: "PENDING",
+      scheduledFor: { gt: today },
+    };
+
+    if (search && search.trim()) {
+      where.sequence.customer = {
+        OR: [
+          { name: { contains: search.trim(), mode: "insensitive" } },
+          { mobNumber: { contains: search.trim() } },
+        ],
+      };
+    }
+
+    const upcomingAttempts = await prisma.reminderAttempt.findMany({
+      where,
+      include: {
+        sequence: {
+          include: {
+            customer: {
+              include: {
+                consent: true,
+              },
+            },
+            purchaseRecord: true,
+            shop: true,
+          },
+        },
+        template: true,
+      },
+      orderBy: { scheduledFor: "asc" },
+      take: 100,
+    });
+
+    const items = upcomingAttempts.map((att) => {
+      const cust = att.sequence.customer;
+      const purchase = att.sequence.purchaseRecord;
+      const bodyTemplate = att.template?.bodyText || att.messageContent;
+      const rendered = renderReminderTemplate(bodyTemplate, {
+        customerName: cust.name,
+        shopName:
+          att.sequence.shop?.name && !att.sequence.shop.name.includes("Demo")
+            ? att.sequence.shop.name
+            : "Harshu Chasma Ghar",
+        purchaseDate: purchase.purchaseDate
+          ? purchase.purchaseDate.toISOString().slice(0, 10)
+          : undefined,
+        specsType: purchase.specsType || undefined,
+        stepNumber: att.stepNumber,
+      });
+
+      const clickToChatUrl = buildWhatsAppClickToChatUrl(att.recipientPhone, rendered);
+      const phoneNorm = normalizeWhatsAppNumber(att.recipientPhone);
+
+      return {
+        attemptId: att.id,
+        sequenceId: att.sequenceId,
+        stepNumber: att.stepNumber,
+        scheduledFor: att.scheduledFor,
+        customerId: cust.id,
+        customerName: cust.name,
+        mobNumber: cust.mobNumber,
+        normalizedPhone: phoneNorm.normalized,
+        isValidPhone: phoneNorm.isValid,
+        phoneError: phoneNorm.error,
+        consentStatus: cust.consent?.status || "UNSPECIFIED",
+        purchaseDate: purchase.purchaseDate,
+        renderedMessage: rendered,
+        clickToChatUrl,
+      };
+    });
+
+    res.json({ success: true, data: items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /api/reminders/sequences
  * List all sequences with filters and pagination.
  */
@@ -231,6 +341,73 @@ export async function getReminderSequencesHandler(req: Request, res: Response, n
     });
 
     res.json({ success: true, data: sequences });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/reminders/history
+ * Retrieves sent, delivered, failed, or cancelled attempts.
+ */
+export async function getReminderHistoryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const shopId = await getShopIdForRequest(req);
+    const search = req.query.search as string | undefined;
+    const status = req.query.status as string | undefined;
+
+    const where: any = {
+      sequence: { shopId },
+      status: status ? status : { in: ["SENT", "DELIVERED", "FAILED", "CANCELLED"] },
+    };
+
+    if (search && search.trim()) {
+      where.sequence.customer = {
+        OR: [
+          { name: { contains: search.trim(), mode: "insensitive" } },
+          { mobNumber: { contains: search.trim() } },
+        ],
+      };
+    }
+
+    const attempts = await prisma.reminderAttempt.findMany({
+      where,
+      include: {
+        sequence: {
+          include: {
+            customer: true,
+            purchaseRecord: true,
+          },
+        },
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 100,
+    });
+
+    const items = attempts.map((att) => ({
+      id: att.id,
+      sequenceId: att.sequenceId,
+      stepNumber: att.stepNumber,
+      status: att.status,
+      channel: att.channel,
+      scheduledFor: att.scheduledFor,
+      sentAt: att.sentAt,
+      deliveredAt: att.deliveredAt,
+      failedAt: att.failedAt,
+      failureReason: att.failureReason,
+      recipientPhone: att.recipientPhone,
+      messageContent: att.messageContent,
+      manualConfirmedBy: att.manualConfirmedBy,
+      customer: {
+        id: att.sequence.customer.id,
+        name: att.sequence.customer.name,
+        mobNumber: att.sequence.customer.mobNumber,
+      },
+      purchaseDate: att.sequence.purchaseRecord?.purchaseDate,
+      specsType: att.sequence.purchaseRecord?.specsType,
+    }));
+
+    res.json({ success: true, data: items });
   } catch (err) {
     next(err);
   }
@@ -365,6 +542,95 @@ export async function cancelSequenceHandler(req: Request, res: Response, next: N
 }
 
 /**
+ * POST /api/reminders/sequences/bulk-cancel
+ * Bulk cancel multiple sequences and their pending attempts.
+ */
+export async function bulkCancelSequencesHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { sequenceIds } = req.body;
+    if (!Array.isArray(sequenceIds) || sequenceIds.length === 0) {
+      throw new HttpError("sequenceIds array is required and must not be empty", 400);
+    }
+
+    const cancelledCount = await prisma.reminderSequence.updateMany({
+      where: {
+        id: { in: sequenceIds },
+        status: { in: ["SCHEDULED", "IN_PROGRESS", "PAUSED"] },
+      },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+        cancellationReason: "MANUALLY_CANCELLED",
+      },
+    });
+
+    await prisma.reminderAttempt.updateMany({
+      where: {
+        sequenceId: { in: sequenceIds },
+        status: "PENDING",
+      },
+      data: {
+        status: "CANCELLED",
+      },
+    });
+
+    res.json({ success: true, data: { cancelled: cancelledCount.count } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/reminders/attempts/:id/reschedule
+ * Reschedule an attempt for a specific customer.
+ */
+export async function rescheduleAttemptHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) throw new HttpError("ID parameter is required", 400);
+
+    const { newDate } = req.body;
+    if (!newDate) {
+      throw new HttpError("newDate is required", 400);
+    }
+
+    const parsedDate = new Date(newDate);
+    if (isNaN(parsedDate.getTime())) {
+      throw new HttpError("Invalid date provided", 400);
+    }
+
+    const attempt = await prisma.reminderAttempt.findUnique({
+      where: { id },
+      include: { sequence: true },
+    });
+
+    if (!attempt) {
+      throw new HttpError("Reminder attempt not found", 404);
+    }
+
+    const updated = await prisma.reminderAttempt.update({
+      where: { id },
+      data: {
+        scheduledFor: parsedDate,
+        status: "PENDING",
+      },
+    });
+
+    // If sequence was paused, reactivate to SCHEDULED
+    if (attempt.sequence.status === "PAUSED") {
+      await prisma.reminderSequence.update({
+        where: { id: attempt.sequenceId },
+        data: { status: "SCHEDULED", pausedAt: null },
+      });
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * PUT /api/reminders/settings
  * Updates sending mode and opt-out keywords.
  */
@@ -420,6 +686,43 @@ export async function updateReminderTemplateHandler(
         ...(bodyText ? { bodyText } : {}),
         ...(metaTemplateName !== undefined ? { metaTemplateName } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
+      },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/reminders/templates/:id/restore-default
+ * Restores a template to its default title and text.
+ */
+export async function restoreDefaultTemplateHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) throw new HttpError("ID parameter is required", 400);
+
+    const template = await prisma.reminderTemplate.findUnique({ where: { id } });
+    if (!template) {
+      throw new HttpError("Template not found", 404);
+    }
+
+    const defaultTpl = DEFAULT_REMINDER_TEMPLATES.find((t) => t.stepNumber === template.stepNumber);
+    if (!defaultTpl) {
+      throw new HttpError("No default template for step " + template.stepNumber, 404);
+    }
+
+    const updated = await prisma.reminderTemplate.update({
+      where: { id },
+      data: {
+        title: defaultTpl.title,
+        bodyText: defaultTpl.bodyText,
       },
     });
 

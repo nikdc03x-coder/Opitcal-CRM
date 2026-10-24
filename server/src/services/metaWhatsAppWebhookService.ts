@@ -39,7 +39,12 @@ export function verifyMetaSignature(rawBody: string, signatureHeader?: string): 
   }
   const signature = signatureHeader.substring(7);
   const hmac = crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(hmac, "hex"));
+  const sigBuf = Buffer.from(signature, "hex");
+  const hmacBuf = Buffer.from(hmac, "hex");
+  if (sigBuf.length !== hmacBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(sigBuf, hmacBuf);
 }
 
 /**
