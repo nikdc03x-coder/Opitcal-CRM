@@ -154,7 +154,10 @@ export async function getDueRemindersHandler(req: Request, res: Response, next: 
       const bodyTemplate = att.template?.bodyText || att.messageContent;
       const rendered = renderReminderTemplate(bodyTemplate, {
         customerName: cust.name,
-        shopName: att.sequence.shop.name,
+        shopName:
+          att.sequence.shop?.name && !att.sequence.shop.name.includes("Demo")
+            ? att.sequence.shop.name
+            : "Harshu Chasma Ghar",
         purchaseDate: purchase.purchaseDate
           ? purchase.purchaseDate.toISOString().slice(0, 10)
           : undefined,
@@ -567,7 +570,7 @@ export async function sendEarlyReminderHandler(req: Request, res: Response, next
     }
 
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-    const shopName = shop?.name || "Harshu Chasma Ghar";
+    const shopName = shop?.name && !shop.name.includes("Demo") ? shop.name : "Harshu Chasma Ghar";
     const latestPurchase = customer.records[0];
 
     let sequence = customer.reminderSequences[0];

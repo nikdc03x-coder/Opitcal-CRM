@@ -102,9 +102,16 @@ export function renderReminderTemplate(
     /\{\{\s*customerName\s*\}\}/g,
     variables.customerName || "Valued Customer",
   );
-  result = result.replace(/\{\{\s*shopName\s*\}\}/g, variables.shopName || "Harshu Chasma Ghar");
+  const resolvedShopName =
+    variables.shopName &&
+    !variables.shopName.includes("Demo") &&
+    variables.shopName !== "Optical Shop"
+      ? variables.shopName
+      : "Harshu Chasma Ghar";
+  result = result.replace(/\{\{\s*shopName\s*\}\}/g, resolvedShopName);
   result = result.replace(/\{\{\s*purchaseDate\s*\}\}/g, variables.purchaseDate || "6 months ago");
   result = result.replace(/\{\{\s*specsType\s*\}\}/g, variables.specsType || "spectacles");
+  result = result.replace(/Optical CRM Demo Shop/g, "Harshu Chasma Ghar");
   return result;
 }
 

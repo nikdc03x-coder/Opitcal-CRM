@@ -22,7 +22,8 @@
     "admin:sessions": "tsx scripts/admin/checkAdminSession.ts",
     "admin:revoke": "tsx scripts/admin/revokeAdminSessions.ts",
     "admin:pin": "tsx scripts/admin/setDeletionPin.ts",
-    "email:check": "tsx scripts/admin/checkEmailConfig.ts"
+    "email:check": "tsx scripts/admin/checkEmailConfig.ts",
+    "shop:name": "tsx scripts/database/updateShopNameToHarshu.ts"
   },
   "keywords": [],
   "author": "",

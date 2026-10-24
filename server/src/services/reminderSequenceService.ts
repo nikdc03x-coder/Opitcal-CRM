@@ -70,13 +70,17 @@ export async function confirmManualReminderSend(params: ConfirmManualSendParams)
       },
     });
 
+    const shopName =
+      sequence.shop?.name && !sequence.shop.name.includes("Demo")
+        ? sequence.shop.name
+        : "Harshu Chasma Ghar";
     const renderedMessage = template
       ? renderReminderTemplate(template.bodyText, {
           customerName: sequence.customer.name,
-          shopName: sequence.shop.name,
+          shopName,
           stepNumber: nextStep,
         })
-      : `Eye checkup reminder follow up from ${sequence.shop.name}`;
+      : `Eye checkup reminder follow up from ${shopName}`;
 
     // Create next step attempt
     await prisma.reminderAttempt.create({
@@ -163,13 +167,17 @@ export async function advanceSequenceAfterMetaApiSend(attemptId: string) {
         },
       });
 
+      const shopName =
+        sequence.shop?.name && !sequence.shop.name.includes("Demo")
+          ? sequence.shop.name
+          : "Harshu Chasma Ghar";
       const renderedMessage = template
         ? renderReminderTemplate(template.bodyText, {
             customerName: sequence.customer.name,
-            shopName: sequence.shop.name,
+            shopName,
             stepNumber: nextStep,
           })
-        : `Eye checkup reminder follow up from ${sequence.shop.name}`;
+        : `Eye checkup reminder follow up from ${shopName}`;
 
       await prisma.reminderAttempt.create({
         data: {
