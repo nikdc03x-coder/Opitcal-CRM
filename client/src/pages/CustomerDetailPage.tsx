@@ -86,11 +86,11 @@ import {
   receiptHtml,
   prescriptionHtml,
   printDocument,
+  createPdf,
+  savePdf,
   shareOrDownloadPdf,
   openCustomerWhatsApp,
-  canShareFilesDirectly,
-  normalizeWhatsAppNumber,
-  buildWhatsAppBillMessage,
+  whatsappReceiptMessage,
 } from "../utils/customerDocuments";
 
 function display(value: string | number | null | undefined): string {
@@ -1312,7 +1312,11 @@ type ReceiptDialogProps = {
   onClose: () => void;
   onPrint: (content: string, title: string) => void;
   onPdf: (content: string, filename: string, type: PdfKind) => Promise<void>;
-  onWhatsAppPdf: (content: string, filename: string) => Promise<void>;
+  onWhatsAppPdf: (
+    content: string,
+    filename: string,
+    whatsappMessage: string,
+  ) => Promise<void>;
 };
 
 // Staff review the PDF contents before sharing it.
@@ -1334,6 +1338,7 @@ function ReceiptPreviewDialog({
   const selectedPrescription = includePrescription ? linkedPrescription : null;
 
   const documentContent = receiptHtml(customer, record, selectedPrescription);
+  const whatsappMessage = whatsappReceiptMessage(customer, record, selectedPrescription);
 
   const filename = `receipt-${record.id}.pdf`;
 
@@ -1543,10 +1548,10 @@ function ReceiptPreviewDialog({
         <Button
           variant="contained"
           color="success"
-          disabled={busy}
+          disabled={busy || !customer.mobNumber}
           startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <WhatsAppIcon />}
           onClick={() => {
-            void onWhatsAppPdf(documentContent, filename);
+            void onWhatsAppPdf(documentContent, filename, whatsappMessage);
           }}
         >
           {busy ? "Preparing PDF..." : "Share PDF via WhatsApp"}
@@ -1787,90 +1792,39 @@ export default function CustomerDetailPage() {
     }
   }
 
-  async function handleWhatsAppPdf(content: string, filename: string): Promise<void> {
+  async function handleWhatsAppPdf(
+    content: string,
+    filename: string,
+    whatsappMessage: string,
+  ): Promise<void> {
     if (!customer || documentBusy) return;
 
     setDocumentBusy(true);
     setDocumentMessage("");
 
-    // Popup-blocker safe tab initiation for desktop browsers:
-    // When Web Share API file sharing is not supported, open a tab synchronously
-    // before the async PDF generation begins so the browser preserves the user-initiated gesture.
-    let pendingTab: Window | null = null;
-    if (!canShareFilesDirectly()) {
-      try {
-        pendingTab = window.open("about:blank", "_blank", "noopener,noreferrer");
-        if (pendingTab) {
-          try {
-            pendingTab.document.title = "Preparing Bill PDF...";
-            pendingTab.document.body.innerHTML = `
-              <div style="font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;color:#1e293b;background:#f8fafc;">
-                <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Preparing bill PDF for ${customer.name}...</div>
-                <div style="font-size:14px;color:#64748b;">Opening WhatsApp conversation shortly.</div>
-              </div>
-            `;
-          } catch {
-            // Browser sandbox may restrict modifying about:blank in some configurations
-          }
-        }
-      } catch {
-        pendingTab = null;
-      }
-    }
-
     try {
-      // 1. Generate PDF first using existing generation logic
-      const result = await shareOrDownloadPdf(content, filename, "receipt");
-
-      // 2. If device native share sheet handled it (mobile device with file sharing)
-      if (result === "shared") {
-        if (pendingTab && !pendingTab.closed) {
-          pendingTab.close();
-        }
-        setDocumentMessage("PDF handed to device share menu. Select WhatsApp and send.");
-        return;
-      }
-
-      // 3. Otherwise PDF was saved/downloaded. Now open WhatsApp for the customer on the bill.
-      const phone = normalizeWhatsAppNumber(customer.mobNumber);
-      if (!phone) {
-        if (pendingTab && !pendingTab.closed) {
-          pendingTab.close();
-        }
-        setDocumentMessage(
-          "Receipt PDF downloaded successfully. Could not open WhatsApp: Customer mobile number is missing or invalid.",
-        );
-        return;
-      }
-
-      const message = buildWhatsAppBillMessage(customer.name);
-
+      // 1. Immediately redirect to customer's WhatsApp chat with pre-filled bill message
       try {
-        openCustomerWhatsApp(phone, message, pendingTab);
-        setDocumentMessage(
-          "Receipt PDF downloaded. In WhatsApp, attach the downloaded PDF and press Send.",
-        );
+        openCustomerWhatsApp(customer.mobNumber, whatsappMessage);
       } catch (chatError) {
-        if (pendingTab && !pendingTab.closed) {
-          pendingTab.close();
-        }
         setDocumentMessage(
           chatError instanceof Error
-            ? `Receipt PDF downloaded, but WhatsApp could not open: ${chatError.message}`
-            : "Receipt PDF downloaded. Open WhatsApp manually and attach it.",
+            ? `Could not open WhatsApp: ${chatError.message}`
+            : "Could not open customer WhatsApp.",
         );
       }
+
+      // 2. Generate and download the receipt PDF
+      const blob = await createPdf(content);
+      savePdf(blob, filename);
+
+      setDocumentMessage(
+        "Redirected to customer's WhatsApp chat and downloaded receipt PDF.",
+      );
     } catch (err) {
-      if (pendingTab && !pendingTab.closed) {
-        pendingTab.close();
-      }
-      if (err instanceof Error && err.message === "Sharing cancelled.") {
-        setDocumentMessage("Sharing was cancelled.");
-      } else {
-        setDocumentMessage(
-          err instanceof Error ? err.message : "Could not prepare the WhatsApp PDF.",
-        );
-      }
+      setDocumentMessage(
+        err instanceof Error ? err.message : "Could not prepare the WhatsApp PDF.",
+      );
     } finally {
       setDocumentBusy(false);
     }
