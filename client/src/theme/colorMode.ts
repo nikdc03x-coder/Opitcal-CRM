@@ -23,4 +23,3 @@ export const ColorModeContext = createContext<ColorModeContextValue>({
 export function useColorMode(): ColorModeContextValue {
   return useContext(ColorModeContext);
 }
-

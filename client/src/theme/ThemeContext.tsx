@@ -100,4 +100,3 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     </ColorModeContext.Provider>
   );
 }
-
