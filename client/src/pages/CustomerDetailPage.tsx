@@ -35,6 +35,7 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  useTheme,
 } from "@mui/material";
 
 import AddOutlined from "@mui/icons-material/AddOutlined";
@@ -251,6 +252,9 @@ function ClinicalPrescriptionTable({
   prescription: Prescription;
   compact?: boolean;
 }) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
+
   const reAdd = calculateAdd(prescription.reNearSph, prescription.reDistSph);
   const leAdd = calculateAdd(prescription.leNearSph, prescription.leDistSph);
 
@@ -259,9 +263,9 @@ function ClinicalPrescriptionTable({
       code: "OD",
       name: "Right Eye",
       alt: "RE",
-      color: "#1D4ED8",
-      bgColor: "#EFF6FF",
-      borderColor: "#BFDBFE",
+      color: isDark ? "#60A5FA" : "#1D4ED8",
+      bgColor: isDark ? "rgba(59, 130, 246, 0.14)" : "#EFF6FF",
+      borderColor: isDark ? "rgba(59, 130, 246, 0.35)" : "#BFDBFE",
       dist: {
         sph: prescription.reDistSph,
         cyl: prescription.reDistCyl,
@@ -278,9 +282,9 @@ function ClinicalPrescriptionTable({
       code: "OS",
       name: "Left Eye",
       alt: "LE",
-      color: "#047857",
-      bgColor: "#ECFDF5",
-      borderColor: "#A7F3D0",
+      color: isDark ? "#34D399" : "#047857",
+      bgColor: isDark ? "rgba(16, 185, 129, 0.14)" : "#ECFDF5",
+      borderColor: isDark ? "rgba(16, 185, 129, 0.35)" : "#A7F3D0",
       dist: {
         sph: prescription.leDistSph,
         cyl: prescription.leDistCyl,
@@ -304,8 +308,8 @@ function ClinicalPrescriptionTable({
       cyl: prescription.reDistCyl,
       axis: prescription.reDistAxis,
       add: "—",
-      color: "#1D4ED8",
-      bgColor: "#EFF6FF",
+      color: isDark ? "#60A5FA" : "#1D4ED8",
+      bgColor: isDark ? "rgba(59, 130, 246, 0.14)" : "#EFF6FF",
     },
     {
       eye: "OD",
@@ -315,8 +319,8 @@ function ClinicalPrescriptionTable({
       cyl: prescription.reNearCyl,
       axis: prescription.reNearAxis,
       add: reAdd ?? "—",
-      color: "#1D4ED8",
-      bgColor: "#EFF6FF",
+      color: isDark ? "#60A5FA" : "#1D4ED8",
+      bgColor: isDark ? "rgba(59, 130, 246, 0.14)" : "#EFF6FF",
     },
     {
       eye: "OS",
@@ -326,8 +330,8 @@ function ClinicalPrescriptionTable({
       cyl: prescription.leDistCyl,
       axis: prescription.leDistAxis,
       add: "—",
-      color: "#047857",
-      bgColor: "#ECFDF5",
+      color: isDark ? "#34D399" : "#047857",
+      bgColor: isDark ? "rgba(16, 185, 129, 0.14)" : "#ECFDF5",
     },
     {
       eye: "OS",
@@ -337,8 +341,8 @@ function ClinicalPrescriptionTable({
       cyl: prescription.leNearCyl,
       axis: prescription.leNearAxis,
       add: leAdd ?? "—",
-      color: "#047857",
-      bgColor: "#ECFDF5",
+      color: isDark ? "#34D399" : "#047857",
+      bgColor: isDark ? "rgba(16, 185, 129, 0.14)" : "#ECFDF5",
     },
   ];
 
@@ -578,10 +582,10 @@ function ClinicalPrescriptionTable({
                           fontWeight: 750,
                           fontSize: "0.72rem",
                           height: 20,
-                          bgcolor: "primary.50",
-                          color: "primary.main",
+                          bgcolor: isDark ? "rgba(59, 130, 246, 0.18)" : "primary.50",
+                          color: isDark ? "#93C5FD" : "primary.main",
                           border: "1px solid",
-                          borderColor: "primary.200",
+                          borderColor: isDark ? "rgba(59, 130, 246, 0.35)" : "primary.200",
                         }}
                       />
                     ) : (
@@ -779,7 +783,13 @@ function ClinicalPrescriptionTable({
                 key={`${row.eye}-${row.vision}`}
                 sx={{
                   bgcolor:
-                    idx === 0 || idx === 1 ? "rgba(37, 99, 235, 0.02)" : "rgba(5, 150, 105, 0.02)",
+                    idx === 0 || idx === 1
+                      ? isDark
+                        ? "rgba(59, 130, 246, 0.05)"
+                        : "rgba(37, 99, 235, 0.02)"
+                      : isDark
+                        ? "rgba(16, 185, 129, 0.05)"
+                        : "rgba(5, 150, 105, 0.02)",
                   "&:hover": { bgcolor: "action.hover" },
                   borderBottom: idx === 1 ? "2px solid" : undefined,
                   borderColor: idx === 1 ? "divider" : undefined,
@@ -840,12 +850,13 @@ function ClinicalPrescriptionTable({
                       size="small"
                       label={row.add}
                       sx={{
-                        fontWeight: 700,
+                        fontWeight: 750,
                         fontSize: "0.75rem",
-                        bgcolor: "primary.50",
-                        color: "primary.main",
+                        height: 22,
+                        bgcolor: isDark ? "rgba(59, 130, 246, 0.18)" : "primary.50",
+                        color: isDark ? "#93C5FD" : "primary.main",
                         border: "1px solid",
-                        borderColor: "primary.200",
+                        borderColor: isDark ? "rgba(59, 130, 246, 0.35)" : "primary.200",
                       }}
                     />
                   ) : (
@@ -879,8 +890,8 @@ function PairedPrescriptionCard({
       sx={{
         p: 2,
         borderRadius: 2,
-        bgcolor: "#F8FAFC",
-        border: "1px solid #E2E8F0",
+        bgcolor: "action.hover",
+        borderColor: "divider",
       }}
     >
       <Stack
@@ -1347,6 +1358,8 @@ function ReceiptPreviewDialog({
 }
 
 export default function CustomerDetailPage() {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
   const navigate = useNavigate();
   const [deleteTarget, setDeleteTarget] = useState<CustomerRecord | "customer" | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1706,8 +1719,9 @@ export default function CustomerDetailPage() {
                         size="small"
                         label="VIP Customer"
                         sx={{
-                          bgcolor: "#FEF3C7",
-                          color: "#92400E",
+                          bgcolor: isDark ? "rgba(245, 158, 11, 0.18)" : "#FEF3C7",
+                          color: isDark ? "#FCD34D" : "#92400E",
+                          border: isDark ? "1px solid rgba(245, 158, 11, 0.35)" : "none",
                           fontWeight: 700,
                           fontSize: "0.75rem",
                         }}
@@ -1719,8 +1733,9 @@ export default function CustomerDetailPage() {
                         size="small"
                         label="Repeat Patron"
                         sx={{
-                          bgcolor: "#EFF6FF",
-                          color: "#1D4ED8",
+                          bgcolor: isDark ? "rgba(59, 130, 246, 0.18)" : "#EFF6FF",
+                          color: isDark ? "#93C5FD" : "#1D4ED8",
+                          border: isDark ? "1px solid rgba(59, 130, 246, 0.35)" : "none",
                           fontWeight: 700,
                           fontSize: "0.75rem",
                         }}
@@ -1802,12 +1817,23 @@ export default function CustomerDetailPage() {
               </Stack>
 
               {/* Action Toolbar */}
-              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 1,
+                  width: { xs: "100%", md: "auto" },
+                  "& > *": {
+                    flex: { xs: "1 1 calc(50% - 8px)", sm: "0 0 auto" },
+                  },
+                }}
+              >
                 <Button
                   variant="contained"
                   startIcon={<AddOutlined />}
                   disabled={refreshing}
                   onClick={() => setPurchaseDialogOpen(true)}
+                  sx={{ width: { xs: "100%", sm: "auto" }, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}
                 >
                   New Purchase
                 </Button>
@@ -1852,7 +1878,7 @@ export default function CustomerDetailPage() {
                 >
                   Edit Customer
                 </Button>
-              </Stack>
+              </Box>
             </Stack>
 
             <Divider sx={{ my: 2.5 }} />
@@ -2024,8 +2050,13 @@ export default function CustomerDetailPage() {
                         variant="outlined"
                         sx={{
                           borderRadius: 2.5,
-                          borderColor: index === 0 ? "#2563EB" : "divider",
-                          boxShadow: index === 0 ? "0 2px 8px rgba(37,99,235,0.06)" : "none",
+                          borderColor: index === 0 ? (isDark ? "primary.main" : "#2563EB") : "divider",
+                          boxShadow:
+                            index === 0
+                              ? isDark
+                                ? "0 2px 10px rgba(59,130,246,0.18)"
+                                : "0 2px 8px rgba(37,99,235,0.06)"
+                              : "none",
                           overflow: "hidden",
                         }}
                       >
@@ -2033,7 +2064,14 @@ export default function CustomerDetailPage() {
                         <Box
                           sx={{
                             p: 2,
-                            bgcolor: index === 0 ? "#EAF2FF" : "#F1F5F9",
+                            bgcolor:
+                              index === 0
+                                ? isDark
+                                  ? "rgba(59, 130, 246, 0.12)"
+                                  : "#EAF2FF"
+                                : isDark
+                                  ? "action.hover"
+                                  : "#F1F5F9",
                             borderBottom: "1px solid",
                             borderColor: "divider",
                           }}
@@ -2068,7 +2106,12 @@ export default function CustomerDetailPage() {
                                 <Chip
                                   size="small"
                                   label="PREVIOUS PURCHASE"
-                                  sx={{ bgcolor: "#E2E8F0", color: "#334155", fontWeight: 750 }}
+                                  sx={{
+                                    bgcolor: isDark ? "rgba(255, 255, 255, 0.08)" : "#E2E8F0",
+                                    color: isDark ? "text.primary" : "#334155",
+                                    fontWeight: 750,
+                                    height: 22,
+                                  }}
                                 />
                               )}
                               <Chip
@@ -2282,7 +2325,7 @@ export default function CustomerDetailPage() {
                               variant="contained"
                               startIcon={<ReceiptLongOutlined />}
                               onClick={() => setSelectedRecord(record)}
-                              sx={{ fontWeight: 700 }}
+                              sx={{ fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
                             >
                               Prepare Receipt & WhatsApp PDF
                             </Button>
@@ -2339,7 +2382,13 @@ export default function CustomerDetailPage() {
                         variant="outlined"
                         sx={{
                           borderRadius: 2.5,
-                          borderColor: index === 0 ? "#2563EB" : "divider",
+                          borderColor: index === 0 ? (isDark ? "primary.main" : "#2563EB") : "divider",
+                          boxShadow:
+                            index === 0
+                              ? isDark
+                                ? "0 2px 10px rgba(59,130,246,0.18)"
+                                : "0 2px 8px rgba(37,99,235,0.06)"
+                              : "none",
                           overflow: "hidden",
                         }}
                       >
@@ -2347,7 +2396,14 @@ export default function CustomerDetailPage() {
                         <Box
                           sx={{
                             p: 2,
-                            bgcolor: index === 0 ? "#EAF2FF" : "#F1F5F9",
+                            bgcolor:
+                              index === 0
+                                ? isDark
+                                  ? "rgba(59, 130, 246, 0.12)"
+                                  : "#EAF2FF"
+                                : isDark
+                                  ? "action.hover"
+                                  : "#F1F5F9",
                             borderBottom: "1px solid",
                             borderColor: "divider",
                           }}
@@ -2457,8 +2513,8 @@ export default function CustomerDetailPage() {
                                     sx={{
                                       p: 1.5,
                                       borderRadius: 2,
-                                      bgcolor: "#F8FAFC",
-                                      border: "1px solid #E2E8F0",
+                                      bgcolor: "action.hover",
+                                      borderColor: "divider",
                                       display: "flex",
                                       alignItems: "center",
                                       justifyContent: "space-between",
@@ -2526,112 +2582,324 @@ export default function CustomerDetailPage() {
                     No optical examinations recorded to track progression.
                   </Alert>
                 ) : (
-                  <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                    <Table size="small" sx={{ minWidth: 780 }}>
-                      <TableHead sx={{ bgcolor: "action.hover" }}>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 700 }}>Recorded Date</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, color: "#1D4ED8" }}>
-                            OD Dist (Sph / Cyl / Axis)
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, color: "#1D4ED8" }}>
-                            OD Add
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, color: "#047857" }}>
-                            OS Dist (Sph / Cyl / Axis)
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, color: "#047857" }}>
-                            OS Add
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700 }}>
-                            Classification
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
+                  <>
+                    {/* Mobile Timeline Cards (xs only, no horizontal scroll) */}
+                    <Box sx={{ display: { xs: "block", sm: "none" } }}>
+                      <Stack spacing={2}>
                         {sortedPrescriptions.map((rx, idx) => {
                           const reAdd = calculateAdd(rx.reNearSph, rx.reDistSph);
                           const leAdd = calculateAdd(rx.leNearSph, rx.leDistSph);
                           const type = classifyRx(rx);
 
                           return (
-                            <TableRow key={rx.id} hover>
-                              <TableCell sx={{ fontWeight: 650 }}>
-                                {formatDate(rx.createdAt)}
-                                {idx === 0 && (
-                                  <Chip
-                                    size="small"
-                                    color="primary"
-                                    label="Latest"
-                                    sx={{ ml: 1, height: 20, fontSize: "0.68rem" }}
-                                  />
-                                )}
-                              </TableCell>
-
-                              <TableCell
-                                align="center"
-                                sx={{ fontFamily: "monospace", fontWeight: 650 }}
+                            <Paper
+                              key={rx.id}
+                              variant="outlined"
+                              sx={{
+                                p: 2,
+                                borderRadius: 2,
+                                bgcolor: "background.paper",
+                                border: "1px solid",
+                                borderColor:
+                                  idx === 0 ? (isDark ? "primary.main" : "#2563EB") : "divider",
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  mb: 1.5,
+                                  flexWrap: "wrap",
+                                  gap: 0.75,
+                                }}
                               >
-                                {formatPower(rx.reDistSph)} / {formatPower(rx.reDistCyl)} /{" "}
-                                {rx.reDistAxis != null ? `${rx.reDistAxis}°` : "—"}
-                              </TableCell>
-
-                              <TableCell align="center">
-                                {reAdd ? (
-                                  <Chip
-                                    size="small"
-                                    label={reAdd}
-                                    sx={{
-                                      height: 20,
-                                      fontSize: "0.72rem",
-                                      bgcolor: "#EFF6FF",
-                                      color: "#1D4ED8",
-                                    }}
-                                  />
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
-
-                              <TableCell
-                                align="center"
-                                sx={{ fontFamily: "monospace", fontWeight: 650 }}
-                              >
-                                {formatPower(rx.leDistSph)} / {formatPower(rx.leDistCyl)} /{" "}
-                                {rx.leDistAxis != null ? `${rx.leDistAxis}°` : "—"}
-                              </TableCell>
-
-                              <TableCell align="center">
-                                {leAdd ? (
-                                  <Chip
-                                    size="small"
-                                    label={leAdd}
-                                    sx={{
-                                      height: 20,
-                                      fontSize: "0.72rem",
-                                      bgcolor: "#ECFDF5",
-                                      color: "#047857",
-                                    }}
-                                  />
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
-
-                              <TableCell align="center">
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>
+                                    {formatDate(rx.createdAt)}
+                                  </Typography>
+                                  {idx === 0 && (
+                                    <Chip
+                                      size="small"
+                                      color="primary"
+                                      label="Latest"
+                                      sx={{ height: 20, fontSize: "0.68rem" }}
+                                    />
+                                  )}
+                                </Box>
                                 <Chip
                                   size="small"
                                   label={type.label}
                                   color={type.color}
                                   sx={{ height: 22, fontSize: "0.72rem" }}
                                 />
-                              </TableCell>
-                            </TableRow>
+                              </Box>
+
+                              <Grid container spacing={1.5}>
+                                {/* OD Right Eye Card */}
+                                <Grid size={{ xs: 12 }}>
+                                  <Box
+                                    sx={{
+                                      p: 1.25,
+                                      borderRadius: 1.5,
+                                      bgcolor: isDark ? "rgba(59, 130, 246, 0.08)" : "#EFF6FF",
+                                      border: "1px solid",
+                                      borderColor: isDark ? "rgba(59, 130, 246, 0.25)" : "#BFDBFE",
+                                    }}
+                                  >
+                                    <Box
+                                      sx={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        mb: 0.75,
+                                      }}
+                                    >
+                                      <Chip
+                                        size="small"
+                                        label="OD (Right Eye)"
+                                        sx={{
+                                          fontWeight: 800,
+                                          fontSize: "0.72rem",
+                                          bgcolor: isDark ? "rgba(59, 130, 246, 0.2)" : "#DBEAFE",
+                                          color: isDark ? "#93C5FD" : "#1D4ED8",
+                                          height: 20,
+                                        }}
+                                      />
+                                      {reAdd ? (
+                                        <Chip
+                                          size="small"
+                                          label={`Add: ${reAdd}`}
+                                          sx={{
+                                            height: 20,
+                                            fontSize: "0.72rem",
+                                            fontWeight: 700,
+                                            bgcolor: isDark ? "rgba(59, 130, 246, 0.2)" : "#DBEAFE",
+                                            color: isDark ? "#93C5FD" : "#1D4ED8",
+                                          }}
+                                        />
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Add: —
+                                        </Typography>
+                                      )}
+                                    </Box>
+
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
+                                        fontFamily: "monospace",
+                                        fontWeight: 700,
+                                        textAlign: "center",
+                                        color: "text.primary",
+                                      }}
+                                    >
+                                      {formatPower(rx.reDistSph)} / {formatPower(rx.reDistCyl)} /{" "}
+                                      {rx.reDistAxis != null ? `${rx.reDistAxis}°` : "—"}
+                                    </Typography>
+                                  </Box>
+                                </Grid>
+
+                                {/* OS Left Eye Card */}
+                                <Grid size={{ xs: 12 }}>
+                                  <Box
+                                    sx={{
+                                      p: 1.25,
+                                      borderRadius: 1.5,
+                                      bgcolor: isDark ? "rgba(16, 185, 129, 0.08)" : "#ECFDF5",
+                                      border: "1px solid",
+                                      borderColor: isDark ? "rgba(16, 185, 129, 0.25)" : "#A7F3D0",
+                                    }}
+                                  >
+                                    <Box
+                                      sx={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        mb: 0.75,
+                                      }}
+                                    >
+                                      <Chip
+                                        size="small"
+                                        label="OS (Left Eye)"
+                                        sx={{
+                                          fontWeight: 800,
+                                          fontSize: "0.72rem",
+                                          bgcolor: isDark ? "rgba(16, 185, 129, 0.2)" : "#D1FAE5",
+                                          color: isDark ? "#6EE7B7" : "#047857",
+                                          height: 20,
+                                        }}
+                                      />
+                                      {leAdd ? (
+                                        <Chip
+                                          size="small"
+                                          label={`Add: ${leAdd}`}
+                                          sx={{
+                                            height: 20,
+                                            fontSize: "0.72rem",
+                                            fontWeight: 700,
+                                            bgcolor: isDark ? "rgba(16, 185, 129, 0.2)" : "#D1FAE5",
+                                            color: isDark ? "#6EE7B7" : "#047857",
+                                          }}
+                                        />
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Add: —
+                                        </Typography>
+                                      )}
+                                    </Box>
+
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
+                                        fontFamily: "monospace",
+                                        fontWeight: 700,
+                                        textAlign: "center",
+                                        color: "text.primary",
+                                      }}
+                                    >
+                                      {formatPower(rx.leDistSph)} / {formatPower(rx.leDistCyl)} /{" "}
+                                      {rx.leDistAxis != null ? `${rx.leDistAxis}°` : "—"}
+                                    </Typography>
+                                  </Box>
+                                </Grid>
+                              </Grid>
+                            </Paper>
                           );
                         })}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                      </Stack>
+                    </Box>
+
+                    {/* Desktop / Tablet Table Layout (sm and up) */}
+                    <TableContainer
+                      component={Paper}
+                      variant="outlined"
+                      sx={{ display: { xs: "none", sm: "block" }, borderRadius: 2 }}
+                    >
+                      <Table size="small" sx={{ minWidth: 780 }}>
+                        <TableHead sx={{ bgcolor: "action.hover" }}>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Recorded Date</TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{ fontWeight: 700, color: isDark ? "#60A5FA" : "#1D4ED8" }}
+                            >
+                              OD Dist (Sph / Cyl / Axis)
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{ fontWeight: 700, color: isDark ? "#60A5FA" : "#1D4ED8" }}
+                            >
+                              OD Add
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{ fontWeight: 700, color: isDark ? "#34D399" : "#047857" }}
+                            >
+                              OS Dist (Sph / Cyl / Axis)
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{ fontWeight: 700, color: isDark ? "#34D399" : "#047857" }}
+                            >
+                              OS Add
+                            </TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>
+                              Classification
+                            </TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {sortedPrescriptions.map((rx, idx) => {
+                            const reAdd = calculateAdd(rx.reNearSph, rx.reDistSph);
+                            const leAdd = calculateAdd(rx.leNearSph, rx.leDistSph);
+                            const type = classifyRx(rx);
+
+                            return (
+                              <TableRow key={rx.id} hover>
+                                <TableCell sx={{ fontWeight: 650 }}>
+                                  {formatDate(rx.createdAt)}
+                                  {idx === 0 && (
+                                    <Chip
+                                      size="small"
+                                      color="primary"
+                                      label="Latest"
+                                      sx={{ ml: 1, height: 20, fontSize: "0.68rem" }}
+                                    />
+                                  )}
+                                </TableCell>
+
+                                <TableCell
+                                  align="center"
+                                  sx={{ fontFamily: "monospace", fontWeight: 650 }}
+                                >
+                                  {formatPower(rx.reDistSph)} / {formatPower(rx.reDistCyl)} /{" "}
+                                  {rx.reDistAxis != null ? `${rx.reDistAxis}°` : "—"}
+                                </TableCell>
+
+                                <TableCell align="center">
+                                  {reAdd ? (
+                                    <Chip
+                                      size="small"
+                                      label={reAdd}
+                                      sx={{
+                                        height: 20,
+                                        fontSize: "0.72rem",
+                                        bgcolor: isDark ? "rgba(59, 130, 246, 0.18)" : "#EFF6FF",
+                                        color: isDark ? "#93C5FD" : "#1D4ED8",
+                                        border: isDark
+                                          ? "1px solid rgba(59, 130, 246, 0.35)"
+                                          : "none",
+                                      }}
+                                    />
+                                  ) : (
+                                    "—"
+                                  )}
+                                </TableCell>
+
+                                <TableCell
+                                  align="center"
+                                  sx={{ fontFamily: "monospace", fontWeight: 650 }}
+                                >
+                                  {formatPower(rx.leDistSph)} / {formatPower(rx.leDistCyl)} /{" "}
+                                  {rx.leDistAxis != null ? `${rx.leDistAxis}°` : "—"}
+                                </TableCell>
+
+                                <TableCell align="center">
+                                  {leAdd ? (
+                                    <Chip
+                                      size="small"
+                                      label={leAdd}
+                                      sx={{
+                                        height: 20,
+                                        fontSize: "0.72rem",
+                                        bgcolor: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
+                                        color: isDark ? "#6EE7B7" : "#047857",
+                                        border: isDark
+                                          ? "1px solid rgba(16, 185, 129, 0.35)"
+                                          : "none",
+                                      }}
+                                    />
+                                  ) : (
+                                    "—"
+                                  )}
+                                </TableCell>
+
+                                <TableCell align="center">
+                                  <Chip
+                                    size="small"
+                                    label={type.label}
+                                    color={type.color}
+                                    sx={{ height: 22, fontSize: "0.72rem" }}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </>
                 )}
               </Stack>
             )}
@@ -2696,9 +2964,9 @@ export default function CustomerDetailPage() {
 
         {/* Bottom Actions Bar */}
         <Stack
-          direction="row"
+          direction={{ xs: "column", sm: "row" }}
           sx={{
-            alignItems: "center",
+            alignItems: { xs: "stretch", sm: "center" },
             justifyContent: "space-between",
             flexWrap: "wrap",
             gap: 1.5,
@@ -2710,25 +2978,39 @@ export default function CustomerDetailPage() {
             to={backUrl}
             variant="outlined"
             startIcon={<ArrowBackOutlined />}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
           >
             All Customers
           </Button>
 
-          <Button
-            color="error"
-            variant="outlined"
-            startIcon={<DeleteOutline />}
-            disabled={deleting}
-            onClick={() => {
-              setDeleteError("");
-              setDeleteTarget("customer");
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 1.5,
+              width: { xs: "100%", sm: "auto" },
+              justifyContent: { xs: "stretch", sm: "flex-end" },
+              "& > *": {
+                flex: { xs: "1 1 calc(50% - 6px)", sm: "0 0 auto" },
+              },
             }}
           >
-            Delete Customer
-          </Button>
-          <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>
-            Edit Customer
-          </Button>
+            <Button
+              color="error"
+              variant="outlined"
+              startIcon={<DeleteOutline />}
+              disabled={deleting}
+              onClick={() => {
+                setDeleteError("");
+                setDeleteTarget("customer");
+              }}
+            >
+              Delete Customer
+            </Button>
+            <Button component={Link} to={editUrl} variant="contained" startIcon={<EditOutlined />}>
+              Edit Customer
+            </Button>
+          </Box>
         </Stack>
       </Stack>
 

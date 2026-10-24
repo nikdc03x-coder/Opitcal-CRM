@@ -18,6 +18,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
 import {
@@ -151,6 +153,8 @@ export default function OpticalPrescriptionFields({
     label: string,
   ) => React.ReactNode;
 }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [mobileFilter, setMobileFilter] = useState<"all" | "re" | "le">("all");
 
   const displayedMobileEyes = eyes.filter((eye) => {
@@ -179,153 +183,168 @@ export default function OpticalPrescriptionFields({
           Select SPH and CYL from searchable dropdowns, or type the required power directly.
         </Typography>
 
-        {/* ----------------------------------------------------
-            DESKTOP / TABLET VIEW (Clean Table)
-        ---------------------------------------------------- */}
-        <Box sx={{ display: { xs: "none", md: "block" } }}>
-          <TableContainer
-            component={Paper}
-            tabIndex={0}
-            role="region"
-            aria-label="Optical prescription fields table"
-            variant="outlined"
-            sx={{ borderRadius: 2, overflowX: "auto" }}
-          >
-            <Table
-              size="small"
-              sx={{
-                minWidth: 640,
-                "& .MuiTableCell-root": { px: 1.5, py: 1.5, verticalAlign: "middle" },
-              }}
-            >
-              <TableHead>
-                <TableRow sx={{ bgcolor: "background.default" }}>
-                  {["Eye / Vision", "SPH", "CYL", "AXIS"].map((label) => (
-                    <TableCell key={label} sx={{ fontWeight: 700 }}>
-                      {label}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {eyes.map((eye) => (
-                  <TableRow key={eye.prefix} hover>
-                    <TableCell sx={{ minWidth: 150 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                        {eye.label}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {eye.description}
-                      </Typography>
-                    </TableCell>
-                    {(["sph", "cyl", "axis"] as const).map((measure) => (
-                      <TableCell key={measure} sx={{ minWidth: measure === "axis" ? 125 : 170 }}>
-                        {renderField(
-                          `${eye.prefix}_${measure}`,
-                          measure,
-                          measure === "sph" ? sphOptions : measure === "cyl" ? cylOptions : [],
-                          `${eye.description} (${eye.prefix.startsWith("re") ? "OD" : "OS"}) ${measure.toUpperCase()}`,
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Box>
-
-        {/* ----------------------------------------------------
-            MOBILE VIEW (100% Responsive, NO Horizontal Scrolling)
-        ---------------------------------------------------- */}
-        <Box sx={{ display: { xs: "block", md: "none" } }}>
-          {/* Quick Eye Filter Tabs */}
-          <Box sx={{ mb: 1.5 }}>
-            <ToggleButtonGroup
-              value={mobileFilter}
-              exclusive
-              onChange={(_e, val) => {
-                if (val) setMobileFilter(val as "all" | "re" | "le");
-              }}
-              size="small"
-              fullWidth
-              sx={{ bgcolor: "background.paper" }}
-            >
-              <ToggleButton value="all" sx={{ fontWeight: 600, py: 0.75, fontSize: "0.8rem" }}>
-                All Eyes (4)
-              </ToggleButton>
-              <ToggleButton value="re" sx={{ fontWeight: 600, py: 0.75, fontSize: "0.8rem" }}>
-                Right (OD)
-              </ToggleButton>
-              <ToggleButton value="le" sx={{ fontWeight: 600, py: 0.75, fontSize: "0.8rem" }}>
-                Left (OS)
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-
-          {/* Responsive Eye Cards */}
-          <Stack spacing={1.5}>
-            {displayedMobileEyes.map((eye) => (
-              <Box
-                key={eye.prefix}
-                sx={{
-                  p: 1.5,
-                  borderRadius: 2,
-                  border: 1,
-                  borderColor: "divider",
-                  bgcolor: (theme) =>
-                    theme.palette.mode === "dark" ? "action.hover" : "background.default",
+        {isMobile ? (
+          /* ----------------------------------------------------
+              MOBILE VIEW (100% Responsive, NO Horizontal Scrolling)
+          ---------------------------------------------------- */
+          <Box>
+            {/* Quick Eye Filter Tabs */}
+            <Box sx={{ mb: 1.5 }}>
+              <ToggleButtonGroup
+                value={mobileFilter}
+                exclusive
+                onChange={(_e, val) => {
+                  if (val) setMobileFilter(val as "all" | "re" | "le");
                 }}
+                size="small"
+                fullWidth
+                sx={{ bgcolor: "background.paper" }}
               >
-                {/* Eye Badge Header */}
-                <Stack
-                  direction="row"
-                  spacing={1}
+                <ToggleButton value="all" sx={{ fontWeight: 600, py: 0.75, fontSize: "0.8rem" }}>
+                  All Eyes (4)
+                </ToggleButton>
+                <ToggleButton value="re" sx={{ fontWeight: 600, py: 0.75, fontSize: "0.8rem" }}>
+                  Right (OD)
+                </ToggleButton>
+                <ToggleButton value="le" sx={{ fontWeight: 600, py: 0.75, fontSize: "0.8rem" }}>
+                  Left (OS)
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            {/* Responsive Eye Cards */}
+            <Stack spacing={1.5}>
+              {displayedMobileEyes.map((eye) => (
+                <Box
+                  key={eye.prefix}
                   sx={{
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    mb: 1.25,
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: 1,
+                    borderColor: "divider",
+                    bgcolor: (th) =>
+                      th.palette.mode === "dark" ? "action.hover" : "background.default",
                   }}
                 >
-                  <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                    <Chip
-                      label={eye.label}
-                      size="small"
-                      color={eye.prefix.startsWith("re") ? "primary" : "secondary"}
-                      sx={{ fontWeight: 700, fontSize: "0.725rem", height: 22 }}
-                    />
-                    <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.85rem" }}>
-                      {eye.description}
+                  {/* Eye Badge Header */}
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      mb: 1.25,
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                      <Chip
+                        label={eye.label}
+                        size="small"
+                        color={eye.prefix.startsWith("re") ? "primary" : "secondary"}
+                        sx={{ fontWeight: 700, fontSize: "0.725rem", height: 22 }}
+                      />
+                      <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.85rem" }}>
+                        {eye.description}
+                      </Typography>
+                    </Stack>
+
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontWeight: 600, fontSize: "0.75rem" }}
+                    >
+                      {eye.prefix.startsWith("re") ? "OD" : "OS"}
                     </Typography>
                   </Stack>
 
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ fontWeight: 600, fontSize: "0.75rem" }}
-                  >
-                    {eye.prefix.startsWith("re") ? "OD" : "OS"}
-                  </Typography>
-                </Stack>
+                  {/* 3 Fields: SPH, CYL, AXIS in a 3-column row fitting 100% screen width */}
+                  <Grid container spacing={1}>
+                    <Grid size={{ xs: 4 }}>
+                      {renderField(
+                        `${eye.prefix}_sph`,
+                        "sph",
+                        sphOptions,
+                        `${eye.description} SPH`,
+                      )}
+                    </Grid>
 
-                {/* 3 Fields: SPH, CYL, AXIS in a 3-column row fitting 100% screen width */}
-                <Grid container spacing={1}>
-                  <Grid size={{ xs: 4 }}>
-                    {renderField(`${eye.prefix}_sph`, "sph", sphOptions, `${eye.description} SPH`)}
-                  </Grid>
+                    <Grid size={{ xs: 4 }}>
+                      {renderField(
+                        `${eye.prefix}_cyl`,
+                        "cyl",
+                        cylOptions,
+                        `${eye.description} CYL`,
+                      )}
+                    </Grid>
 
-                  <Grid size={{ xs: 4 }}>
-                    {renderField(`${eye.prefix}_cyl`, "cyl", cylOptions, `${eye.description} CYL`)}
+                    <Grid size={{ xs: 4 }}>
+                      {renderField(`${eye.prefix}_axis`, "axis", [], `${eye.description} AXIS`)}
+                    </Grid>
                   </Grid>
-
-                  <Grid size={{ xs: 4 }}>
-                    {renderField(`${eye.prefix}_axis`, "axis", [], `${eye.description} AXIS`)}
-                  </Grid>
-                </Grid>
-              </Box>
-            ))}
-          </Stack>
-        </Box>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : (
+          /* ----------------------------------------------------
+              DESKTOP / TABLET VIEW (Clean Table)
+          ---------------------------------------------------- */
+          <Box>
+            <TableContainer
+              component={Paper}
+              tabIndex={0}
+              role="region"
+              aria-label="Optical prescription fields table"
+              variant="outlined"
+              sx={{ borderRadius: 2, overflowX: "auto" }}
+            >
+              <Table
+                size="small"
+                sx={{
+                  minWidth: 640,
+                  "& .MuiTableCell-root": { px: 1.5, py: 1.5, verticalAlign: "middle" },
+                }}
+              >
+                <TableHead>
+                  <TableRow sx={{ bgcolor: "background.default" }}>
+                    {["Eye / Vision", "SPH", "CYL", "AXIS"].map((label) => (
+                      <TableCell key={label} sx={{ fontWeight: 700 }}>
+                        {label}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {eyes.map((eye) => (
+                    <TableRow key={eye.prefix} hover>
+                      <TableCell sx={{ minWidth: 150 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                          {eye.label}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {eye.description}
+                        </Typography>
+                      </TableCell>
+                      {(["sph", "cyl", "axis"] as const).map((measure) => (
+                        <TableCell
+                          key={measure}
+                          sx={{ minWidth: measure === "axis" ? 125 : 170 }}
+                        >
+                          {renderField(
+                            `${eye.prefix}_${measure}`,
+                            measure,
+                            measure === "sph" ? sphOptions : measure === "cyl" ? cylOptions : [],
+                            `${eye.description} (${eye.prefix.startsWith("re") ? "OD" : "OS"}) ${measure.toUpperCase()}`,
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        )}
 
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
           SPH: −30 to +30 · CYL: −15 to +15 · AXIS: 0–180
