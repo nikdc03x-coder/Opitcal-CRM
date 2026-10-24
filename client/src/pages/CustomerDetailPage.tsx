@@ -61,6 +61,7 @@ import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
 import RemoveRedEyeOutlined from "@mui/icons-material/RemoveRedEyeOutlined";
 import SearchOutlined from "@mui/icons-material/SearchOutlined";
+import ShareOutlined from "@mui/icons-material/ShareOutlined";
 import ShoppingBagOutlined from "@mui/icons-material/ShoppingBagOutlined";
 import TrendingUpOutlined from "@mui/icons-material/TrendingUpOutlined";
 import UnfoldMoreOutlined from "@mui/icons-material/UnfoldMoreOutlined";
@@ -86,9 +87,8 @@ import {
   receiptHtml,
   prescriptionHtml,
   printDocument,
-  createPdf,
-  savePdf,
   shareOrDownloadPdf,
+  canShareFilesDirectly,
   openCustomerWhatsApp,
   whatsappReceiptMessage,
 } from "../utils/customerDocuments";
@@ -1312,11 +1312,7 @@ type ReceiptDialogProps = {
   onClose: () => void;
   onPrint: (content: string, title: string) => void;
   onPdf: (content: string, filename: string, type: PdfKind) => Promise<void>;
-  onWhatsAppPdf: (
-    content: string,
-    filename: string,
-    whatsappMessage: string,
-  ) => Promise<void>;
+  onWhatsAppText: (whatsappMessage: string) => void;
 };
 
 // Staff review the PDF contents before sharing it.
@@ -1327,8 +1323,11 @@ function ReceiptPreviewDialog({
   onClose,
   onPrint,
   onPdf,
-  onWhatsAppPdf,
+  onWhatsAppText,
 }: ReceiptDialogProps) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
+  const isMobileShareSupported = useMemo(() => canShareFilesDirectly(), []);
   const [includePrescription, setIncludePrescription] = useState(false);
 
   // Only use the prescription linked to this purchase.
@@ -1504,10 +1503,31 @@ function ReceiptPreviewDialog({
             </Box>
           )}
 
-          <Alert severity="info">
+          <Alert severity="info" variant="outlined">
             This document represents recorded MRP and order specifications. Internal staff-only
             notes are strictly omitted.
           </Alert>
+
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 1.5,
+              bgcolor: isDark ? "rgba(37, 99, 235, 0.08)" : "#F0F7FF",
+              border: "1px dashed",
+              borderColor: isDark ? "primary.dark" : "#BFDBFE",
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+            }}
+          >
+            <WhatsAppIcon sx={{ color: "#25D366", fontSize: 24, flexShrink: 0 }} />
+            <Typography variant="caption" color="text.secondary">
+              <strong>WhatsApp Options:</strong> Click <strong>Send Bill on WhatsApp</strong> to
+              open this customer&apos;s chat with the full itemized bill pre-typed. Click{" "}
+              <strong>{isMobileShareSupported ? "Share PDF File" : "Save PDF"}</strong> to send or
+              download the official PDF document.
+            </Typography>
+          </Box>
         </Stack>
       </DialogContent>
 
@@ -1516,7 +1536,7 @@ function ReceiptPreviewDialog({
       <DialogActions
         sx={{
           p: 2,
-          gap: 1,
+          gap: 1.25,
           flexWrap: "wrap",
           justifyContent: "flex-end",
         }}
@@ -1536,25 +1556,38 @@ function ReceiptPreviewDialog({
 
         <Button
           variant="outlined"
+          color="primary"
           disabled={busy}
-          startIcon={<PictureAsPdfOutlined />}
+          startIcon={
+            busy ? (
+              <CircularProgress size={18} color="inherit" />
+            ) : isMobileShareSupported ? (
+              <ShareOutlined />
+            ) : (
+              <PictureAsPdfOutlined />
+            )
+          }
           onClick={() => {
             void onPdf(documentContent, filename, "receipt");
           }}
         >
-          Save PDF
+          {busy
+            ? "Preparing..."
+            : isMobileShareSupported
+              ? "Share PDF File"
+              : "Save PDF"}
         </Button>
 
         <Button
           variant="contained"
           color="success"
           disabled={busy || !customer.mobNumber}
-          startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <WhatsAppIcon />}
+          startIcon={<WhatsAppIcon />}
           onClick={() => {
-            void onWhatsAppPdf(documentContent, filename, whatsappMessage);
+            onWhatsAppText(whatsappMessage);
           }}
         >
-          {busy ? "Preparing PDF..." : "Share PDF via WhatsApp"}
+          Send Bill on WhatsApp
         </Button>
       </DialogActions>
     </ResponsiveDialog>
@@ -1782,8 +1815,8 @@ export default function CustomerDetailPage() {
       const result = await shareOrDownloadPdf(content, filename, type);
       setDocumentMessage(
         result === "shared"
-          ? "Device share completed. Check the recipient and confirm the PDF was sent."
-          : "PDF downloaded successfully.",
+          ? "PDF handed to device share menu. Select WhatsApp to send the file."
+          : "PDF downloaded successfully. In WhatsApp Web, attach the downloaded PDF and send.",
       );
     } catch (err) {
       setDocumentMessage(err instanceof Error ? err.message : "Unable to prepare the PDF.");
@@ -1792,41 +1825,16 @@ export default function CustomerDetailPage() {
     }
   }
 
-  async function handleWhatsAppPdf(
-    content: string,
-    filename: string,
-    whatsappMessage: string,
-  ): Promise<void> {
-    if (!customer || documentBusy) return;
-
-    setDocumentBusy(true);
-    setDocumentMessage("");
+  function handleWhatsAppText(whatsappMessage: string): void {
+    if (!customer?.mobNumber) return;
 
     try {
-      // 1. Immediately redirect to customer's WhatsApp chat with pre-filled bill message
-      try {
-        openCustomerWhatsApp(customer.mobNumber, whatsappMessage);
-      } catch (chatError) {
-        setDocumentMessage(
-          chatError instanceof Error
-            ? `Could not open WhatsApp: ${chatError.message}`
-            : "Could not open customer WhatsApp.",
-        );
-      }
-
-      // 2. Generate and download the receipt PDF
-      const blob = await createPdf(content);
-      savePdf(blob, filename);
-
-      setDocumentMessage(
-        "Redirected to customer's WhatsApp chat and downloaded receipt PDF.",
-      );
+      openCustomerWhatsApp(customer.mobNumber, whatsappMessage);
+      setDocumentMessage("Opened customer's WhatsApp chat with pre-filled bill message.");
     } catch (err) {
       setDocumentMessage(
-        err instanceof Error ? err.message : "Could not prepare the WhatsApp PDF.",
+        err instanceof Error ? err.message : "Could not open customer WhatsApp.",
       );
-    } finally {
-      setDocumentBusy(false);
     }
   }
 
@@ -3913,7 +3921,7 @@ export default function CustomerDetailPage() {
           onClose={() => setSelectedRecord(null)}
           onPrint={handlePrint}
           onPdf={handlePdf}
-          onWhatsAppPdf={handleWhatsAppPdf}
+          onWhatsAppText={handleWhatsAppText}
         />
       )}
     </Box>
