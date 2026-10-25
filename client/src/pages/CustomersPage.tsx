@@ -504,7 +504,8 @@ export default function CustomersPage() {
                           width: 42,
                           height: 42,
                           bgcolor: "action.selected",
-                          color: "primary.main",
+                          color: (theme) =>
+                            theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                           fontWeight: 700,
                           fontSize: "0.9rem",
                         }}

@@ -267,7 +267,12 @@ function DetailItem({
         sx={{
           mt: 0.25,
           fontWeight: highlight ? 700 : 600,
-          color: highlight ? "primary.main" : "text.primary",
+          color: (theme) =>
+            highlight
+              ? theme.palette.mode === "dark"
+                ? "primary.light"
+                : "primary.main"
+              : "text.primary",
           fontSize: "0.95rem",
           overflowWrap: "anywhere",
         }}
@@ -297,7 +302,7 @@ function ClinicalPrescriptionTable({
       code: "OD",
       name: "Right Eye",
       alt: "RE",
-      color: isDark ? "#60A5FA" : "#1D4ED8",
+      color: isDark ? "primary.light" : "#1D4ED8",
       bgColor: isDark ? "rgba(59, 130, 246, 0.14)" : "#EFF6FF",
       borderColor: isDark ? "rgba(59, 130, 246, 0.35)" : "#BFDBFE",
       dist: {
@@ -342,7 +347,7 @@ function ClinicalPrescriptionTable({
       cyl: prescription.reDistCyl,
       axis: prescription.reDistAxis,
       add: "—",
-      color: isDark ? "#60A5FA" : "#1D4ED8",
+      color: isDark ? "primary.light" : "#1D4ED8",
       bgColor: isDark ? "rgba(59, 130, 246, 0.14)" : "#EFF6FF",
     },
     {
@@ -353,7 +358,7 @@ function ClinicalPrescriptionTable({
       cyl: prescription.reNearCyl,
       axis: prescription.reNearAxis,
       add: reAdd ?? "—",
-      color: isDark ? "#60A5FA" : "#1D4ED8",
+      color: isDark ? "primary.light" : "#1D4ED8",
       bgColor: isDark ? "rgba(59, 130, 246, 0.14)" : "#EFF6FF",
     },
     {
@@ -2547,7 +2552,8 @@ export default function CustomerDetailPage() {
                           sx={{
                             fontWeight: 800,
                             lineHeight: 1.2,
-                            color: "primary.main",
+                            color: (theme) =>
+                              theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                             whiteSpace: "nowrap",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -2879,7 +2885,10 @@ export default function CustomerDetailPage() {
                                 variant="subtitle1"
                                 sx={{
                                   fontWeight: 800,
-                                  color: "primary.main",
+                                  color: (theme) =>
+                                    theme.palette.mode === "dark"
+                                      ? "primary.light"
+                                      : "primary.main",
                                   lineHeight: 1.1,
                                 }}
                               >
@@ -3356,7 +3365,13 @@ export default function CustomerDetailPage() {
 
                                     <Typography
                                       variant="body2"
-                                      sx={{ fontWeight: 750, color: "primary.main" }}
+                                      sx={{
+                                        fontWeight: 750,
+                                        color: (theme) =>
+                                          theme.palette.mode === "dark"
+                                            ? "primary.light"
+                                            : "primary.main",
+                                      }}
                                     >
                                       {formatMoney(purchase.mrp)}
                                     </Typography>
@@ -3595,13 +3610,13 @@ export default function CustomerDetailPage() {
                             <TableCell sx={{ fontWeight: 700 }}>Recorded Date</TableCell>
                             <TableCell
                               align="center"
-                              sx={{ fontWeight: 700, color: isDark ? "#60A5FA" : "#1D4ED8" }}
+                              sx={{ fontWeight: 700, color: isDark ? "primary.light" : "#1D4ED8" }}
                             >
                               OD Dist (Sph / Cyl / Axis)
                             </TableCell>
                             <TableCell
                               align="center"
-                              sx={{ fontWeight: 700, color: isDark ? "#60A5FA" : "#1D4ED8" }}
+                              sx={{ fontWeight: 700, color: isDark ? "primary.light" : "#1D4ED8" }}
                             >
                               OD Add
                             </TableCell>

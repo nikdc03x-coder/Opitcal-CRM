@@ -234,10 +234,12 @@ export default function AppLayout() {
                 // Highlight the currently selected page.
                 "&.active, &.Mui-selected": {
                   bgcolor: "primary.main",
-                  color: "white",
+                  color: (theme) =>
+                    theme.palette.mode === "dark" ? "primary.contrastText" : "white",
 
                   "& .MuiListItemIcon-root": {
-                    color: "white",
+                    color: (theme) =>
+                      theme.palette.mode === "dark" ? "primary.contrastText" : "white",
                   },
                 },
 
@@ -245,6 +247,11 @@ export default function AppLayout() {
                   bgcolor: "action.hover",
                   "&.active, &.Mui-selected": {
                     bgcolor: "primary.dark",
+                    color: (theme) => (theme.palette.mode === "dark" ? "text.primary" : undefined),
+                    "& .MuiListItemIcon-root": {
+                      color: (theme) =>
+                        theme.palette.mode === "dark" ? "text.primary" : undefined,
+                    },
                   },
                 },
               }}

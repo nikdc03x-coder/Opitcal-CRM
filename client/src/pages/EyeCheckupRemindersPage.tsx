@@ -54,6 +54,7 @@ import DoneAllOutlined from "@mui/icons-material/DoneAllOutlined";
 import ErrorOutlineOutlined from "@mui/icons-material/ErrorOutlineOutlined";
 import MessageOutlined from "@mui/icons-material/MessageOutlined";
 import DashboardOutlined from "@mui/icons-material/DashboardOutlined";
+import { theme as lightTheme } from "../theme/theme";
 
 import {
   fetchReminderDashboard,
@@ -749,6 +750,11 @@ export default function EyeCheckupRemindersPage() {
               sx={{
                 borderRadius: 2.5,
                 bgcolor: stat.bgColor,
+                // These cards intentionally keep their existing pastel backgrounds.
+                "& .MuiTypography-root, & .MuiSvgIcon-root": {
+                  color: (theme) =>
+                    theme.palette.mode === "dark" ? lightTheme.palette.text.primary : undefined,
+                },
                 borderColor: stat.borderColor,
                 cursor: "pointer",
                 transition: "all 0.15s ease",
@@ -1071,7 +1077,8 @@ export default function EyeCheckupRemindersPage() {
                             variant="body2"
                             sx={{
                               fontWeight: 700,
-                              color: "primary.main",
+                              color: (theme) =>
+                                theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                               textDecoration: "none",
                               "&:hover": { textDecoration: "underline" },
                             }}
@@ -1272,7 +1279,8 @@ export default function EyeCheckupRemindersPage() {
                           variant="body2"
                           sx={{
                             fontWeight: 700,
-                            color: "primary.main",
+                            color: (theme) =>
+                              theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                             textDecoration: "none",
                             "&:hover": { textDecoration: "underline" },
                           }}
@@ -1401,7 +1409,8 @@ export default function EyeCheckupRemindersPage() {
                           variant="body2"
                           sx={{
                             fontWeight: 700,
-                            color: "primary.main",
+                            color: (theme) =>
+                              theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                             textDecoration: "none",
                             "&:hover": { textDecoration: "underline" },
                           }}
@@ -1536,7 +1545,8 @@ export default function EyeCheckupRemindersPage() {
                         variant="body2"
                         sx={{
                           fontWeight: 700,
-                          color: "primary.main",
+                          color: (theme) =>
+                            theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                           textDecoration: "none",
                           "&:hover": { textDecoration: "underline" },
                         }}
@@ -1708,6 +1718,8 @@ export default function EyeCheckupRemindersPage() {
                   <Box
                     sx={{
                       bgcolor: "grey.50",
+                      color: (theme) =>
+                        theme.palette.mode === "dark" ? lightTheme.palette.text.primary : undefined,
                       p: 1.5,
                       borderRadius: 2,
                       border: "1px solid",
@@ -1728,6 +1740,8 @@ export default function EyeCheckupRemindersPage() {
                   <Box
                     sx={{
                       bgcolor: "#F0FDF4",
+                      color: (theme) =>
+                        theme.palette.mode === "dark" ? lightTheme.palette.text.primary : undefined,
                       p: 1.5,
                       borderRadius: 2,
                       border: "1px solid #BBF7D0",
@@ -1803,7 +1817,14 @@ export default function EyeCheckupRemindersPage() {
               </Typography>
               <Typography
                 variant="body2"
-                sx={{ fontFamily: "monospace", bgcolor: "grey.100", p: 1.5, borderRadius: 2 }}
+                sx={{
+                  fontFamily: "monospace",
+                  bgcolor: "grey.100",
+                  color: (theme) =>
+                    theme.palette.mode === "dark" ? lightTheme.palette.text.primary : undefined,
+                  p: 1.5,
+                  borderRadius: 2,
+                }}
               >
                 {dashboard?.allowedTestRecipients.join(", ") ||
                   "None configured (set META_WHATSAPP_TEST_RECIPIENTS in server/.env)"}
@@ -1862,7 +1883,8 @@ export default function EyeCheckupRemindersPage() {
                     variant="body1"
                     sx={{
                       fontWeight: 700,
-                      color: "primary.main",
+                      color: (theme) =>
+                        theme.palette.mode === "dark" ? "primary.light" : "primary.main",
                       textDecoration: "none",
                       display: "flex",
                       alignItems: "center",
@@ -1922,6 +1944,23 @@ export default function EyeCheckupRemindersPage() {
                   helperText={`${activeMessage.length} characters — personalized for Harshu Chasma Ghar`}
                   sx={{
                     bgcolor: "#F0FDF4",
+                    "& .MuiInputBase-input": {
+                      color: (theme) =>
+                        theme.palette.mode === "dark" ? lightTheme.palette.text.primary : undefined,
+                      "&::placeholder": {
+                        color: (theme) =>
+                          theme.palette.mode === "dark"
+                            ? lightTheme.palette.text.secondary
+                            : undefined,
+                        opacity: (theme) => (theme.palette.mode === "dark" ? 1 : undefined),
+                      },
+                    },
+                    "& .MuiFormHelperText-root": {
+                      color: (theme) =>
+                        theme.palette.mode === "dark"
+                          ? lightTheme.palette.text.secondary
+                          : undefined,
+                    },
                     "& .MuiOutlinedInput-root": {
                       "& fieldset": { borderColor: "#86EFAC" },
                       "&:hover fieldset": { borderColor: "#4ADE80" },

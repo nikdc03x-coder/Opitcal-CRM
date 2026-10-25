@@ -47,6 +47,7 @@ import {
 import { useAnalyticsRefresh } from "./reportStore";
 
 import { chartTooltipStyle } from "./chartStyles";
+import { theme as lightTheme } from "../../theme/theme";
 function chartDate(value: string) {
   if (!/^\d{4}-\d{2}(-\d{2})?$/.test(value)) return value;
   const date = new Date(`${value.length === 7 ? `${value}-01` : value}T00:00:00Z`);
@@ -110,6 +111,12 @@ export function Kpi({
         height: "100%",
         bgcolor: featured ? "#EFF5FF" : "background.paper",
         borderColor: featured ? "#C9DAFA" : "divider",
+        ...(featured && {
+          "& .MuiTypography-root": {
+            color: (theme) =>
+              theme.palette.mode === "dark" ? lightTheme.palette.text.primary : undefined,
+          },
+        }),
       }}
     >
       <CardContent sx={{ p: 2.25, "&:last-child": { pb: 2.25 } }}>
