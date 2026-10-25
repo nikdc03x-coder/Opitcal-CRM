@@ -34,11 +34,13 @@ export default function TrashPage() {
   const restoring = useRef(false);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
   const [pin, setPin] = useState("");
+  const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const openDelete = (next: DeleteTarget) => {
+    deleteTriggerRef.current = document.activeElement as HTMLElement | null;
     setTarget(next);
     setPin("");
     setDeleteError("");
@@ -311,6 +313,11 @@ export default function TrashPage() {
         fullWidth
         maxWidth="sm"
         slotProps={{
+          transition: {
+            // Native input autoFocus can run before the transition forwards MUI's focus handler.
+            // Restore only after the modal has released aria-hidden on the background.
+            onExited: () => deleteTriggerRef.current?.focus(),
+          },
           paper: {
             component: "form",
             onSubmit: (event: React.FormEvent) => {

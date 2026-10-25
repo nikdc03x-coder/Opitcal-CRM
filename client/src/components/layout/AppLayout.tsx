@@ -182,7 +182,7 @@ export default function AppLayout() {
           </Typography>
         )}
         {isMobile && (
-          <IconButton autoFocus aria-label="Close navigation" onClick={() => setMobileOpen(false)}>
+          <IconButton aria-label="Close navigation" onClick={() => setMobileOpen(false)}>
             <CloseOutlined />
           </IconButton>
         )}
@@ -271,12 +271,12 @@ export default function AppLayout() {
       {/* Mobile drawer (temporary modal) */}
       <Drawer
         variant="temporary"
-        open={mobileOpen}
+        open={isMobile && mobileOpen}
         onClose={() => {
           setMobileOpen(false);
         }}
         ModalProps={{
-          keepMounted: true,
+          // Release the background before MUI restores focus during the exit animation.
           closeAfterTransition: false,
         }}
         sx={{
@@ -336,11 +336,6 @@ export default function AppLayout() {
               aria-expanded={isMobile ? mobileOpen : !compact}
               onClick={() => {
                 if (isMobile) {
-                  // If a page element (such as the customer search input) has focus,
-                  // blur it before opening the modal drawer so aria-hidden on #root does not conflict.
-                  if (document.activeElement instanceof HTMLElement) {
-                    document.activeElement.blur();
-                  }
                   setMobileOpen(true);
                 } else {
                   setCollapsed(!compact);

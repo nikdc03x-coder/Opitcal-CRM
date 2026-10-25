@@ -324,11 +324,14 @@ export default function AddPurchaseDialog({
           display: "flex",
           flexDirection: "column",
           minHeight: 0,
+          flex: 1,
+          "& .MuiCardContent-root": { p: { xs: 1.5, sm: 2 } },
+          "& .MuiSelect-select": { whiteSpace: "normal", overflowWrap: "anywhere" },
         }}
       >
         <DialogTitle id="new-purchase-title">Record New Purchase</DialogTitle>
 
-        <DialogContent dividers>
+        <DialogContent dividers sx={{ px: { xs: 1.5, sm: 3 } }}>
           <Stack spacing={2.5}>
             {/* Customer details are read-only. */}
             <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -531,7 +534,12 @@ export default function AddPurchaseDialog({
                       edit("pricingMode", next);
                     }
                   }}
-                  sx={{ mt: 2, mb: 2.5, flexWrap: "wrap" }}
+                  sx={{
+                    mt: 2,
+                    mb: 2.5,
+                    width: { xs: "100%", sm: "auto" },
+                    "& .MuiToggleButton-root": { flex: 1, minWidth: 0 },
+                  }}
                 >
                   <ToggleButton value="SPLIT">Separate Rates</ToggleButton>
                   <ToggleButton value="MRP_ONLY">Total MRP Only</ToggleButton>
@@ -649,7 +657,15 @@ export default function AddPurchaseDialog({
           </Stack>
         </DialogContent>
 
-        <DialogActions sx={{ p: 2.5, gap: 1, flexWrap: "wrap" }}>
+        <DialogActions
+          sx={{
+            p: { xs: 1.5, sm: 2.5 },
+            pb: "max(16px, env(safe-area-inset-bottom))",
+            gap: 1,
+            flexDirection: { xs: "column", sm: "row" },
+            "& .MuiButton-root": { width: { xs: "100%", sm: "auto" }, minHeight: 44 },
+          }}
+        >
           <Button
             autoFocus
             color="inherit"

@@ -781,6 +781,7 @@ export default function OrdersPage() {
 
       <Dialog
         open={confirmRemoval !== null}
+        closeAfterTransition={false}
         onClose={() => {
           if (!updating.current) setConfirmRemoval(null);
         }}
@@ -820,6 +821,7 @@ export default function OrdersPage() {
       {/* Delivery confirmation prevents accidental completion */}
       <Dialog
         open={confirmDelivery !== null}
+        closeAfterTransition={false}
         onClose={() => {
           if (!busyOrderId) setConfirmDelivery(null);
         }}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   Box,
@@ -143,6 +143,9 @@ export default function EyeCheckupRemindersPage() {
 
   // Early Send Dialog
   const [earlySendOpen, setEarlySendOpen] = useState(false);
+  const earlyInputRef = useRef<HTMLInputElement>(null);
+  const earlyTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingEarlyPreview = useRef<DueReminderItem | null>(null);
   const [earlyQuery, setEarlyQuery] = useState("");
   const [earlySearchResults, setEarlySearchResults] = useState<
     Array<{
@@ -490,8 +493,8 @@ export default function EyeCheckupRemindersPage() {
     try {
       setLoading(true);
       const reminderItem = await sendEarlyReminder(customerId);
+      pendingEarlyPreview.current = reminderItem;
       setEarlySendOpen(false);
-      openPreview(reminderItem);
       setSuccessMsg(`Prepared reminder for ${reminderItem.customerName}! You can review and send.`);
       await loadAll();
     } catch (err: unknown) {
@@ -608,7 +611,8 @@ export default function EyeCheckupRemindersPage() {
                 variant="contained"
                 color="primary"
                 startIcon={<PersonSearchOutlined />}
-                onClick={() => {
+                onClick={(event) => {
+                  earlyTriggerRef.current = event.currentTarget;
                   setEarlySendOpen(true);
                   setEarlyQuery("");
                   setEarlySearchResults([]);
@@ -914,7 +918,8 @@ export default function EyeCheckupRemindersPage() {
                     fullWidth
                     color="primary"
                     startIcon={<PersonSearchOutlined />}
-                    onClick={() => {
+                    onClick={(event) => {
+                      earlyTriggerRef.current = event.currentTarget;
                       setEarlySendOpen(true);
                       setEarlyQuery("");
                       setEarlySearchResults([]);
@@ -1817,7 +1822,13 @@ export default function EyeCheckupRemindersPage() {
       )}
 
       {/* PREVIEW & EDIT DIALOG (SINGLE & SEQUENTIAL BULK SENDING) */}
-      <Dialog open={!!previewItem} onClose={closePreview} maxWidth="sm" fullWidth>
+      <Dialog
+        open={!!previewItem}
+        closeAfterTransition={false}
+        onClose={closePreview}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle
           sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
         >
@@ -2126,7 +2137,25 @@ export default function EyeCheckupRemindersPage() {
       </Dialog>
 
       {/* EARLY SEND SEARCH CUSTOMER DIALOG */}
-      <Dialog open={earlySendOpen} onClose={() => setEarlySendOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={earlySendOpen}
+        closeAfterTransition={false}
+        onClose={() => setEarlySendOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        slotProps={{
+          transition: {
+            onEntered: () => earlyInputRef.current?.focus(),
+            onExited: () => {
+              // Release this modal and restore its trigger before the preview captures focus.
+              earlyTriggerRef.current?.focus();
+              const item = pendingEarlyPreview.current;
+              pendingEarlyPreview.current = null;
+              if (item) openPreview(item);
+            },
+          },
+        }}
+      >
         <DialogTitle>Send Reminder Early (Search Any Customer)</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
@@ -2139,7 +2168,7 @@ export default function EyeCheckupRemindersPage() {
               <TextField
                 fullWidth
                 size="small"
-                autoFocus
+                inputRef={earlyInputRef}
                 placeholder="Type customer name or mobile number..."
                 value={earlyQuery}
                 onChange={(e) => setEarlyQuery(e.target.value)}

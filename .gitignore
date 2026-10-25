@@ -2,6 +2,8 @@ node_modules/
 dist/
 dist-ssr/
 coverage/
+client/test-results/
+client/playwright-report/
 server/src/generated/
 /artifacts/
 
