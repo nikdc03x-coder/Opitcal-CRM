@@ -16,7 +16,6 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -61,7 +60,6 @@ import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
 import RemoveRedEyeOutlined from "@mui/icons-material/RemoveRedEyeOutlined";
 import SearchOutlined from "@mui/icons-material/SearchOutlined";
-import ShareOutlined from "@mui/icons-material/ShareOutlined";
 import ShoppingBagOutlined from "@mui/icons-material/ShoppingBagOutlined";
 import TrendingUpOutlined from "@mui/icons-material/TrendingUpOutlined";
 import UnfoldMoreOutlined from "@mui/icons-material/UnfoldMoreOutlined";
@@ -88,9 +86,7 @@ import {
   prescriptionHtml,
   printDocument,
   shareOrDownloadPdf,
-  canShareFilesDirectly,
   openCustomerWhatsApp,
-  whatsappReceiptMessage,
 } from "../utils/customerDocuments";
 
 function display(value: string | number | null | undefined): string {
@@ -223,6 +219,31 @@ const purchaseFlagInfo: Record<
   FRAME_AND_LENS: { label: "Frame + Lens", color: "primary" },
   NOT_SPECIFIED: { label: "Not Specified", color: "default" },
 };
+
+const purchaseSummarySx = {
+  p: { xs: 1.5, sm: 1.75 },
+  height: "100%",
+  minWidth: 0,
+  borderRadius: 2,
+  display: "flex",
+  flexDirection: { xs: "column", sm: "row", lg: "column", xl: "row" },
+  alignItems: "flex-start",
+  gap: 1.5,
+  "& .MuiTypography-root": { whiteSpace: "normal", overflowWrap: "anywhere" },
+  "& .MuiTypography-h6": { fontSize: { xs: "1rem", sm: "1.25rem" } },
+  "& .MuiTypography-subtitle1": { fontSize: { xs: "0.875rem", sm: "1rem" } },
+} as const;
+
+const customerActionSx = {
+  display: "flex",
+  flexDirection: { xs: "column", sm: "row" },
+  flexWrap: "wrap",
+  gap: 1,
+  "& > .MuiButton-root": {
+    width: { xs: "100%", sm: "auto" },
+    minHeight: { xs: 44, sm: 36 },
+  },
+} as const;
 
 function DetailItem({
   label,
@@ -361,8 +382,8 @@ function ClinicalPrescriptionTable({
 
   return (
     <>
-      {/* Mobile Card / Grid Layout (Phones & small screens: xs only, no horizontal scroll) */}
-      <Box sx={{ display: { xs: "block", sm: "none" } }}>
+      {/* Stack eye measurements on phones, including landscape screens. */}
+      <Box sx={{ display: { xs: "block", md: "none" } }}>
         <Stack spacing={compact ? 1.25 : 1.5}>
           {eyes.map((eye) => (
             <Paper
@@ -746,7 +767,7 @@ function ClinicalPrescriptionTable({
         component={Paper}
         variant="outlined"
         sx={{
-          display: { xs: "none", sm: "block" },
+          display: { xs: "none", md: "block" },
           borderRadius: 2,
           overflowX: "auto",
           border: "1px solid",
@@ -903,7 +924,7 @@ function PairedPrescriptionCard({
     <Paper
       variant="outlined"
       sx={{
-        p: 2,
+        p: { xs: 1, sm: 2 },
         borderRadius: 2,
         bgcolor: "action.hover",
         borderColor: "divider",
@@ -939,11 +960,7 @@ function PairedPrescriptionCard({
 
       <ClinicalPrescriptionTable prescription={prescription} compact />
 
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{ mt: 1.5, justifyContent: "flex-end", flexWrap: "wrap", gap: 0.75 }}
-      >
+      <Stack sx={{ ...customerActionSx, mt: 1.5, justifyContent: "flex-end" }}>
         <Button
           size="small"
           variant="text"
@@ -1036,10 +1053,16 @@ function PrescriptionComparison({
             {([firstId, secondId] as const).map((value, index) => (
               <Grid key={index} size={{ xs: 12, md: 6 }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>{index === 0 ? "Exam A" : "Exam B"}</InputLabel>
+                  <InputLabel id={`comparison-exam-${index}-label`}>
+                    {index === 0 ? "Exam A" : "Exam B"}
+                  </InputLabel>
                   <Select
+                    labelId={`comparison-exam-${index}-label`}
                     label={index === 0 ? "Exam A" : "Exam B"}
                     value={value}
+                    sx={{
+                      "& .MuiSelect-select": { whiteSpace: "normal", overflowWrap: "anywhere" },
+                    }}
                     onChange={(event) =>
                       index === 0
                         ? setUserFirstId(event.target.value)
@@ -1072,8 +1095,8 @@ function PrescriptionComparison({
             <Alert severity="warning">Select two different examinations.</Alert>
           ) : (
             <>
-              {/* Mobile Stacked Comparison (xs only, zero horizontal scrolling) */}
-              <Box sx={{ display: { xs: "block", sm: "none" } }}>
+              {/* Stack comparison measurements on phones and smaller tablets. */}
+              <Box sx={{ display: { xs: "block", md: "none" } }}>
                 <Stack spacing={1.5}>
                   {metrics.map(([label, key]) => {
                     const a = read(first, key);
@@ -1189,11 +1212,11 @@ function PrescriptionComparison({
                 </Stack>
               </Box>
 
-              {/* Desktop Table (sm and up) */}
+              {/* Desktop comparison table */}
               <TableContainer
                 component={Paper}
                 variant="outlined"
-                sx={{ display: { xs: "none", sm: "block" }, borderRadius: 2, overflowX: "auto" }}
+                sx={{ display: { xs: "none", md: "block" }, borderRadius: 2, overflowX: "auto" }}
               >
                 <Table size="small" sx={{ minWidth: 530 }}>
                   <TableHead>
@@ -1312,7 +1335,7 @@ type ReceiptDialogProps = {
   onClose: () => void;
   onPrint: (content: string, title: string) => void;
   onPdf: (content: string, filename: string, type: PdfKind) => Promise<void>;
-  onWhatsAppText: (whatsappMessage: string) => void;
+  onWhatsAppPdf: (content: string, filename: string) => Promise<void>;
 };
 
 // Staff review the PDF contents before sharing it.
@@ -1323,11 +1346,8 @@ function ReceiptPreviewDialog({
   onClose,
   onPrint,
   onPdf,
-  onWhatsAppText,
+  onWhatsAppPdf,
 }: ReceiptDialogProps) {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === "dark";
-  const isMobileShareSupported = useMemo(() => canShareFilesDirectly(), []);
   const [includePrescription, setIncludePrescription] = useState(false);
 
   // Only use the prescription linked to this purchase.
@@ -1337,7 +1357,6 @@ function ReceiptPreviewDialog({
   const selectedPrescription = includePrescription ? linkedPrescription : null;
 
   const documentContent = receiptHtml(customer, record, selectedPrescription);
-  const whatsappMessage = whatsappReceiptMessage(customer, record, selectedPrescription);
 
   const filename = `receipt-${record.id}.pdf`;
 
@@ -1369,7 +1388,7 @@ function ReceiptPreviewDialog({
           <Paper
             variant="outlined"
             sx={{
-              p: 2.5,
+              p: { xs: 1.5, sm: 2.5 },
               borderRadius: 2,
               bgcolor: "action.hover",
             }}
@@ -1465,9 +1484,9 @@ function ReceiptPreviewDialog({
               <Divider sx={{ my: 2 }} />
 
               <Stack
-                direction="row"
+                direction={{ xs: "column", sm: "row" }}
                 sx={{
-                  alignItems: "center",
+                  alignItems: { xs: "flex-start", sm: "center" },
                   justifyContent: "space-between",
                   gap: 2,
                 }}
@@ -1503,31 +1522,10 @@ function ReceiptPreviewDialog({
             </Box>
           )}
 
-          <Alert severity="info" variant="outlined">
+          <Alert severity="info">
             This document represents recorded MRP and order specifications. Internal staff-only
             notes are strictly omitted.
           </Alert>
-
-          <Box
-            sx={{
-              p: 1.5,
-              borderRadius: 1.5,
-              bgcolor: isDark ? "rgba(37, 99, 235, 0.08)" : "#F0F7FF",
-              border: "1px dashed",
-              borderColor: isDark ? "primary.dark" : "#BFDBFE",
-              display: "flex",
-              alignItems: "center",
-              gap: 1.5,
-            }}
-          >
-            <WhatsAppIcon sx={{ color: "#25D366", fontSize: 24, flexShrink: 0 }} />
-            <Typography variant="caption" color="text.secondary">
-              <strong>WhatsApp Options:</strong> Click <strong>Send Bill on WhatsApp</strong> to
-              open this customer&apos;s chat with the full itemized bill pre-typed. Click{" "}
-              <strong>{isMobileShareSupported ? "Share PDF File" : "Save PDF"}</strong> to send or
-              download the official PDF document.
-            </Typography>
-          </Box>
         </Stack>
       </DialogContent>
 
@@ -1535,10 +1533,10 @@ function ReceiptPreviewDialog({
 
       <DialogActions
         sx={{
+          ...customerActionSx,
           p: 2,
-          gap: 1.25,
-          flexWrap: "wrap",
           justifyContent: "flex-end",
+          pb: "max(16px, env(safe-area-inset-bottom))",
         }}
       >
         <Button color="inherit" disabled={busy} onClick={onClose}>
@@ -1556,38 +1554,25 @@ function ReceiptPreviewDialog({
 
         <Button
           variant="outlined"
-          color="primary"
           disabled={busy}
-          startIcon={
-            busy ? (
-              <CircularProgress size={18} color="inherit" />
-            ) : isMobileShareSupported ? (
-              <ShareOutlined />
-            ) : (
-              <PictureAsPdfOutlined />
-            )
-          }
+          startIcon={<PictureAsPdfOutlined />}
           onClick={() => {
             void onPdf(documentContent, filename, "receipt");
           }}
         >
-          {busy
-            ? "Preparing..."
-            : isMobileShareSupported
-              ? "Share PDF File"
-              : "Save PDF"}
+          Save PDF
         </Button>
 
         <Button
           variant="contained"
           color="success"
           disabled={busy || !customer.mobNumber}
-          startIcon={<WhatsAppIcon />}
+          startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <WhatsAppIcon />}
           onClick={() => {
-            onWhatsAppText(whatsappMessage);
+            void onWhatsAppPdf(documentContent, filename);
           }}
         >
-          Send Bill on WhatsApp
+          {busy ? "Preparing PDF..." : "Share PDF via WhatsApp"}
         </Button>
       </DialogActions>
     </ResponsiveDialog>
@@ -1656,6 +1641,7 @@ export default function CustomerDetailPage() {
       if (deleteTarget === "customer") {
         await deleteCustomer(customer.id);
         if (visibleCustomerId.current !== customer.id) return;
+        setDeleteTarget(null);
         navigate(backUrl, { state: { success: "Customer deleted successfully." } });
       } else {
         const deleted = await deletePurchase(customer.id, deleteTarget.id);
@@ -1815,8 +1801,8 @@ export default function CustomerDetailPage() {
       const result = await shareOrDownloadPdf(content, filename, type);
       setDocumentMessage(
         result === "shared"
-          ? "PDF handed to device share menu. Select WhatsApp to send the file."
-          : "PDF downloaded successfully. In WhatsApp Web, attach the downloaded PDF and send.",
+          ? "Device share completed. Check the recipient and confirm the PDF was sent."
+          : "PDF downloaded successfully.",
       );
     } catch (err) {
       setDocumentMessage(err instanceof Error ? err.message : "Unable to prepare the PDF.");
@@ -1825,16 +1811,38 @@ export default function CustomerDetailPage() {
     }
   }
 
-  function handleWhatsAppText(whatsappMessage: string): void {
-    if (!customer?.mobNumber) return;
+  async function handleWhatsAppPdf(content: string, filename: string): Promise<void> {
+    if (!customer || documentBusy) return;
+
+    setDocumentBusy(true);
+    setDocumentMessage("");
 
     try {
-      openCustomerWhatsApp(customer.mobNumber, whatsappMessage);
-      setDocumentMessage("Opened customer's WhatsApp chat with pre-filled bill message.");
+      const result = await shareOrDownloadPdf(content, filename, "receipt");
+
+      if (result === "shared") {
+        setDocumentMessage("PDF handed to device share menu. Select WhatsApp and send.");
+        return;
+      }
+
+      try {
+        openCustomerWhatsApp(customer.mobNumber, "");
+        setDocumentMessage(
+          "Receipt PDF downloaded. In WhatsApp, attach the downloaded PDF and press Send.",
+        );
+      } catch (chatError) {
+        setDocumentMessage(
+          chatError instanceof Error
+            ? `PDF downloaded, but WhatsApp could not open: ${chatError.message}`
+            : "PDF downloaded. Open WhatsApp manually and attach it.",
+        );
+      }
     } catch (err) {
       setDocumentMessage(
-        err instanceof Error ? err.message : "Could not open customer WhatsApp.",
+        err instanceof Error ? err.message : "Could not prepare the WhatsApp PDF.",
       );
+    } finally {
+      setDocumentBusy(false);
     }
   }
 
@@ -1921,7 +1929,9 @@ export default function CustomerDetailPage() {
   const latestRecord = sortedRecords[0] ?? null;
 
   return (
-    <Box sx={{ maxWidth: 1320, mx: "auto", pb: 8, px: { xs: 1, sm: 2 } }}>
+    <Box
+      sx={{ width: "100%", minWidth: 0, maxWidth: 1320, mx: "auto", pb: 8, px: { xs: 0, sm: 2 } }}
+    >
       <Stack spacing={3}>
         {/* Navigation Breadcrumb */}
         <Box>
@@ -1946,7 +1956,7 @@ export default function CustomerDetailPage() {
             boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
           }}
         >
-          <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
+          <CardContent sx={{ p: { xs: 1.5, sm: 2.5, md: 3.5 } }}>
             <Stack
               direction={{ xs: "column", md: "row" }}
               spacing={3}
@@ -1958,7 +1968,12 @@ export default function CustomerDetailPage() {
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 spacing={2.5}
-                sx={{ alignItems: { xs: "flex-start", sm: "center" }, minWidth: 0, width: "100%" }}
+                sx={{
+                  alignItems: { xs: "flex-start", sm: "center" },
+                  minWidth: 0,
+                  flex: 1,
+                  width: { xs: "100%", md: "auto" },
+                }}
               >
                 <Avatar
                   sx={{
@@ -1977,6 +1992,7 @@ export default function CustomerDetailPage() {
                   <Stack
                     direction="row"
                     spacing={1.5}
+                    useFlexGap
                     sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.5 }}
                   >
                     <Typography
@@ -2022,6 +2038,7 @@ export default function CustomerDetailPage() {
                   <Stack
                     direction="row"
                     spacing={1.5}
+                    useFlexGap
                     sx={{
                       mt: 1,
                       flexWrap: "wrap",
@@ -2056,7 +2073,12 @@ export default function CustomerDetailPage() {
                           height: "auto",
                           minHeight: 22,
                           maxWidth: "100%",
-                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                          "& .MuiChip-label": {
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            textOverflow: "clip",
+                            py: 0.25,
+                          },
                         }}
                       />
                     )}
@@ -2070,7 +2092,12 @@ export default function CustomerDetailPage() {
                           height: "auto",
                           minHeight: 22,
                           maxWidth: "100%",
-                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.50 },
+                          "& .MuiChip-label": {
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            textOverflow: "clip",
+                            py: 0.5,
+                          },
                         }}
                       />
                     )}
@@ -2084,7 +2111,12 @@ export default function CustomerDetailPage() {
                           height: "auto",
                           minHeight: 22,
                           maxWidth: "100%",
-                          "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                          "& .MuiChip-label": {
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            textOverflow: "clip",
+                            py: 0.25,
+                          },
                         }}
                       />
                     )}
@@ -2099,6 +2131,7 @@ export default function CustomerDetailPage() {
                   flexWrap: "wrap",
                   gap: 1,
                   width: { xs: "100%", md: "auto" },
+                  flexShrink: 0,
                   "& > *": {
                     flex: { xs: "1 1 calc(50% - 8px)", sm: "0 0 auto" },
                   },
@@ -2109,11 +2142,14 @@ export default function CustomerDetailPage() {
                   startIcon={<AddOutlined />}
                   disabled={refreshing}
                   onClick={() => setPurchaseDialogOpen(true)}
-                  sx={{ width: { xs: "100%", sm: "auto" }, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}
+                  sx={{
+                    width: { xs: "100%", sm: "auto" },
+                    flex: { xs: "1 1 100%", sm: "0 0 auto" },
+                  }}
                 >
                   New Purchase
                 </Button>
-               
+
                 {customer.mobNumber && (
                   <Button
                     component="a"
@@ -2164,7 +2200,7 @@ export default function CustomerDetailPage() {
             >
               <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
                 <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                   ID:
+                  ID:
                 </Typography>
                 <Typography
                   variant="caption"
@@ -2174,6 +2210,7 @@ export default function CustomerDetailPage() {
                     px: 1,
                     py: 0.25,
                     borderRadius: 1,
+                    minWidth: 0,
                     overflowWrap: "anywhere",
                   }}
                 >
@@ -2193,7 +2230,7 @@ export default function CustomerDetailPage() {
                 </Tooltip>
               </Stack>
 
-              <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap", gap: 1 }}>
+              <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 1 }}>
                 <Typography variant="caption">
                   Registered: <strong>{formatDate(customer.createdAt)}</strong>
                 </Typography>
@@ -2237,8 +2274,15 @@ export default function CustomerDetailPage() {
               onChange={(_, next: number) => setActiveTab(next)}
               variant="scrollable"
               scrollButtons="auto"
+              allowScrollButtonsMobile
               aria-label="Customer detail views"
-              sx={{ px: { xs: 1, md: 2 } }}
+              sx={{
+                px: { xs: 0, md: 2 },
+                "& .MuiTab-root": {
+                  px: { xs: 1.5, sm: 2 },
+                  fontSize: { xs: "0.8rem", sm: "0.875rem" },
+                },
+              }}
             >
               <Tab
                 icon={<ReceiptLongOutlined />}
@@ -2273,7 +2317,7 @@ export default function CustomerDetailPage() {
             </Tabs>
           </Box>
 
-          <CardContent sx={{ p: { xs: 2, md: 3.5 }, minHeight: 300 }}>
+          <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3.5 }, minHeight: 300 }}>
             {/* TAB 0: Purchases & Paired Eyewear */}
             {activeTab === 0 && (
               <Stack spacing={2.5}>
@@ -2283,32 +2327,18 @@ export default function CustomerDetailPage() {
                   spacing={1}
                   sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
                 >
-                  
-
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<AddOutlined />}
-                    onClick={() => setPurchaseDialogOpen(true)}
-                    sx={{ width: {alignItems: { sm: "center" },  xs: "70%",  } }}
-                  >
-                    New Purchase
-                  </Button>
+                 
                 </Stack>
 
                 {/* Section A: Purchase History Overview KPI Cards */}
                 <Grid container spacing={1.5}>
                   {/* KPI 1: Total Orders */}
-                  <Grid size={{ xs: 6, sm: 3 }}>
+                  <Grid size={{ xs: 6, lg: 3 }}>
                     <Paper
                       variant="outlined"
                       sx={{
-                        p: 1.75,
-                        borderRadius: 2,
+                        ...purchaseSummarySx,
                         bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
                       }}
                     >
                       <Box
@@ -2348,23 +2378,21 @@ export default function CustomerDetailPage() {
                             display: "block",
                           }}
                         >
-                          {customer.records.length === 1 ? "1 order recorded" : `${customer.records.length} lifetime orders`}
+                          {customer.records.length === 1
+                            ? "1 order recorded"
+                            : `${customer.records.length} lifetime orders`}
                         </Typography>
                       </Box>
                     </Paper>
                   </Grid>
 
                   {/* KPI 2: Latest Purchase Date */}
-                  <Grid size={{ xs: 6, sm: 3 }}>
+                  <Grid size={{ xs: 6, lg: 3 }}>
                     <Paper
                       variant="outlined"
                       sx={{
-                        p: 1.75,
-                        borderRadius: 2,
+                        ...purchaseSummarySx,
                         bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
                       }}
                     >
                       <Box
@@ -2420,16 +2448,12 @@ export default function CustomerDetailPage() {
                   </Grid>
 
                   {/* KPI 3: Latest Purchase Category */}
-                  <Grid size={{ xs: 6, sm: 3 }}>
+                  <Grid size={{ xs: 6, lg: 3 }}>
                     <Paper
                       variant="outlined"
                       sx={{
-                        p: 1.75,
-                        borderRadius: 2,
+                        ...purchaseSummarySx,
                         bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
                       }}
                     >
                       <Box
@@ -2465,7 +2489,9 @@ export default function CustomerDetailPage() {
                             textOverflow: "ellipsis",
                           }}
                         >
-                          {latestRecord ? purchaseFlagInfo[getPurchaseFlag(latestRecord)].label : "None"}
+                          {latestRecord
+                            ? purchaseFlagInfo[getPurchaseFlag(latestRecord)].label
+                            : "None"}
                         </Typography>
                         <Typography
                           variant="caption"
@@ -2485,16 +2511,12 @@ export default function CustomerDetailPage() {
                   </Grid>
 
                   {/* KPI 4: Recent Amount & Lifetime Spend */}
-                  <Grid size={{ xs: 6, sm: 3 }}>
+                  <Grid size={{ xs: 6, lg: 3 }}>
                     <Paper
                       variant="outlined"
                       sx={{
-                        p: 1.75,
-                        borderRadius: 2,
+                        ...purchaseSummarySx,
                         bgcolor: isDark ? "rgba(255, 255, 255, 0.02)" : "background.paper",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
                       }}
                     >
                       <Box
@@ -2583,15 +2605,16 @@ export default function CustomerDetailPage() {
                           ),
                         },
                       }}
-                      sx={{ maxWidth: { xs: "100%", md: 300 } }}
+                      sx={{ width: "100%", maxWidth: { xs: "100%", lg: 300 } }}
                     />
 
                     {/* Filter, Sort & Bulk Expand Controls */}
                     <Stack
-                      direction="row"
-                      spacing={1}
+                      direction={{ xs: "column", sm: "row" }}
+                      useFlexGap
                       sx={{
-                        alignItems: "center",
+                        minWidth: 0,
+                        alignItems: { xs: "stretch", sm: "center" },
                         flexWrap: "wrap",
                         gap: 1,
                         justifyContent: { xs: "flex-start", md: "flex-end" },
@@ -2605,7 +2628,17 @@ export default function CustomerDetailPage() {
                           if (val) setPurchaseFilter(val);
                         }}
                         sx={{
-                          flexWrap: "wrap",
+                          display: { xs: "grid", sm: "flex" },
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                          gap: { xs: 0.75, sm: 0 },
+                          width: { xs: "100%", sm: "auto" },
+                          "& .MuiToggleButtonGroup-grouped": {
+                            minWidth: 0,
+                            m: 0,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            borderRadius: { xs: "8px !important", sm: 0 },
+                          },
                           "& .MuiToggleButton-root": {
                             fontSize: "0.75rem",
                             px: 1.25,
@@ -2621,13 +2654,15 @@ export default function CustomerDetailPage() {
                       </ToggleButtonGroup>
 
                       {/* Sort Selector */}
-                      <FormControl size="small" sx={{ minWidth: 125 }}>
+                      <FormControl
+                        size="small"
+                        sx={{ minWidth: 0, width: { xs: "100%", sm: 140 } }}
+                      >
                         <Select
                           value={purchaseSort}
-                          onChange={(e) =>
-                            setPurchaseSort(e.target.value as "NEWEST" | "OLDEST")
-                          }
-                          sx={{ fontSize: "0.8rem", height: 32 }}
+                          inputProps={{ "aria-label": "Sort purchases" }}
+                          onChange={(e) => setPurchaseSort(e.target.value as "NEWEST" | "OLDEST")}
+                          sx={{ fontSize: "0.8rem", minHeight: { xs: 44, sm: 36 } }}
                         >
                           <MenuItem value="NEWEST">Newest First</MenuItem>
                           <MenuItem value="OLDEST">Oldest First</MenuItem>
@@ -2644,7 +2679,7 @@ export default function CustomerDetailPage() {
                             isAllExpanded ? <UnfoldLessOutlined /> : <UnfoldMoreOutlined />
                           }
                           onClick={handleToggleAllPurchases}
-                          sx={{ fontSize: "0.78rem", height: 32, whiteSpace: "nowrap" }}
+                          sx={{ fontSize: "0.78rem", minHeight: { xs: 44, sm: 36 } }}
                         >
                           {isAllExpanded ? "Collapse All" : "Expand All"}
                         </Button>
@@ -2708,11 +2743,7 @@ export default function CustomerDetailPage() {
                         sx={{
                           borderRadius: 2.5,
                           border: "1px solid",
-                          borderColor: isLatest
-                            ? isDark
-                              ? "primary.main"
-                              : "#2563EB"
-                            : "divider",
+                          borderColor: isLatest ? (isDark ? "primary.main" : "#2563EB") : "divider",
                           boxShadow: isLatest
                             ? isDark
                               ? "0 4px 16px rgba(59, 130, 246, 0.16)"
@@ -2761,6 +2792,7 @@ export default function CustomerDetailPage() {
                             <Stack
                               direction="row"
                               spacing={1}
+                              useFlexGap
                               sx={{
                                 alignItems: "center",
                                 flexWrap: "wrap",
@@ -2805,10 +2837,8 @@ export default function CustomerDetailPage() {
                                 size="small"
                                 sx={{ height: 24, fontWeight: 700, fontSize: "0.72rem" }}
                               />
-
-                              
                             </Stack>
- 
+
                             {/* Right Side: Rx indicator, Price & Chevron */}
                             <Stack
                               direction="row"
@@ -2816,6 +2846,9 @@ export default function CustomerDetailPage() {
                               sx={{
                                 alignItems: "center",
                                 flexShrink: 0,
+                                minWidth: 0,
+                                flexWrap: "wrap",
+                                gap: 1,
                                 width: { xs: "100%", sm: "auto" },
                                 justifyContent: { xs: "space-between", sm: "flex-end" },
                               }}
@@ -2881,6 +2914,8 @@ export default function CustomerDetailPage() {
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: 1,
                                     mb: 1,
                                   }}
                                 >
@@ -2967,6 +3002,8 @@ export default function CustomerDetailPage() {
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: 1,
                                     mb: 1,
                                   }}
                                 >
@@ -3051,27 +3088,26 @@ export default function CustomerDetailPage() {
                                 alignItems: { sm: "center" },
                               }}
                             >
-                             
-
                               <Stack
                                 direction={{ xs: "column", sm: "row" }}
                                 spacing={1}
-                                sx={{ width: { xs: "100%", sm: "auto" } }}
+                                useFlexGap
+                                sx={{ ...customerActionSx, width: "100%" }}
                               >
                                 <Button
-                                color="error"
-                                variant="outlined"
-                                size="small"
-                                startIcon={<DeleteOutline />}
-                                disabled={deleting}
-                                onClick={() => {
-                                  setDeleteError("");
-                                  setDeleteTarget(record);
-                                }}
-                                sx={{ width: { xs: "100%", sm: "auto" } }}
-                              >
-                                Delete Purchase
-                              </Button>
+                                  color="error"
+                                  variant="outlined"
+                                  size="small"
+                                  startIcon={<DeleteOutline />}
+                                  disabled={deleting}
+                                  onClick={() => {
+                                    setDeleteError("");
+                                    setDeleteTarget(record);
+                                  }}
+                                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                                >
+                                  Delete Purchase
+                                </Button>
                                 <Button
                                   variant="outlined"
                                   size="small"
@@ -3144,7 +3180,8 @@ export default function CustomerDetailPage() {
                         variant="outlined"
                         sx={{
                           borderRadius: 2.5,
-                          borderColor: index === 0 ? (isDark ? "primary.main" : "#2563EB") : "divider",
+                          borderColor:
+                            index === 0 ? (isDark ? "primary.main" : "#2563EB") : "divider",
                           boxShadow:
                             index === 0
                               ? isDark
@@ -3181,6 +3218,7 @@ export default function CustomerDetailPage() {
                             <Stack
                               direction="row"
                               spacing={1}
+                              useFlexGap
                               sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.75 }}
                             >
                               <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
@@ -3212,7 +3250,7 @@ export default function CustomerDetailPage() {
                               />
                             </Stack>
 
-                            <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                            <Stack sx={customerActionSx}>
                               <Button
                                 size="small"
                                 variant="outlined"
@@ -3299,7 +3337,8 @@ export default function CustomerDetailPage() {
                                     <Stack
                                       direction="row"
                                       spacing={1}
-                                      sx={{ alignItems: "center" }}
+                                      useFlexGap
+                                      sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}
                                     >
                                       <CheckCircleOutlineOutlined
                                         sx={{ color: "success.main", fontSize: 18 }}
@@ -3357,8 +3396,8 @@ export default function CustomerDetailPage() {
                   </Alert>
                 ) : (
                   <>
-                    {/* Mobile Timeline Cards (xs only, no horizontal scroll) */}
-                    <Box sx={{ display: { xs: "block", sm: "none" } }}>
+                    {/* Progression cards for phones and smaller tablets. */}
+                    <Box sx={{ display: { xs: "block", md: "none" } }}>
                       <Stack spacing={2}>
                         {sortedPrescriptions.map((rx, idx) => {
                           const reAdd = calculateAdd(rx.reNearSph, rx.reDistSph);
@@ -3544,11 +3583,11 @@ export default function CustomerDetailPage() {
                       </Stack>
                     </Box>
 
-                    {/* Desktop / Tablet Table Layout (sm and up) */}
+                    {/* Desktop progression table */}
                     <TableContainer
                       component={Paper}
                       variant="outlined"
-                      sx={{ display: { xs: "none", sm: "block" }, borderRadius: 2 }}
+                      sx={{ display: { xs: "none", md: "block" }, borderRadius: 2 }}
                     >
                       <Table size="small" sx={{ minWidth: 780 }}>
                         <TableHead sx={{ bgcolor: "action.hover" }}>
@@ -3709,7 +3748,7 @@ export default function CustomerDetailPage() {
                 <Paper
                   variant="outlined"
                   sx={{
-                    p: 3,
+                    p: { xs: 1.5, sm: 3 },
                     borderRadius: 2.5,
                     bgcolor: "background.paper",
                     minHeight: 140,
@@ -3733,7 +3772,7 @@ export default function CustomerDetailPage() {
                   spacing={1}
                   sx={{
                     justifyContent: "space-between",
-                    alignItems: { xs: "flex-start", sm: "center" },
+                    alignItems: { xs: "stretch", sm: "center" },
                   }}
                 >
                   <Typography variant="caption" color="text.secondary">
@@ -3783,7 +3822,8 @@ export default function CustomerDetailPage() {
               width: { xs: "100%", sm: "auto" },
               justifyContent: { xs: "stretch", sm: "flex-end" },
               "& > *": {
-                flex: { xs: "1 1 calc(50% - 6px)", sm: "0 0 auto" },
+                flex: { xs: "1 1 100%", sm: "0 0 auto" },
+                minHeight: 44,
               },
             }}
           >
@@ -3806,7 +3846,7 @@ export default function CustomerDetailPage() {
         </Stack>
       </Stack>
 
-      <Dialog
+      <ResponsiveDialog
         open={deleteTarget !== null}
         onClose={() => {
           if (!deleting) setDeleteTarget(null);
@@ -3859,7 +3899,7 @@ export default function CustomerDetailPage() {
             </Typography>
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={customerActionSx}>
           <Button autoFocus disabled={deleting} onClick={() => setDeleteTarget(null)}>
             Cancel
           </Button>
@@ -3876,7 +3916,7 @@ export default function CustomerDetailPage() {
                 : "Delete Purchase"}
           </Button>
         </DialogActions>
-      </Dialog>
+      </ResponsiveDialog>
 
       {purchaseDialogOpen && (
         <AddPurchaseDialog
@@ -3921,7 +3961,7 @@ export default function CustomerDetailPage() {
           onClose={() => setSelectedRecord(null)}
           onPrint={handlePrint}
           onPdf={handlePdf}
-          onWhatsAppText={handleWhatsAppText}
+          onWhatsAppPdf={handleWhatsAppPdf}
         />
       )}
     </Box>

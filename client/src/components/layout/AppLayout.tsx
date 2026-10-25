@@ -267,25 +267,43 @@ export default function AppLayout() {
         width: "100%",
       }}
     >
-      {/* Mobile drawer; permanent sidebar on desktop. */}
+      {/* Responsive navigation drawers */}
+      {/* Mobile drawer (temporary modal) */}
       <Drawer
-        variant={isMobile ? "temporary" : "permanent"}
-        open={isMobile ? mobileOpen : true}
+        variant="temporary"
+        open={mobileOpen}
         onClose={() => {
           setMobileOpen(false);
         }}
         ModalProps={{
           keepMounted: true,
+          closeAfterTransition: false,
         }}
         sx={{
-          width: isMobile ? 0 : navigationWidth,
-          flexShrink: 0,
-
+          display: { xs: "block", md: "none" },
           "& .MuiDrawer-paper": {
-            width: isMobile ? drawerWidth : navigationWidth,
+            width: drawerWidth,
             maxWidth: "calc(100vw - 32px)",
             overflowX: "hidden",
             boxSizing: "border-box",
+          },
+        }}
+      >
+        {sidebar}
+      </Drawer>
+
+      {/* Desktop permanent sidebar (non-modal) */}
+      <Drawer
+        variant="permanent"
+        open
+        sx={{
+          display: { xs: "none", md: "block" },
+          width: navigationWidth,
+          flexShrink: 0,
+          "& .MuiDrawer-paper": {
+            width: navigationWidth,
+            boxSizing: "border-box",
+            overflowX: "hidden",
           },
         }}
       >
@@ -316,9 +334,13 @@ export default function AppLayout() {
                 isMobile ? "Open navigation" : compact ? "Expand navigation" : "Collapse navigation"
               }
               aria-expanded={isMobile ? mobileOpen : !compact}
-              onClick={(e) => {
+              onClick={() => {
                 if (isMobile) {
-                  e.currentTarget.blur();
+                  // If a page element (such as the customer search input) has focus,
+                  // blur it before opening the modal drawer so aria-hidden on #root does not conflict.
+                  if (document.activeElement instanceof HTMLElement) {
+                    document.activeElement.blur();
+                  }
                   setMobileOpen(true);
                 } else {
                   setCollapsed(!compact);

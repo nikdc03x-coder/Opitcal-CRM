@@ -13,7 +13,7 @@
  * - Loading skeletons and empty states
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Alert,
@@ -125,6 +125,25 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the search input cleanly without causing aria-hidden race conditions on #root.
+  useEffect(() => {
+    const root = document.getElementById("root");
+    if (root && root.getAttribute("aria-hidden") === "true") {
+      const observer = new MutationObserver(() => {
+        if (root.getAttribute("aria-hidden") !== "true") {
+          observer.disconnect();
+          searchInputRef.current?.focus();
+        }
+      });
+      observer.observe(root, { attributes: true, attributeFilter: ["aria-hidden"] });
+      return () => observer.disconnect();
+    }
+
+    searchInputRef.current?.focus();
+  }, []);
 
   // Wait briefly while staff are typing.
   // Cancel older requests so slow responses cannot
@@ -256,7 +275,7 @@ export default function CustomersPage() {
 
               <TextField
                 fullWidth
-                autoFocus
+                inputRef={searchInputRef}
                 autoComplete="off"
                 label="Customer Name or Mobile Number"
                 placeholder="Type a name or mobile number"

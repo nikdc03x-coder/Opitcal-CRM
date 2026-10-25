@@ -4,5 +4,12 @@ import { Dialog, useMediaQuery, useTheme, type DialogProps } from "@mui/material
 export default function ResponsiveDialog(props: DialogProps) {
   const theme = useTheme();
   const smallScreen = useMediaQuery(theme.breakpoints.down("sm"));
-  return <Dialog scroll="paper" {...props} fullScreen={smallScreen || props.fullScreen} />;
+  return (
+    <Dialog
+      scroll="paper"
+      closeAfterTransition={false}
+      {...props}
+      fullScreen={smallScreen || props.fullScreen}
+    />
+  );
 }
